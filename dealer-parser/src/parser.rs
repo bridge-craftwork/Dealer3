@@ -1238,12 +1238,10 @@ mod tests {
         let program = parse_program(input).unwrap();
 
         // Find the expression/condition statement
-        let has_condition = program.statements.iter().any(|s| {
-            matches!(
-                s,
-                Statement::Expression(_) | Statement::Condition(_)
-            )
-        });
+        let has_condition = program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::Expression(_) | Statement::Condition(_)));
         assert!(has_condition, "Should have a condition expression");
 
         // Verify generate is parsed as its own statement type, not as Expression
@@ -1254,9 +1252,10 @@ mod tests {
         assert!(has_generate, "Should have Generate(1000000) statement");
 
         // Verify no Expression(Literal(1000000)) that would clobber the condition
-        let has_literal_expr = program.statements.iter().any(|s| {
-            matches!(s, Statement::Expression(Expr::Literal(1_000_000)))
-        });
+        let has_literal_expr = program
+            .statements
+            .iter()
+            .any(|s| matches!(s, Statement::Expression(Expr::Literal(1_000_000))));
         assert!(
             !has_literal_expr,
             "Should NOT have Expression(Literal(1000000))"
