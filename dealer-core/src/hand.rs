@@ -206,7 +206,7 @@ impl Hand {
         }
 
         // Sort by rank descending (Ace first)
-        cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+        cards.sort_by_key(|b| std::cmp::Reverse(b.rank));
 
         if len == 1 {
             // Singleton: 0 if Ace, 1 otherwise
@@ -432,7 +432,7 @@ impl Hand {
         }
 
         // Sort by rank descending
-        cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+        cards.sort_by_key(|b| std::cmp::Reverse(b.rank));
 
         // Detect honors
         let has_ace = cards.iter().any(|c| c.rank == Rank::Ace);
@@ -522,7 +522,7 @@ impl Hand {
             }
 
             // Sort by rank descending
-            cards.sort_by(|a, b| b.rank.cmp(&a.rank));
+            cards.sort_by_key(|b| std::cmp::Reverse(b.rank));
 
             // Detect honors
             let has_ace = cards.iter().any(|c| c.rank == Rank::Ace);

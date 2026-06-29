@@ -55,7 +55,7 @@ pub fn format_printall(deal: &Deal, board_number: usize) -> String {
             // Get cards in this suit for this position
             let hand = deal.hand(pos);
             let mut cards: Vec<_> = hand.cards_in_suit(suit);
-            cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+            cards.sort_by_key(|b| std::cmp::Reverse(b.rank)); // High to low
 
             if cards.is_empty() {
                 result.push_str("- ");
@@ -104,7 +104,7 @@ pub fn format_printew(deal: &Deal) -> String {
             // Get cards in this suit for this position
             let hand = deal.hand(pos);
             let mut cards: Vec<_> = hand.cards_in_suit(suit);
-            cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+            cards.sort_by_key(|b| std::cmp::Reverse(b.rank)); // High to low
 
             if cards.is_empty() {
                 result.push_str("- ");
@@ -218,7 +218,7 @@ pub fn format_printpbn(
         let hand = deal.hand(pos);
         for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
             let mut cards: Vec<_> = hand.cards_in_suit(suit);
-            cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+            cards.sort_by_key(|b| std::cmp::Reverse(b.rank)); // High to low
 
             for card in cards {
                 result.push(rank_char(card.rank));
@@ -324,7 +324,7 @@ pub fn format_printcompact(deal: &Deal) -> String {
         let hand = deal.hand(pos);
         for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
             let mut cards: Vec<_> = hand.cards_in_suit(suit);
-            cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+            cards.sort_by_key(|b| std::cmp::Reverse(b.rank)); // High to low
 
             for card in cards {
                 result.push(rank_char(card.rank));
@@ -347,7 +347,7 @@ pub fn format_hand_pbn(hand: &dealer_core::Hand) -> String {
 
     for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
         let mut cards: Vec<_> = hand.cards_in_suit(suit);
-        cards.sort_by(|a, b| b.rank.cmp(&a.rank)); // High to low
+        cards.sort_by_key(|b| std::cmp::Reverse(b.rank)); // High to low
 
         for card in cards {
             result.push(rank_char(card.rank));
