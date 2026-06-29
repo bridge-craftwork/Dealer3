@@ -61,7 +61,7 @@ Use a constraint file:
 Predeal specific cards (DealerV2_4 format):
   echo hcp(north) >= 0 | dealer.exe -E S8743,HA9,D642,CQT64 -W SQ965,HK63,DAQJT,CA5 -p 5
 
-For full documentation, see: https://github.com/Rick-Wilson/Dealer3
+For full documentation, see: https://github.com/bridge-craftwork/Dealer3
 
 VERSION
 -------

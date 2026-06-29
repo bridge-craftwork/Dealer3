@@ -167,4 +167,4 @@ For issues specific to the Windows build, include:
 - Complete error message
 - Minimal test case to reproduce
 
-Report at: https://github.com/Rick-Wilson/Dealer3/issues
+Report at: https://github.com/bridge-craftwork/Dealer3/issues

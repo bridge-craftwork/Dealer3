@@ -1,6 +1,6 @@
 # dealer3
 
-[![CI](https://github.com/Rick-Wilson/Dealer3/workflows/CI/badge.svg)](https://github.com/Rick-Wilson/Dealer3/actions)
+[![CI](https://github.com/bridge-craftwork/Dealer3/workflows/CI/badge.svg)](https://github.com/bridge-craftwork/Dealer3/actions)
 [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
 
 A Rust implementation of the classic dealer.exe bridge hand generator, with full compatibility for dealer.exe and DealerV2_4 enhancements.
@@ -114,7 +114,7 @@ vulnerable none
 
 ```bash
 # Clone the repository
-git clone https://github.com/Rick-Wilson/Dealer3.git
+git clone https://github.com/bridge-craftwork/Dealer3.git
 cd Dealer3
 
 # Build all crates
@@ -215,14 +215,14 @@ Key contributors to dealer.exe ecosystem:
 
 ## Links
 
-- **GitHub**: https://github.com/Rick-Wilson/Dealer3
+- **GitHub**: https://github.com/bridge-craftwork/Dealer3
 - **Original dealer.exe**: http://www.bridgebase.com/tools/dealer/
 - **DealerV2_4**: https://github.com/ed2k/dealer
 
 ## Support
 
 For bugs, feature requests, or questions:
-- Open an issue on GitHub: https://github.com/Rick-Wilson/Dealer3/issues
+- Open an issue on GitHub: https://github.com/bridge-craftwork/Dealer3/issues
 
 ---
 

@@ -6,7 +6,7 @@ license = "Unlicense"
 
 [dependencies]
 gnurandom = { path = "../gnurandom" }
-bridge-types = { git = "https://github.com/Rick-Wilson/bridge-types" }
+bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 
 [dev-dependencies]
 dealer-pbn = { path = "../dealer-pbn" }

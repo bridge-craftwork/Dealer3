@@ -14,4 +14,4 @@ no_slow_tricks = []
 
 [dependencies]
 dealer-core = { path = "../dealer-core" }
-bridge-solver = { git = "https://github.com/Rick-Wilson/bridge-solver" }
+bridge-solver = { git = "https://github.com/bridge-craftwork/bridge-solver" }

@@ -9,7 +9,7 @@ dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-eval = { path = "../dealer-eval" }
 dealer-pbn = { path = "../dealer-pbn" }
-bridge-encodings = { git = "https://github.com/Rick-Wilson/bridge-encodings" }
+bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }
 clap = { version = "4.5", features = ["derive"] }
 rayon = "1.10"
 
