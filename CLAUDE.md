@@ -89,9 +89,12 @@ dealer3/
 ## Common Tasks
 
 ### Building and Testing
+
+**Use `./dev-build.sh` for local builds, not bare cargo.** This workspace depends on sibling bridge crates (bridge-types, bridge-encodings, bridge-solver) as git dependencies, with `[patch]` overrides in `.cargo/config.toml` redirecting them to local checkouts in `../`. Cargo never lets a `[patch]` override an existing `Cargo.lock` pin, so once a lock exists, bare `cargo build` can silently compile the GitHub revisions of those crates instead of your local edits. The script verifies each patched crate actually resolved to a local checkout and fails loudly if not. (This repo does not commit `Cargo.lock`, so there is no committed lock to protect — the script's swap step is a no-op here, but the verification still matters.)
+
 ```bash
-cargo build --release          # Build all crates
-cargo test                     # Run all tests
+./dev-build.sh build --release # Build all crates (verified against local checkouts)
+./dev-build.sh test            # Run all tests
 cargo install --path dealer    # Install to ~/.cargo/bin/dealer
 ```
 
