@@ -29,3 +29,4 @@ dist/
 # X-ray test runs
 bridge-solver/xray/runs/
 activity-log.json
+.cargo/
