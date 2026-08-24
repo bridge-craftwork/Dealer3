@@ -71,6 +71,20 @@ dealer [OPTIONS] [inputfile]
 - Pre-generated deal library feature
 - Default: None
 
+**`--input-deals SOURCE`** - Read deals instead of generating them
+- Reads deals from `SOURCE` and applies the script's constraints to each
+- PBN and oneline formats are auto-detected
+- `-` reads from stdin; the script must then be given as a file argument, since
+  stdin is otherwise consumed by the script itself
+- `--seed` is ignored, and predeal is rejected as a conflict — both only apply to
+  generation
+- `-p` stops after that many matches; `-g` caps how many deals are read; exhausting
+  the input before `-p` is satisfied exits cleanly
+- Unrecognised lines are skipped, so PBN metadata and stats output can be piped in
+  directly. Because unreadable content is indistinguishable from metadata, callers
+  needing certainty should compare the reported deal count against an expected total
+- Default: Off (deals are generated)
+
 ### Help & Info
 
 **`-h`, `-?`** - Help
