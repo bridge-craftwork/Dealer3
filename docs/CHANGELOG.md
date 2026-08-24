@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tier 1 regression corpora** — deal sequences captured once from dealer.exe and
+  committed under `dealer/tests/corpus/`, replayed by `corpus_replay` to verify
+  script parsing and filter semantics against the reference implementation. These
+  tests never invoke dealer.exe, so they run anywhere including CI.
+- `scripts/generate-corpus.sh` for creating new corpora, and
+  `docs/REGRESSION_TESTING.md` documenting the process
+
+### Fixed
+- `dealer-parser/tests/fixtures/Stayman.dlr` contained the literal text
+  `404: Not Found` instead of a script; replaced with a real Stayman scenario
+
 ## [0.4.0] - 2026-01-21
 
 ### Added

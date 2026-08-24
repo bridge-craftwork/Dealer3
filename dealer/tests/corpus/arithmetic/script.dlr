@@ -1,0 +1,2 @@
+# Arithmetic and partnership totals.
+condition hcp(north) + hcp(south) >= 25 && hcp(north) - hcp(south) <= 6

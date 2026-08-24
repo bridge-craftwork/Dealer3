@@ -1,0 +1,5 @@
+# Deliberately selective: strong balanced North opposite a long-suit South.
+# Too rare for a practical full corpus, so this is generated one-sided (-1):
+# it verifies dealer3 does not DROP deals dealer.exe accepted, but cannot
+# detect dealer3 being too lenient.
+condition hcp(north) >= 20 && controls(north) >= 6 && hearts(south) >= 6

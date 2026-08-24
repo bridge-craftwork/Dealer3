@@ -1,1 +1,53 @@
-404: Not Found
+# button-text: Stayman
+# scenario-title: Stayman response to a 15-17 Notrump opening
+# Stayman
+dealer south
+
+
+/*
+convention-card:
+auction-filter: Auction.....\n1NT.P.2C?
+*/
+
+# South opens a 15-17 notrump; North responds 2C (Stayman), promising at least
+# one four-card major and enough strength to look for a 4-4 major fit.
+
+# --- Opener: South, balanced 15-17 -------------------------------------------
+
+sBal = shape(south, any 4333 + any 4432 + any 5332)
+sNT  = hcp(south) >= 15 and hcp(south) <= 17 and sBal
+
+# A five-card major is allowed in a 5332, but not a six-card suit.
+sNoLongMajor = spades(south) <= 5 and hearts(south) <= 5
+
+# --- Responder: North, Stayman ------------------------------------------------
+
+# Stayman needs at least one four-card major.
+nMajor = spades(north) == 4 or hearts(north) == 4
+     or spades(north) == 5 or hearts(north) == 5
+
+# Game-going or invitational values. Below 8 HCP responder would normally pass
+# or use a transfer rather than Stayman.
+nValues = hcp(north) >= 8
+
+# Responder should not be 4333 with a flat hand and no interest in a major fit.
+nNotFlat = not shape(north, 4333)
+
+# --- Whether a 4-4 (or better) major fit actually exists ---------------------
+
+spadeFit = spades(north) + spades(south) >= 8
+heartFit = hearts(north) + hearts(south) >= 8
+majorFit = spadeFit or heartFit
+
+condition
+    sNT and sNoLongMajor and
+    nMajor and nValues and nNotFlat and
+    majorFit
+
+produce 20
+
+action
+    average "N HCP      " hcp(north),
+    average "S HCP      " hcp(south),
+    average "Combined   " hcp(north) + hcp(south),
+    printall
