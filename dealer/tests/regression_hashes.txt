@@ -1,0 +1,21 @@
+# Tier 2 regression hashes — dealer3's own output, pinned.
+#
+# Regenerate with:
+#   UPDATE_REGRESSION_HASHES=1 cargo test -p dealer --test regression_hash
+#
+# A changed line here is a behaviour change in generation or filtering.
+# These pin OUR sequence, not dealer.exe's — see corpus_replay.rs for that.
+#
+# name  deals  fnv1a-64
+arithmetic             25     0xada28af81c1f5e90
+controls_hascard       20     0x459d9eca0cd2021b
+generation_seed1       50     0x3e557238396a655d
+generation_seed2024    50     0x22f7bd953697423b
+generation_seed42      50     0xa3a644e1e07323bb
+hcp_basic              25     0xc50d5cfcd01e3822
+negation_or            20     0x276dda4c7cf3479f
+predeal                20     0xeabbbccc225507fd
+shape_patterns         25     0x4cdd3bea7043e782
+suit_lengths           25     0x6d563bae99455f24
+ternary                20     0x1f10673731edf85f
+variables              25     0xd055e1e816245e80

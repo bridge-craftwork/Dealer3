@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Tier 2 regression hashes** — `regression_hash` pins dealer3's own output at
+  fixed seeds, covering generation and filtering together, including the predeal
+  path that Tier 1 cannot reach (`--input-deals` rejects predeal by design).
+  Hashes are committed in `dealer/tests/regression_hashes.txt` and regenerated
+  with `UPDATE_REGRESSION_HASHES=1`. Uses FNV-1a rather than `DefaultHasher`,
+  which is not stable across Rust releases.
+- Tests asserting output is independent of thread count and stable across runs
+
 ## [0.4.0] - 2026-01-21
 
 ### Added
