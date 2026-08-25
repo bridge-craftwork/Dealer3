@@ -1,0 +1,2 @@
+# Ternary operator and nested parentheses.
+condition (hcp(north) >= 12 ? spades(north) >= 5 : spades(north) >= 6)

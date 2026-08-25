@@ -1,0 +1,2 @@
+# Negation, or, and mixed keyword/symbolic operators.
+condition not (hcp(north) < 10) and (spades(north) >= 5 or hearts(north) >= 5)

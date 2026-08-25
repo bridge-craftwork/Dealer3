@@ -30,3 +30,6 @@ dist/
 bridge-solver/xray/runs/
 activity-log.json
 .cargo/
+
+# Corpus generation scratch (see docs/REGRESSION_TESTING.md)
+.corpus-tmp/
