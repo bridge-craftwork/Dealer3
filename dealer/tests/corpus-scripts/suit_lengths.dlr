@@ -1,0 +1,2 @@
+# Suit-length functions and boolean combination.
+condition spades(north) >= 5 && hearts(north) <= 3 && clubs(south) >= 4

@@ -1,0 +1,14 @@
+{
+  "name": "negation_or",
+  "mode": "full",
+  "seed": 31,
+  "produce_target": 20,
+  "generate_limit": 1000,
+  "generated": 126,
+  "produced": 20,
+  "input_file": "unfiltered.txt",
+  "input_deals": 126,
+  "expected_deals": 20,
+  "dealer_version": "$Revision: 1.24 $",
+  "generated_on": "2026-08-25"
+}

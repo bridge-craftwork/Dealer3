@@ -1,0 +1,2 @@
+# Basic HCP comparison — the simplest possible filter.
+condition hcp(north) >= 15

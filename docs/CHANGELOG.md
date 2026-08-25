@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   otherwise consumed by the script itself; a clear error is emitted if both would
   contend for stdin.
 - Integration test coverage for `--input-deals` (PBN, oneline, stdin, limits, conflicts)
+- **Tier 1 regression corpora** — deal sequences captured once from dealer.exe and
+  committed under `dealer/tests/corpus/`, replayed by `corpus_replay` to verify
+  script parsing and filter semantics against the reference implementation. These
+  tests never invoke dealer.exe, so they run anywhere including CI.
+- `scripts/generate-corpus.py` for creating new corpora, and
+  `docs/REGRESSION_TESTING.md` documenting the process
 - **Tier 2 regression hashes** — `regression_hash` pins dealer3's own output at
   fixed seeds, covering generation and filtering together, including the predeal
   path that Tier 1 cannot reach (`--input-deals` rejects predeal by design).
@@ -25,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Unreadable deals encountered while reading `--input-deals` are now skipped with a
   warning and a total reported at exit, rather than aborting the run
 - Documented `--input-deals` in the README and CLI design notes
+
+### Fixed
+- `dealer-parser/tests/fixtures/Stayman.dlr` contained the literal text
+  `404: Not Found` instead of a script; replaced with a real Stayman scenario
 
 ## [0.4.0] - 2026-01-21
 

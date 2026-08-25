@@ -1,0 +1,2 @@
+# Shape patterns: exact, wildcard, and "any" forms combined with + and -.
+condition shape(north, any 4333 + any 4432 + any 5332)

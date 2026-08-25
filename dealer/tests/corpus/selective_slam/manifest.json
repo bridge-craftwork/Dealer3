@@ -1,0 +1,14 @@
+{
+  "name": "selective_slam",
+  "mode": "one-sided",
+  "seed": 17,
+  "produce_target": 8,
+  "generate_limit": 20000,
+  "generated": 6877,
+  "produced": 8,
+  "input_file": "expected.txt",
+  "input_deals": 8,
+  "expected_deals": 8,
+  "dealer_version": "$Revision: 1.24 $",
+  "generated_on": "2026-08-25"
+}

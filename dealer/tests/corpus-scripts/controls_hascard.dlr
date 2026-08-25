@@ -1,0 +1,2 @@
+# controls() and hascard().
+condition controls(north) >= 5 && hascard(north, AS)
