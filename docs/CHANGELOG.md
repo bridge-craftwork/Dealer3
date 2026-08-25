@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests never invoke dealer.exe, so they run anywhere including CI.
 - `scripts/generate-corpus.py` for creating new corpora, and
   `docs/REGRESSION_TESTING.md` documenting the process
+- **Tier 2 regression hashes** — `regression_hash` pins dealer3's own output at
+  fixed seeds, covering generation and filtering together, including the predeal
+  path that Tier 1 cannot reach (`--input-deals` rejects predeal by design).
+  Hashes are committed in `dealer/tests/regression_hashes.txt` and regenerated
+  with `UPDATE_REGRESSION_HASHES=1`. Uses FNV-1a rather than `DefaultHasher`,
+  which is not stable across Rust releases.
+- Tests asserting output is independent of thread count and stable across runs
 
 ### Changed
 - Unreadable deals encountered while reading `--input-deals` are now skipped with a
