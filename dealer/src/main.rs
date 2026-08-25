@@ -1,5 +1,4 @@
 mod fast_parallel;
-mod parallel;
 
 use clap::Parser;
 use dealer_core::{Deal, DealGenerator, FastDealConfig, Position};
