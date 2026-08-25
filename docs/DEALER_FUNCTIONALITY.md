@@ -70,7 +70,7 @@ Distribute as native executables for each platform.
 - Target: Utilize all available CPU cores efficiently
 
 **RNG Compatibility:**
-- Use the `gnurandom` crate for exact dealer.exe RNG compatibility
+- Use xoshiro256++ (`dealer-core/src/rng.rs`) for deal generation
 - Maintain reproducibility with seed support for testing
 
 ### Compatibility Requirements
@@ -82,7 +82,7 @@ Distribute as native executables for each platform.
 - Preserve output format for downstream tools
 
 **Version Compatibility Flag:**
-- `--legacy` mode: 100% dealer.exe compatible
+- Filter semantics verified against dealer.exe via the Tier 1 regression corpora
 - Default mode: Allow new features from DealerV2_4
 
 ## Source Code References
@@ -116,7 +116,6 @@ Distribute as native executables for each platform.
 
 ```
 dealer3/
-├── gnurandom/           # RNG crate (✅ implemented)
 ├── dealer-parser/       # Input file parser and constraint AST
 ├── dealer-eval/         # Deal evaluation engine
 ├── dealer-core/         # Deal generation and core logic
@@ -139,7 +138,7 @@ dealer3/
 
 3. **Deal Generator** (`dealer-core`)
    - Bridge deal representation (52 cards, 4 hands)
-   - Deal generation using gnurandom
+   - Deal generation using xoshiro256++
    - Seeded generation for reproducibility
    - Efficient card shuffle algorithms
 
@@ -158,7 +157,7 @@ dealer3/
 ## Migration Strategy
 
 ### Phase 1: Foundation (Current)
-- [x] gnurandom crate - RNG compatibility
+- [x] xoshiro256++ RNG in dealer-core
 - [ ] Deal representation and basic generation
 - [ ] Simple constraint parser (subset of syntax)
 
@@ -187,7 +186,7 @@ dealer3/
 
 ## Success Criteria
 
-1. **Correctness**: Bit-for-bit compatible output with dealer.exe (legacy mode)
+1. **Correctness**: Filter semantics match dealer.exe (verified by regression corpora)
 2. **Performance**: >= dealer.exe speed in serial, significant speedup with parallelism
 3. **Usability**: Drop-in replacement for dealer.exe users
 4. **Extensibility**: Easy to add DealerV2_4 features

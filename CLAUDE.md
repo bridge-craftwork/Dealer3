@@ -19,7 +19,6 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 ### Crate Structure
 ```
 dealer3/
-├── gnurandom/          - Exact dealer.exe RNG implementation (64-bit state)
 ├── dealer-core/        - Deal generation, hand analysis (HCP, controls, shape)
 ├── dealer-pbn/         - PBN format I/O
 ├── dealer-parser/      - Constraint language parser (pest PEG grammar)
@@ -80,7 +79,7 @@ dealer3/
 - `dealer/src/main.rs` - CLI application with argument parsing
 - `dealer-parser/src/grammar.pest` - PEG grammar for constraint language
 - `dealer-eval/src/lib.rs` - Expression evaluator
-- `gnurandom/src/lib.rs` - dealer.exe-compatible RNG
+- `dealer-core/src/rng.rs` - xoshiro256++ RNG
 
 ### Tests
 - `cargo test` - Run all tests (118 passing)

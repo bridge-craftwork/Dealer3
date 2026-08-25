@@ -33,7 +33,6 @@ This document tracks the implementation status of the dealer constraint language
 - dealer-eval: 57 tests (including tricks, score, imps)
 - dealer-parser: 23 tests
 - dealer-pbn: 16 tests
-- gnurandom: 3 tests
 
 ---
 
@@ -490,7 +489,7 @@ echo "hcp(north) >= 20" | dealer -g 1000
 
 | Crate | Purpose | Status |
 |-------|---------|--------|
-| `gnurandom` | Exact dealer.exe RNG | ✅ Complete (3 tests) |
+
 | `dealer-core` | Deal generation | ✅ Complete (13 tests) |
 | `dealer-pbn` | PBN format I/O | ✅ Basic (9 tests) |
 | `dealer-parser` | Constraint parsing | ✅ Expanded (20 tests) |

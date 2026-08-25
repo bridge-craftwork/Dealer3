@@ -1159,13 +1159,27 @@ fn eval_shape_pattern(hand: &dealer_core::Hand, pattern: &ShapePattern) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dealer_core::{DealGenerator, Suit};
+    use dealer_core::{FastDealGenerator, Suit};
     use dealer_parser::parse;
+
+    /// The reference deal these evaluator tests are written against.
+    ///
+    /// Previously obtained via `DealGenerator::new(1)`, which used the ported GNU
+    /// `random()`. Pinning the hand explicitly instead keeps these tests about the
+    /// evaluator rather than about whichever RNG happens to be in use — they broke
+    /// exactly once, when the generator changed, which is the argument for this.
+    const REFERENCE_DEAL: &str =
+        "n AKQT3.J6.KJ42.95 e 652.AK42.AQ87.T4 s J74.QT95.T.AK863 w 98.873.9653.QJ72";
+
+    /// North: AKQT3.J6.KJ42.95
+    fn reference_deal() -> dealer_core::Deal {
+        dealer_pbn::parse_oneline(REFERENCE_DEAL).expect("reference deal must parse")
+    }
 
     #[test]
     fn test_eval_literal() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         let expr = Expr::Literal(42);
@@ -1174,8 +1188,8 @@ mod tests {
 
     #[test]
     fn test_eval_arithmetic() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // 5 + 3
@@ -1193,8 +1207,8 @@ mod tests {
 
     #[test]
     fn test_eval_comparison() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // 5 > 3 (true)
@@ -1208,8 +1222,8 @@ mod tests {
 
     #[test]
     fn test_eval_logical() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // 1 && 1 (true)
@@ -1227,8 +1241,8 @@ mod tests {
 
     #[test]
     fn test_eval_hcp_function() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Get north's HCP
@@ -1241,8 +1255,8 @@ mod tests {
 
     #[test]
     fn test_eval_suit_length_functions() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         let south_hand = deal.hand(Position::South);
@@ -1278,8 +1292,8 @@ mod tests {
 
     #[test]
     fn test_eval_parsed_constraint() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Parse and evaluate: hcp(north) >= 15
@@ -1293,8 +1307,8 @@ mod tests {
 
     #[test]
     fn test_eval_complex_constraint() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Parse and evaluate: hearts(north) >= 5 && hcp(south) <= 13
@@ -1313,8 +1327,8 @@ mod tests {
 
     #[test]
     fn test_eval_arithmetic_combination() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Parse and evaluate: hcp(north) + hcp(south) >= 25
@@ -1331,9 +1345,8 @@ mod tests {
     fn test_shape_exact() {
         use dealer_parser::preprocess;
 
-        // Seed 1 produces north with 5-2-4-2 shape: AKQT3.J6.KJ42.95
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        // North has 5-2-4-2 shape: AKQT3.J6.KJ42.95
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has 5 spades, 2 hearts, 4 diamonds, 2 clubs
@@ -1352,11 +1365,11 @@ mod tests {
     #[test]
     fn test_shape_any_distribution() {
         // Find a hand with 4-3-3-3 distribution (balanced)
-        let mut gen = DealGenerator::new(1);
+        let mut gen = FastDealGenerator::new(1);
         let mut found_4333 = false;
 
         for _ in 0..1000 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
             let north = deal.hand(Position::North);
             let dist = north.distribution();
 
@@ -1378,8 +1391,8 @@ mod tests {
 
     #[test]
     fn test_shape_wildcard() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
         let north = deal.hand(Position::North);
         let lengths = north.suit_lengths();
@@ -1399,12 +1412,12 @@ mod tests {
 
     #[test]
     fn test_shape_combination() {
-        let mut gen = DealGenerator::new(42);
+        let mut gen = FastDealGenerator::new(42);
         let mut found = false;
 
         // Find a hand that's balanced (4333 or 4432 or 5332)
         for _ in 0..1000 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
             let north = deal.hand(Position::North);
             let dist = north.distribution();
 
@@ -1426,10 +1439,10 @@ mod tests {
         use dealer_parser::preprocess;
 
         // Test that exclusion pattern works
-        let mut gen = DealGenerator::new(1);
+        let mut gen = FastDealGenerator::new(1);
 
         for _ in 0..100 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
             let ctx = EvalContext::new(&deal);
             let north = deal.hand(Position::North);
             let lengths = north.suit_lengths();
@@ -1456,11 +1469,10 @@ mod tests {
 
     #[test]
     fn test_losers_total() {
-        // Seed 1 north: AKQT3.J6.KJ42.95
+        // North: AKQT3.J6.KJ42.95
         // Spades AKQ = 0, Hearts doubleton no honors = 2, Diamonds K = 2, Clubs doubleton no honors = 2
         // Total = 6 losers
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         let ast = parse("losers(north)").unwrap();
@@ -1471,8 +1483,7 @@ mod tests {
     #[test]
     fn test_losers_in_suit() {
         // Test losers in a specific suit
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has AKQ in spades → 0 losers
@@ -1488,9 +1499,8 @@ mod tests {
 
     #[test]
     fn test_hascard() {
-        // Seed 1 north: AKQT3.J6.KJ42.95
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        // North: AKQT3.J6.KJ42.95
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has AS
@@ -1629,9 +1639,8 @@ mod tests {
 
     #[test]
     fn test_eval_tens_function() {
-        // Seed 1 north: AKQT3.J6.KJ42.95
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        // North: AKQT3.J6.KJ42.95
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has T in spades
@@ -1646,8 +1655,8 @@ mod tests {
 
     #[test]
     fn test_eval_aces_kings_function() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test aces(north)
@@ -1664,8 +1673,8 @@ mod tests {
 
     #[test]
     fn test_eval_top_honors() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
         let north = deal.hand(Position::North);
 
@@ -1692,8 +1701,8 @@ mod tests {
 
     #[test]
     fn test_eval_c13() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
         let north = deal.hand(Position::North);
 
@@ -1704,8 +1713,8 @@ mod tests {
 
     #[test]
     fn test_pt_synonyms() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test that pt0-pt9 work as synonyms
@@ -1853,8 +1862,8 @@ mod tests {
 
     #[test]
     fn test_eval_quality() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Parse and evaluate quality function
@@ -1868,8 +1877,8 @@ mod tests {
 
     #[test]
     fn test_eval_cccc() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Parse and evaluate cccc function
@@ -1883,12 +1892,12 @@ mod tests {
 
     #[test]
     fn test_cccc_constraint() {
-        let mut gen = DealGenerator::new(42);
+        let mut gen = FastDealGenerator::new(42);
 
         // Find a deal where north has a good CCCC evaluation
         let mut found = false;
         for _ in 0..1000 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
             let north = deal.hand(Position::North);
 
             // CCCC values around 1500+ indicate strong hands
@@ -1907,8 +1916,7 @@ mod tests {
         // when preprocessed with %s marker
         use dealer_parser::preprocess;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let deal = reference_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has 5-2-4-2 shape with seed 1
@@ -1926,12 +1934,12 @@ mod tests {
         // Test that 4-digit numbers in regular comparisons work correctly
         use dealer_parser::preprocess;
 
-        let mut gen = DealGenerator::new(42);
+        let mut gen = FastDealGenerator::new(42);
 
         // Find a deal with CCCC >= 1500
         let mut found = false;
         for _ in 0..1000 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
             let ctx = EvalContext::new(&deal);
 
             let input = "cccc(north) >= 1500";
@@ -1960,8 +1968,8 @@ mod tests {
         // Test expression with both shape pattern AND 4-digit comparison
         use dealer_parser::preprocess;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // North has 5-2-4-2 shape and CCCC value with seed 1
@@ -1995,8 +2003,8 @@ mod tests {
     fn test_eval_program_simple_variable() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Simple variable assignment and usage
         let input = "opener = hcp(north) >= 15\nopener";
@@ -2012,8 +2020,8 @@ mod tests {
     fn test_eval_program_multiple_variables() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Multiple variables
         let input =
@@ -2034,8 +2042,8 @@ mod tests {
     fn test_eval_program_variable_reference_in_expression() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Use variable in arithmetic expression
         let input = "points = hcp(north)\npoints + hcp(south) >= 25";
@@ -2056,8 +2064,8 @@ mod tests {
     fn test_eval_program_variables_referencing_variables() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Variable referencing another variable
         let input = "north_hcp = hcp(north)\nopener = north_hcp >= 15\nopener";
@@ -2073,8 +2081,8 @@ mod tests {
     fn test_eval_program_undefined_variable() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Reference undefined variable
         let input = "undefined_var >= 15";
@@ -2094,12 +2102,12 @@ mod tests {
     fn test_eval_program_complex_example() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
+        let mut gen = FastDealGenerator::new(1);
 
         // Find a deal matching complex constraints
         let mut found = false;
         for _ in 0..1000 {
-            let deal = gen.generate();
+            let deal = gen.next_deal();
 
             let input = "nt_opener = hcp(north) >= 15 && hcp(north) <= 17\n\
                          balanced = shape(north, any 4333 + any 4432 + any 5332)\n\
@@ -2132,8 +2140,8 @@ mod tests {
     fn test_eval_program_no_final_expression() {
         use dealer_parser::parse_program;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Program with only assignments, no final expression
         let input = "x = hcp(north)\ny = hcp(south)";
@@ -2151,8 +2159,8 @@ mod tests {
 
     #[test]
     fn test_eval_ternary_operator() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Simple ternary: hcp(north) >= 15 ? 1 : 0
@@ -2166,8 +2174,8 @@ mod tests {
 
     #[test]
     fn test_eval_ternary_with_arithmetic() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Ternary with arithmetic: hcp(north) >= 20 ? hcp(north) + 100 : hcp(north)
@@ -2185,8 +2193,8 @@ mod tests {
 
     #[test]
     fn test_eval_nested_ternary() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Nested ternary: hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
@@ -2208,8 +2216,8 @@ mod tests {
 
     #[test]
     fn test_eval_logical_not() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test ! operator: !(hcp(north) < 10)
@@ -2223,8 +2231,8 @@ mod tests {
 
     #[test]
     fn test_eval_not_keyword() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test not keyword: not (hcp(north) >= 20)
@@ -2238,8 +2246,8 @@ mod tests {
 
     #[test]
     fn test_eval_not_in_compound() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test NOT in compound expression: hcp(north) >= 15 && not (hearts(north) >= 5)
@@ -2281,8 +2289,8 @@ mod tests {
     fn test_eval_imps() {
         use dealer_parser::parse;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // imps(420) should return 10 (410-489 = 10 IMPs)
@@ -2479,8 +2487,8 @@ mod tests {
     fn test_eval_score() {
         use dealer_parser::parse;
 
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // score(0, 34, 9) = 3NT non-vul making exactly = 400
@@ -2512,8 +2520,8 @@ mod tests {
     fn test_eval_tricks() {
         use dealer_parser::parse;
 
-        let mut gen = DealGenerator::new(42);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(42);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Test tricks with numeric denomination
@@ -2551,8 +2559,8 @@ mod tests {
     fn test_tricks_with_score() {
         use dealer_parser::parse;
 
-        let mut gen = DealGenerator::new(42);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(42);
+        let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
         // Use tricks() result in score() calculation

@@ -190,7 +190,7 @@ Our Rust implementation should:
 3. ✅ Read from stdin or file
 4. ✅ Use same default values
 5. ⚠️  Extended features (-0, -2, -3, -e, -l) can be deferred
-6. ✅ Add `--legacy` flag for strict dealer.exe compatibility
+6. ✅ ~~Add `--legacy` flag for strict dealer.exe compatibility~~ (removed in 0.5.0)
 7. ✅ Add modern features (parallel processing, JSON output, etc.)
 
 ## Proposed Extensions
@@ -201,5 +201,5 @@ Beyond original dealer, we could add:
 - `--format <fmt>` - Specify output format (text, pbn, json, csv)
 - `--stats` - Show generation statistics
 - `--timeout <seconds>` - Abort after time limit
-- `--legacy` - 100% dealer.exe compatible mode
+- ~~`--legacy`~~ - removed in 0.5.0; still parsed to report its removal
 - `--verbose-errors` - Detailed constraint evaluation errors

@@ -4,12 +4,9 @@
 //! enabling full parallelization. Each deal is generated from a single u64 seed
 //! using xoshiro256++ and a stateless Fisher-Yates shuffle.
 //!
-//! # Key Differences from Legacy Mode
-//!
-//! - **Legacy (gnurandom)**: Shuffles the same `curdeal` array repeatedly;
-//!   each deal depends on the previous deal's final state.
-//! - **Fast mode**: Each deal starts from a fresh sorted deck; deals are
-//!   completely independent.
+//! Each deal starts from a fresh sorted deck and is derived solely from its own
+//! seed, so deals are independent of one another and of the order in which they
+//! are generated.
 //!
 //! # Predeal Support
 //!
@@ -17,8 +14,8 @@
 //! 1. Place predealt cards in their designated positions
 //! 2. Fisher-Yates shuffle only the remaining cards into remaining slots
 
+use crate::rng::Xoshiro256PlusPlus;
 use crate::{Card, Deal, Position};
-use gnurandom::Xoshiro256PlusPlus;
 
 /// Configuration for fast deal generation, including predeal settings.
 ///
@@ -376,6 +373,34 @@ mod tests {
         let result = config.predeal(Position::North, &cards);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("More than 13"));
+    }
+
+    /// Predeal must not leave a card placed twice or dropped. `test_generate_deal_valid`
+    /// checks the full 52 without predeal; this covers the case where predealt cards are
+    /// seeded into the deck first, which is where a double-placement could hide.
+    #[test]
+    fn test_predeal_deal_still_has_all_52_cards() {
+        let mut config = FastDealConfig::new();
+        config
+            .predeal(
+                Position::North,
+                &[
+                    Card::new(Suit::Spades, Rank::Ace),
+                    Card::new(Suit::Hearts, Rank::Ace),
+                ],
+            )
+            .unwrap();
+
+        let mut gen = FastDealGenerator::with_config(42, config);
+        let deal = gen.next_deal();
+
+        let mut indices: Vec<u8> = Position::ALL
+            .iter()
+            .flat_map(|pos| deal.hand(*pos).cards().iter().map(|c| c.to_index()))
+            .collect();
+        assert_eq!(indices.len(), 52);
+        indices.sort();
+        assert_eq!(indices, (0..52).collect::<Vec<u8>>());
     }
 
     #[test]
