@@ -1,3 +1,7 @@
 [workspace]
 members = ["dealer-core", "dealer-parser", "dealer-pbn", "dealer-eval", "dealer", "dealer-dds"]
 resolver = "2"
+
+# Built only for wasm32, with its own lockfile. Excluded so `cargo test
+# --workspace` does not drag wasm-bindgen into the host build.
+exclude = ["wasm"]

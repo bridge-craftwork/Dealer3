@@ -33,3 +33,8 @@ activity-log.json
 
 # Corpus generation scratch (see docs/REGRESSION_TESTING.md)
 .corpus-tmp/
+
+# WebAssembly build output
+wasm/pkg/
+wasm/pkg-node/
+wasm/target/
