@@ -60,15 +60,23 @@ filter asserting nothing is dropped. Use it when a filter is so selective that
 
 ## Creating a corpus
 
-Requires the Windows VM (see `CLAUDE.md`) and `WINDOWS_HOST`, `WINDOWS_USER`,
-`WINDOWS_GITHUB_HOME` in the environment.
+Requires the Windows VM (see `CLAUDE.md`). All VM access goes through
+Practice-Bidding-Scenarios' `build-scripts-mac/ssh_runner.py`, which owns the
+drive mappings and Mac→Windows path translation — do not hand-roll `ssh` or
+`net use` here.
+
+> If a run fails with "No such file or directory" for a path that clearly
+> exists, check `net use` on the VM. Windows persists drive mappings across
+> sessions and silently keeps an existing one if the letter is already taken,
+> so a `G:` left pointing at the wrong root survives remapping. Clear it with
+> `net use G: /delete /y`.
 
 ```bash
 # Full corpus
-./scripts/generate-corpus.sh -s 1 -p 20 -g 1000 dealer/tests/corpus-scripts/hcp_basic.dlr
+./scripts/generate-corpus.py -s 1 -p 20 -g 1000 dealer/tests/corpus-scripts/hcp_basic.dlr
 
 # One-sided, for a very selective filter
-./scripts/generate-corpus.sh -s 17 -p 8 -g 20000 -1 dealer/tests/corpus-scripts/selective_slam.dlr
+./scripts/generate-corpus.py -s 17 -p 8 -g 20000 -1 dealer/tests/corpus-scripts/selective_slam.dlr
 ```
 
 Then commit the generated directory and run `cargo test -p dealer --test corpus_replay`.

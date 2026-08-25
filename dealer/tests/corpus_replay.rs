@@ -1,7 +1,7 @@
 //! Tier 1 regression tests: replay committed dealer.exe corpora through dealer3.
 //!
-//! Each corpus under `test-data/corpus/<name>/` was generated once by
-//! `scripts/generate-corpus.sh` against the real dealer.exe and committed. These
+//! Each corpus under `dealer/tests/corpus/<name>/` was generated once by
+//! `scripts/generate-corpus.py` against the real dealer.exe and committed. These
 //! tests never invoke dealer.exe — they only replay the saved artifacts, so they
 //! run anywhere, including CI.
 //!
@@ -26,7 +26,7 @@ fn corpus_root() -> PathBuf {
 }
 
 /// Minimal field extractor for the generated manifest. The file is written by
-/// `generate-corpus.sh` with a fixed shape, so a full JSON parser (and the
+/// `generate-corpus.py` with a fixed shape, so a full JSON parser (and the
 /// dependency it would need) is not warranted.
 fn manifest_field(json: &str, key: &str) -> Option<String> {
     let needle = format!("\"{}\":", key);
