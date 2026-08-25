@@ -62,6 +62,9 @@ echo "hcp(north) >= 0" | dealer -E S8743,HA9,D642,CQT64 -W SQ965,HK63,DAQJT,CA5 
 - `--vulnerable VULN` - Vulnerability (None/NS/EW/All)
 - `-T TEXT, --title TEXT` - Title metadata for PBN output
 
+### Deal Input
+- `--input-deals SOURCE` - Read deals from a file instead of generating them; use `-` for stdin
+
 ### Export
 - `-C FILE, --CSV FILE` - CSV export file
 
@@ -69,6 +72,36 @@ echo "hcp(north) >= 0" | dealer -E S8743,HA9,D642,CQT64 -W SQ965,HK63,DAQJT,CA5 
 - `-m, --progress` - Show progress meter
 - `-V, --version` - Show version information
 - `-h, --help` - Show help message
+
+## Filtering Existing Deals
+
+`--input-deals` reads deals from a file instead of generating them, then applies the
+script's constraints as usual. PBN and oneline formats are auto-detected.
+
+```bash
+# Filter an existing PBN file
+dealer filter.dlr --input-deals hands.pbn -f pbn
+
+# Read deals from stdin (script must be a file argument, since stdin is taken)
+cat hands.pbn | dealer filter.dlr --input-deals - -f oneline
+
+# Check how many deals in a file satisfy a constraint
+echo "hcp(north) >= 15" > strong.dlr
+dealer strong.dlr --input-deals hands.pbn -q -X
+```
+
+This makes filter behaviour reproducible independently of the RNG, which is how
+dealer3's regression tests compare constraint evaluation against dealer.exe.
+
+Notes:
+
+- `--seed` is ignored — the deals are supplied, not generated.
+- It cannot be combined with predeal, since predeal only applies to generation.
+- `-p` and `-g` still apply: `-p` stops once that many deals match, `-g` caps how many
+  are read. Running out of input before `-p` is satisfied is not an error.
+- Lines that are not recognised as deals are ignored, so PBN metadata and previous
+  stats output can be piped straight in. Check the reported `Generated N hands` count
+  to confirm every deal you expected was actually read.
 
 ## Constraint Language
 

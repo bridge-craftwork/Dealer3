@@ -8,12 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `--input-deals -` now reads deals from stdin, so deals can be piped in without a
+  temporary file. Requires the script to be passed as a file argument, since stdin is
+  otherwise consumed by the script itself; a clear error is emitted if both would
+  contend for stdin.
+- Integration test coverage for `--input-deals` (PBN, oneline, stdin, limits, conflicts)
 - **Tier 1 regression corpora** — deal sequences captured once from dealer.exe and
   committed under `dealer/tests/corpus/`, replayed by `corpus_replay` to verify
   script parsing and filter semantics against the reference implementation. These
   tests never invoke dealer.exe, so they run anywhere including CI.
-- `scripts/generate-corpus.sh` for creating new corpora, and
+- `scripts/generate-corpus.py` for creating new corpora, and
   `docs/REGRESSION_TESTING.md` documenting the process
+
+### Changed
+- Unreadable deals encountered while reading `--input-deals` are now skipped with a
+  warning and a total reported at exit, rather than aborting the run
+- Documented `--input-deals` in the README and CLI design notes
 
 ### Fixed
 - `dealer-parser/tests/fixtures/Stayman.dlr` contained the literal text
