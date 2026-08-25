@@ -101,6 +101,10 @@ struct Args {
 
     /// Read deals from a file instead of generating random ones.
     /// Supports PBN and oneline formats (auto-detected).
+    /// Use '-' to read deals from stdin (requires the script as a file argument).
+    /// Lines that are not recognised as deals are ignored, so PBN metadata and
+    /// stats output can be fed in directly; check the reported count to confirm
+    /// every expected deal was read.
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
@@ -727,10 +731,20 @@ fn main() {
         || fast_predeal_config.predeal_count(Position::West) > 0;
 
     // Validate --input-deals conflicts
-    if args.input_deals.is_some() {
+    if let Some(ref source) = args.input_deals {
         if has_predeal {
             eprintln!(
                 "Error: --input-deals cannot be combined with predeal (command-line or script)"
+            );
+            std::process::exit(1);
+        }
+        // `--input-deals -` reads deals from stdin, but stdin is already consumed by the
+        // script when no script file argument is given. Require an explicit script file.
+        if source == "-" && args.input_file.is_none() {
+            eprintln!(
+                "Error: --input-deals - reads deals from stdin, but the script is also being \
+                 read from stdin.\n       Pass the script as a file argument instead, e.g.: \
+                 dealer script.dlr --input-deals -"
             );
             std::process::exit(1);
         }
@@ -894,18 +908,33 @@ fn main() {
 
     // Choose execution mode: input-deals, legacy, or fast (parallel)
     if let Some(ref input_deals_source) = args.input_deals {
-        // Input-deals mode: read deals from file, apply filter
+        // Input-deals mode: read deals from a file or stdin, apply filter
         use bridge_encodings::DealReader;
-        use std::io::BufReader;
+        use std::io::{BufRead, BufReader};
 
-        let file = std::fs::File::open(input_deals_source).unwrap_or_else(|e| {
-            eprintln!(
-                "Error opening input deals file '{}': {}",
-                input_deals_source, e
-            );
-            std::process::exit(1);
-        });
-        let deal_reader = DealReader::new(BufReader::new(file));
+        // `-` means stdin; the guard above guarantees the script came from a file.
+        let source: Box<dyn BufRead> = if input_deals_source == "-" {
+            Box::new(BufReader::new(io::stdin()))
+        } else {
+            let file = std::fs::File::open(input_deals_source).unwrap_or_else(|e| {
+                eprintln!(
+                    "Error opening input deals file '{}': {}",
+                    input_deals_source, e
+                );
+                std::process::exit(1);
+            });
+            Box::new(BufReader::new(file))
+        };
+        let deal_reader = DealReader::new(source);
+
+        // DealReader silently ignores lines it does not recognise as deals, which is
+        // what lets PBN metadata and stats output be fed in directly. It only yields
+        // Err for I/O failures (e.g. invalid UTF-8 mid-stream). Those are recoverable,
+        // so skip rather than abort, and report the total at exit. Because unreadable
+        // *content* is indistinguishable from metadata, callers that need to know every
+        // deal arrived should compare the reported count against an expected total.
+        let mut skipped: usize = 0;
+        const MAX_SKIP_WARNINGS: usize = 10;
 
         for deal_result in deal_reader {
             // Check timeout every 1000 deals
@@ -926,8 +955,17 @@ fn main() {
             let bt_deal = match deal_result {
                 Ok(d) => d,
                 Err(e) => {
-                    eprintln!("Error reading deal: {}", e);
-                    std::process::exit(1);
+                    skipped += 1;
+                    if skipped <= MAX_SKIP_WARNINGS {
+                        eprintln!("Warning: skipping unreadable deal: {}", e);
+                        if skipped == MAX_SKIP_WARNINGS {
+                            eprintln!(
+                                "Warning: further malformed-deal warnings suppressed; \
+                                 total will be reported at exit"
+                            );
+                        }
+                    }
+                    continue;
                 }
             };
 
@@ -975,6 +1013,10 @@ fn main() {
             if generated >= max_generate {
                 break;
             }
+        }
+
+        if skipped > 0 {
+            eprintln!("Warning: skipped {} unreadable deal(s) from input", skipped);
         }
     } else if args.legacy {
         // Legacy mode: single-threaded with gnurandom for exact dealer.exe compatibility

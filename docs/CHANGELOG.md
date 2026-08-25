@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `--input-deals -` now reads deals from stdin, so deals can be piped in without a
+  temporary file. Requires the script to be passed as a file argument, since stdin is
+  otherwise consumed by the script itself; a clear error is emitted if both would
+  contend for stdin.
+- Integration test coverage for `--input-deals` (PBN, oneline, stdin, limits, conflicts)
+
+### Changed
+- Unreadable deals encountered while reading `--input-deals` are now skipped with a
+  warning and a total reported at exit, rather than aborting the run
+- Documented `--input-deals` in the README and CLI design notes
+
 ## [0.4.0] - 2026-01-21
 
 ### Added
