@@ -23,15 +23,15 @@
       <!-- average "label" expr -->
       <section v-if="result.averages.length" class="block">
         <h3>Averages</h3>
-        <table class="avg">
-          <tbody>
-            <tr v-for="(a, i) in result.averages" :key="i">
-              <th>{{ (a.label || 'Average').trim() }}</th>
-              <td>{{ formatValue(a.value) }}</td>
-              <td class="avg-n">over {{ a.count.toLocaleString() }} deals</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="avg">
+          <div v-for="(a, i) in result.averages" :key="i" class="avg-row">
+            <span class="avg-label">{{ (a.label || 'Average').trim() }}</span>
+            <span class="avg-bar-track">
+              <span class="avg-bar" :style="{ width: averageBarWidth(a.value) }"></span>
+            </span>
+            <span class="avg-value">{{ formatValue(a.value) }}</span>
+          </div>
+        </div>
       </section>
 
       <!-- frequency "label" (expr, min, max) -->
@@ -126,6 +126,25 @@ const parsedDeals = computed(() => {
   return parseOnelineDeals(props.result.deals.join('\n'))
 })
 
+/**
+ * Averages share one scale, set by the largest value shown, so the bars compare
+ * against each other rather than each filling its own row.
+ *
+ * A negative average gets no bar rather than a misleading one: these are
+ * arbitrary script expressions, and `100 * (x - y)` can legitimately go below
+ * zero. The number is always shown, so nothing is hidden.
+ */
+const averageScale = computed(() => {
+  const values = (props.result?.averages || []).map((a) => a.value)
+  return Math.max(0, ...values)
+})
+
+function averageBarWidth(value) {
+  const peak = averageScale.value
+  if (!(peak > 0) || !(value > 0)) return '0%'
+  return `${(value / peak) * 100}%`
+}
+
 /** Bars scale to the tallest bin, so a flat distribution still reads. */
 function barWidth(count, freq) {
   const peak = Math.max(1, ...freq.bins.map((b) => b.count))
@@ -166,10 +185,12 @@ function formatValue(v) {
   color: var(--fg-muted); margin: 0 0 8px;
 }
 
-.avg { border-collapse: collapse; font-size: 13px; }
-.avg th { text-align: left; font-weight: 500; padding: 2px 12px 2px 0; white-space: pre; }
-.avg td { font-family: var(--mono); padding: 2px 12px 2px 0; }
-.avg-n { color: var(--fg-muted); font-family: inherit !important; font-size: 12px; }
+.avg { display: flex; flex-direction: column; gap: 3px; }
+.avg-row { display: grid; grid-template-columns: minmax(6em, 14em) 1fr 5em; align-items: center; gap: 8px; font-size: 12px; }
+.avg-label { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.avg-bar-track { background: var(--bg-subtle); border-radius: 2px; height: 14px; overflow: hidden; }
+.avg-bar { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+.avg-value { font-family: var(--mono); text-align: right; }
 
 .freq-outside { font-size: 12px; color: var(--warn-fg); margin: 0 0 6px; }
 .freq { display: flex; flex-direction: column; gap: 2px; }

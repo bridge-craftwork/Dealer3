@@ -77,6 +77,12 @@ table — clickable cards, a selector popup, per-card marks, dynamic fit — and
 almost none of that applies to a static grid. The primitives were the reusable
 part.
 
+Averages and frequencies both render as bars. Averages share one scale set by
+the largest value shown, so they compare against each other rather than each
+filling its own row. A negative average gets no bar rather than a misleading
+one — these are arbitrary script expressions and `100 * (x - y)` can legitimately
+go below zero — but the number is always shown.
+
 **Save PBN** and **Save text** download the results. Selecting text out of the
 page is clumsy (a select-all takes the whole document), and a long run is
 thousands of lines. Saving re-runs the generator rather than reformatting what is
