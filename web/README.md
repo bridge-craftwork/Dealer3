@@ -58,8 +58,16 @@ npm run build:all
 npx wrangler pages deploy
 ```
 
-Pages rather than GitHub Pages because it can send the COOP/COEP headers a
-threaded wasm build will need. `public/_headers` already sets them.
+Cloudflare Pages, not GitHub Pages: only Cloudflare can send the COOP/COEP
+headers a threaded wasm build will need, and `public/_headers` already sets
+them. Hosting on both would have meant a second copy that quietly diverged the
+moment threading landed.
+
+`.github/workflows/pages.yml` redeploys on every push to `main` that touches the
+engine or the site. It fails loudly when the Cloudflare credential is missing
+rather than going green having deployed nothing.
+
+Live at **https://dealer.bridge-classroom.org** (also `dealer3.pages.dev`).
 
 ## Viewing and saving
 

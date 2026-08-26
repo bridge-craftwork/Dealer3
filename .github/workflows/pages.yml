@@ -21,8 +21,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 # Latest wins: a superseded deploy has nothing worth finishing.
 concurrency:
@@ -31,9 +29,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Read here rather than inside the step so the step's `if` can test them. The
-  # site should still build and reach GitHub Pages before the Cloudflare secrets
-  # exist, rather than failing on a credential it was never given.
+  # Read here rather than inside the step so a step's `if` can test them.
   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
@@ -93,29 +89,24 @@ jobs:
           test -f dist/_headers
           du -sh dist
 
-      # Cloudflare, from the same build GitHub Pages is about to get, so the two
-      # hosts cannot drift. Only Cloudflare can send the COOP/COEP headers a
-      # threaded wasm build will need, which is why it is the primary host.
+      # Cloudflare Pages is the only host. GitHub Pages was dropped: it cannot
+      # send the COOP/COEP headers a threaded wasm build will need, so it would
+      # have served a second copy that quietly diverged the moment threading
+      # landed — and its deploy job being `needs: build` meant a Cloudflare
+      # credential problem blocked it anyway.
       #
-      # Skipped when the token is absent, so the site still reaches GitHub Pages
-      # before the secrets are set. `--commit-dirty` because the checkout carries
-      # the generated wasm module, which wrangler would otherwise refuse to
-      # deploy from as an unclean tree.
+      # Cloudflare being the only target makes a silent skip dangerous: the run
+      # would go green having deployed nothing. So fail explicitly when the
+      # credential is missing here, while still letting a fork build.
+      - name: Require the Cloudflare credential
+        if: github.repository == 'bridge-craftwork/Dealer3' && env.CLOUDFLARE_API_TOKEN == ''
+        run: |
+          echo "CLOUDFLARE_API_TOKEN is not set, so the site cannot be deployed." >&2
+          echo "The token needs Account -> Cloudflare Pages -> Edit on this account." >&2
+          exit 1
+
+      # `--commit-dirty` because the checkout carries the generated wasm module,
+      # which wrangler would otherwise refuse to deploy from as an unclean tree.
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != ''
         run: npx --yes wrangler@4 pages deploy --commit-dirty=true
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: web/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
