@@ -148,3 +148,54 @@ fn logical_words_are_all_in_the_grammar() {
         );
     }
 }
+
+/// A statement keyword must not be reachable as a bare variable reference.
+///
+/// Without this, a malformed statement backtracks into `expr` and parses as
+/// bare identifiers the evaluator ignores — so `dealer soudfsfd` was accepted
+/// silently, where dealer.exe reports "line 1: syntax error".
+#[test]
+fn malformed_statements_are_rejected() {
+    let cases = [
+        "dealer soudfsfd\n",
+        "dealer\n",
+        "vulnerable xyz\n",
+        "produce abc\n",
+        "generate abc\n",
+        "predeal north XX\n",
+        "condition\n",
+    ];
+    for script in cases {
+        let pre = dealer_parser::preprocess(script);
+        assert!(
+            dealer_parser::parse_program(&pre).is_err(),
+            "should have been rejected: {:?}",
+            script
+        );
+    }
+}
+
+/// The fix must not reject anything valid.
+#[test]
+fn well_formed_statements_still_parse() {
+    let cases = [
+        "dealer south\ncondition hcp(north) >= 1\n",
+        "vulnerable ns\ncondition hcp(north) >= 1\n",
+        "produce 5\ncondition hcp(north) >= 1\n",
+        "generate 100\ncondition hcp(north) >= 1\n",
+        "predeal north SAKQ\ncondition hcp(south) >= 1\n",
+        "condition hcp(north) >= 1\n",
+        // A variable may still be named after a function or a position.
+        "spadeFit = spades(north) + spades(south)\ncondition spadeFit >= 8\n",
+        "n = hcp(north)\ncondition n >= 10\n",
+    ];
+    for script in cases {
+        let pre = dealer_parser::preprocess(script);
+        assert!(
+            dealer_parser::parse_program(&pre).is_ok(),
+            "should have parsed: {:?}\n{:?}",
+            script,
+            dealer_parser::parse_program(&pre).err()
+        );
+    }
+}

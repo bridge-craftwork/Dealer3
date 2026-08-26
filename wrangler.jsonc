@@ -1,0 +1,19 @@
+// Cloudflare Pages configuration.
+//
+// The site is a static build: the engine runs in the visitor's browser, so there
+// is nothing server-side to deploy. Everything the deploy needs lives here
+// rather than in dashboard settings, so a hosting change is a reviewable diff.
+//
+// Deploy with `npx wrangler pages deploy` after `npm --prefix web run build:all`.
+//
+// Cloudflare Pages rather than GitHub Pages for one reason: it can send the
+// COOP/COEP response headers that a threaded WebAssembly build will need (see
+// web/public/_headers). GitHub Pages cannot set custom headers at all.
+{
+  "name": "dealer3",
+  "compatibility_date": "2026-08-25",
+
+  // Vite writes here. `web/public/` is copied in verbatim, which is how
+  // `_headers` reaches the root of the deploy.
+  "pages_build_output_dir": "web/dist"
+}

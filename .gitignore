@@ -38,3 +38,8 @@ activity-log.json
 wasm/pkg/
 wasm/pkg-node/
 wasm/target/
+
+# Web app
+web/node_modules/
+web/dist/
+web/src/wasm/

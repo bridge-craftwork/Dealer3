@@ -1,0 +1,33 @@
+# Cloudflare Pages response headers.
+#
+# Vite copies everything in `web/public/` into the build output verbatim, so
+# this file lands at the root of the deploy where Pages looks for it.
+
+/*
+  X-Content-Type-Options: nosniff
+  # A script can travel in the query string (`?script=`), and a script is the
+  # user's own work. Never hand it to a third party via the referrer.
+  Referrer-Policy: no-referrer
+
+# COOP/COEP are what `SharedArrayBuffer` needs, and `SharedArrayBuffer` is what a
+# threaded wasm build needs. The current build is single-threaded and does not
+# require these, but they are set now because they are the reason this site is on
+# Cloudflare Pages rather than GitHub Pages, which cannot send custom headers.
+#
+# They are not free: `require-corp` blocks cross-origin subresources that do not
+# opt in via CORP/CORS. Everything this page loads is same-origin except the PBS
+# manifest and scripts, which come from raw.githubusercontent.com over CORS and
+# are therefore unaffected.
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+# Vite content-hashes everything under `assets/` — the wasm binary, JS, CSS. A
+# hashed name cannot mean different bytes, so it is safe to cache forever and
+# repeat visits skip the engine download.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Not hashed, so it must be revalidated or a deploy never reaches anyone holding
+# the old one.
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
