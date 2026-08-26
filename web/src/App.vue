@@ -22,7 +22,14 @@
 
       <section class="col col-editor">
         <div class="controls">
-          <label>Seed <input v-model.number="seed" type="number" min="0" /></label>
+          <label>
+            Seed
+            <input v-model.number="seed" type="number" min="0" max="4294967295" />
+            <!-- Run deliberately does not re-roll: the seed on screen has to be
+                 the seed that produced what is shown, or reproducing a result
+                 becomes guesswork. -->
+            <button class="reseed" title="New random seed" @click="seed = randomSeed()">⟳</button>
+          </label>
           <label>Produce <input v-model.number="produce" type="number" min="1" /></label>
           <label>Max generate <input v-model.number="maxGenerate" type="number" min="1" step="1000" /></label>
           <label>
@@ -75,6 +82,7 @@ import { ready, generate, version } from '@/lib/engine.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
+import { randomSeed } from '@/lib/format.js'
 
 const STARTER = `# Write a dealer script, or pick a scenario on the left.
 condition hcp(north) >= 15 && shape(north, any 4333 + any 4432 + any 5332)
@@ -90,7 +98,11 @@ action printoneline,
 const restored = loadSession()
 
 const script = ref(restored?.script || STARTER)
-const seed = ref(restored?.seed ?? 1)
+// A random seed by default, matching the CLI, where `-s` defaults to the clock.
+// Most of the time the question is "show me hands like this", not "show me
+// these exact hands" — a fixed default quietly answers the second. A restored
+// session keeps its seed, so reloading reproduces what was on screen.
+const seed = ref(restored?.seed ?? randomSeed())
 const produce = ref(restored?.produce ?? 20)
 const maxGenerate = ref(restored?.maxGenerate ?? 500000)
 const format = ref(restored?.format || 'oneline')
@@ -275,6 +287,12 @@ body {
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
 .controls input[type="number"] { width: 7em; }
+.reseed {
+  border: 1px solid var(--line); border-radius: 3px; background: var(--bg);
+  color: var(--fg-muted); font: inherit; font-size: 11px;
+  padding: 2px 6px; cursor: pointer; line-height: 1.2;
+}
+.reseed:hover { background: var(--bg-subtle); color: var(--fg); }
 .editor-loading {
   flex: 1; display: grid; place-items: center;
   color: var(--fg-muted); font-size: 13px;

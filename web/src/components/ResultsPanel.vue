@@ -110,6 +110,7 @@
 import { ref, computed } from 'vue'
 import DealGrid from '@/components/DealGrid.vue'
 import { parseOnelineDeals } from '@/lib/cardFormatting.js'
+import { formatAverage } from '@/lib/format.js'
 
 const props = defineProps({
   result: { type: Object, default: null },
@@ -160,11 +161,7 @@ function percent(count, total) {
   return `${((count / total) * 100).toFixed(1)}%`
 }
 
-/** Averages come back as full f64; six significant digits is plenty to read. */
-function formatValue(v) {
-  if (Number.isInteger(v)) return String(v)
-  return Number(v.toPrecision(6)).toString()
-}
+const formatValue = formatAverage
 </script>
 
 <style scoped>

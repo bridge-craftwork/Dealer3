@@ -104,6 +104,7 @@ import { computed, h } from 'vue'
 import { SUIT_ORDER, SUIT_SYMBOLS, RED_SUITS, parseOnelineDeals } from '@/lib/cardFormatting.js'
 import { dlrStreamParser, tokenizeLine } from '@/lib/dlrLanguage.js'
 import { languageInfo, isReady } from '@/lib/engine.js'
+import { formatAverage } from '@/lib/format.js'
 
 const props = defineProps({
   script: { type: String, default: '' },
@@ -154,9 +155,7 @@ function barWidth(count, freq) {
   return `${(count / peak) * 100}%`
 }
 
-function formatValue(v) {
-  return Number.isInteger(v) ? String(v) : Number(v.toPrecision(6)).toString()
-}
+const formatValue = formatAverage
 
 const PrintHand = (p) =>
   h('div', { class: 'p-hand' }, [

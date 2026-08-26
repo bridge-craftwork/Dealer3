@@ -115,6 +115,17 @@ matches what was shown.
 
 PBN output carries the script's `dealer` and `vulnerable` settings in its tags.
 
+## Seed
+
+The seed defaults to a **random** value, matching the CLI where `-s` defaults to
+the clock. Most of the time the question is "show me hands like this", not "show
+me these exact hands", and a fixed default quietly answers the second.
+
+**Run does not re-roll it.** The seed on screen has to be the seed that produced
+what is shown, or reproducing a result becomes guesswork. The ⟳ button beside the
+field asks for a new one, and a restored session keeps its seed so a reload
+reproduces what was on screen.
+
 ## Session persistence
 
 The script in the editor and the parameters beside it are kept in
