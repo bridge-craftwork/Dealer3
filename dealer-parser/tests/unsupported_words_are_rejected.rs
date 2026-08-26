@@ -52,41 +52,88 @@ fn every_unsupported_word_is_rejected_as_a_variable_name() {
 #[test]
 fn calling_something_that_is_not_a_function_is_an_error() {
     let cases = [
-        // The singular and plural spellings from the original's lexer.
-        "condition control(north) >= 5\n",
-        "condition hcps(north) >= 12\n",
-        "condition ace(north) >= 1\n",
-        "condition king(north) >= 1\n",
-        "condition trick(north) >= 1\n",
-        // Any other unknown name, not only the ones we happen to list.
+        // Any unknown name, not only the words we happen to list.
         "condition nosuchfunction(north) >= 1\n",
+        "condition hcpx(north) >= 1\n",
+        "condition kingz(north) >= 1\n",
         // A position is not callable either.
         "condition north(x) >= 1\n",
         // A space before the bracket changes nothing.
-        "condition control (north) >= 5\n",
+        "condition nosuchfunction (north) >= 5\n",
     ];
     for script in cases {
         assert!(!parses(script), "should have been rejected: {:?}", script);
     }
 }
 
+/// `notrump` used to be read as an unset variable, which is 0, which is clubs —
+/// so the script asked about the wrong strain and got a believable answer. It is
+/// now the number 4, which is what dealer.exe's own grammar resolves it to.
 #[test]
-fn notrump_is_rejected_rather_than_read_as_clubs() {
-    assert!(!parses("condition tricks(north, notrumps) >= 0\n"));
-    assert!(!parses("condition tricks(north, notrump) >= 0\n"));
-    // The spellings that do work are untouched.
-    assert!(parses("condition tricks(north, 4) >= 0\n"));
-    assert!(parses("condition tricks(north, spades) >= 0\n"));
+fn notrump_is_the_number_four() {
+    use dealer_parser::{Expr, Statement};
+
+    let by_word = parse("condition tricks(north, notrumps) >= 0\n");
+    let by_number = parse("condition tricks(north, 4) >= 0\n");
+    assert_eq!(
+        by_word, by_number,
+        "`notrumps` must parse to exactly what `4` parses to"
+    );
+    assert_eq!(parse("condition notrump\n"), parse("condition notrumps\n"));
+
+    // And it really is the literal, not something that merely compares equal.
+    match &parse("condition notrump\n").statements[0] {
+        Statement::Condition(Expr::Literal(n)) => assert_eq!(*n, 4),
+        other => panic!("expected the literal 4, got {:?}", other),
+    }
 }
 
+fn parse(script: &str) -> dealer_parser::Program {
+    let pre = dealer_parser::preprocess(script);
+    dealer_parser::parse_program(&pre)
+        .unwrap_or_else(|e| panic!("should have parsed {script:?}: {e}"))
+}
+
+/// `pointcount` and `altcount` are implemented now, but their bad forms must
+/// still fail where the script is written rather than at evaluation time, so the
+/// editor underlines them.
 #[test]
-fn the_point_count_statements_are_rejected_rather_than_ignored() {
-    // These were the worst of the set: they parsed, were thrown away, and the
-    // script silently ran on the scale the author was trying to replace. A run
-    // of `pointcount 6 4 2 1` with `hcp(north) >= 20` produced exactly the hit
-    // rate of the standard 4-3-2-1 scale.
-    assert!(!parses("pointcount 6 4 2 1\ncondition hcp(north) >= 20\n"));
-    assert!(!parses("altcount 0 1 1 1 1 1 1 1 1 1 1 1 1\ncondition 1\n"));
+fn the_point_count_statements_validate_their_arguments() {
+    // Valid.
+    assert!(parses("pointcount 6 4 2 1\ncondition hcp(north) >= 20\n"));
+    assert!(parses("altcount 2 1 1 1\ncondition 1\n"));
+    assert!(parses(
+        "pointcount 1 1 1 1 1 1 1 1 1 1 1 1 1\ncondition 1\n"
+    ));
+    assert!(parses("altcount 11 6 4 2 1\ncondition 1\n"));
+
+    // Fourteen values: one more than there are ranks, which the original also
+    // rejects with "too many pointcount values".
+    assert!(!parses(
+        "pointcount 1 1 1 1 1 1 1 1 1 1 1 1 1 1\ncondition 1\n"
+    ));
+
+    // Out of range. dealer.exe accepts these and writes past its own table;
+    // dealer3 refuses instead.
+    assert!(!parses("altcount 12 1 1 1\ncondition 1\n"));
+    assert!(!parses("altcount 99 1\ncondition 1\n"));
+    assert!(!parses("altcount -1 1\ncondition 1\n"));
+
+    // A count with no values at all is a syntax error, as in the original.
+    assert!(!parses("pointcount\ncondition 1\n"));
+    assert!(!parses("altcount 2\ncondition 1\n"));
+}
+
+/// The error text has to name the limit, since "out of range" alone would leave
+/// a reader guessing whether `altcount 2` or `altcount 0` sets `pt0`.
+#[test]
+fn the_altcount_range_error_explains_the_numbering() {
+    let pre = dealer_parser::preprocess("altcount 12 1\ncondition 1\n");
+    let error = dealer_parser::parse_program(&pre)
+        .expect_err("altcount 12 should be refused")
+        .to_string();
+    assert!(error.contains("0 to 11"), "unhelpful message: {}", error);
+    assert!(error.contains("pt0"), "unhelpful message: {}", error);
 }
 
 /// Nothing that worked before may break. These are the cases most likely to
@@ -97,6 +144,10 @@ fn ordinary_scripts_still_parse() {
     let cases = [
         "condition hcp(north) >= 12\n",
         "condition controls(north) >= 5 && aces(north) >= 1\n",
+        // The spellings added alongside this change.
+        "condition control(north) >= 5 && ace(north) >= 1\n",
+        "condition hcps(north) >= 12 && king(north) >= 1\n",
+        "condition trick(south, notrump) >= 9\n",
         "condition kings(north) >= 1 && queens(north) >= 1 && tens(north) >= 1\n",
         "condition top2(north, spades) == 2\n",
         // Names that merely begin with a reserved word.

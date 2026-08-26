@@ -15,6 +15,39 @@
 //! disagree with them.
 
 use crate::switches::{support, Support};
+use dealer_parser::vocabulary;
+
+/// What would make an item finished, when that is something a test can see.
+///
+/// Only switches used to be checkable, which left every language row on the
+/// honour system — and the language is where the work now is.
+#[derive(Clone, Copy)]
+pub enum DoneWhen {
+    /// This switch is implemented.
+    Switch(&'static str),
+    /// This function name is in the vocabulary.
+    Function(&'static str),
+    /// This statement keyword is in the vocabulary.
+    Statement(&'static str),
+}
+
+impl DoneWhen {
+    fn is_done(self) -> bool {
+        match self {
+            DoneWhen::Switch(flag) => support(flag, "") == Support::Yes,
+            DoneWhen::Function(name) => vocabulary::FUNCTIONS.contains(&name),
+            DoneWhen::Statement(name) => vocabulary::STATEMENT_KEYWORDS.contains(&name),
+        }
+    }
+
+    fn describe(self) -> String {
+        match self {
+            DoneWhen::Switch(f) => format!("the switch `{}`", f),
+            DoneWhen::Function(f) => format!("the function `{}`", f),
+            DoneWhen::Statement(k) => format!("the statement `{}`", k),
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Effort {
@@ -64,9 +97,8 @@ fn priority(item: &WorkItem) -> (u8, &'static str) {
 
 pub struct WorkItem {
     pub what: &'static str,
-    /// The switch this would deliver, where it is one. Used to notice that the
-    /// item is finished.
-    pub switch: Option<&'static str>,
+    /// How a test can tell this item is finished, where it can.
+    pub done_when: Option<DoneWhen>,
     /// GitHub issue, where there is one.
     pub issue: Option<u32>,
     pub effort: Effort,
@@ -78,20 +110,8 @@ pub struct WorkItem {
 pub const REMAINING: &[WorkItem] = &[
     // ---- The language, which is where the real gaps are now ---------------
     WorkItem {
-        what: "Accept the singular and plural spellings, and `notrump`",
-        switch: None,
-        issue: Some(15),
-        effort: Effort::Low,
-        value: Value::High,
-        note: Some(
-            "`control`, `hcps`, `ten`, `jack`, `queen`, `king`, `ace`, `trick`, `imp`. They are \
-             rejected loudly now, so nothing gives a wrong answer, but a script written for \
-             dealer.exe still will not run.",
-        ),
-    },
-    WorkItem {
         what: "Route `tricks()` through bridge-solver",
-        switch: None,
+        done_when: None,
         issue: Some(14),
         effort: Effort::Medium,
         value: Value::High,
@@ -102,32 +122,15 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Allow variables whose name begins with a statement keyword",
-        switch: None,
+        done_when: None,
         issue: Some(12),
         effort: Effort::Low,
         value: Value::Medium,
         note: None,
     },
     WorkItem {
-        what: "`pointcount` and `altcount`, to re-scale the point counts",
-        switch: None,
-        issue: Some(15),
-        effort: Effort::Medium,
-        value: Value::High,
-        note: Some(
-            "Rejected loudly today. `altcount` is what makes `pt0`-`pt9` ten counts a script \
-             can define rather than ten fixed ones, which is the case for rating this above \
-             its zero usage in the 1,076-script corpus. The statements are small; the cost is \
-             that dealer3 computes these counts from hardcoded matches across 22 methods in \
-             `dealer-core`, and `Card::hcp()` belongs to the shared `bridge-types` crate — so \
-             the counts have to read a table carried on `EvalContext` instead. Note that \
-             `altcount N` sets `pt(N-2)`, and `altcount 0` overwrites `hcp`: verified against \
-             dealer.exe, and contrary to the manual.",
-        ),
-    },
-    WorkItem {
         what: "Two-dimensional `frequency`",
-        switch: None,
+        done_when: None,
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -135,7 +138,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Contract tokens in `score()`, e.g. `3N` for the code 34",
-        switch: None,
+        done_when: None,
         issue: None,
         effort: Effort::Low,
         value: Value::Low,
@@ -143,7 +146,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "The length-bias form of `predeal`, `spades(north) == 5`",
-        switch: None,
+        done_when: None,
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -151,7 +154,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "`--bbo-strict`: warn when a script will behave differently on BBO",
-        switch: None,
+        done_when: None,
         issue: Some(13),
         effort: Effort::Medium,
         value: Value::Low,
@@ -160,7 +163,7 @@ pub const REMAINING: &[WorkItem] = &[
     // ---- Switches ---------------------------------------------------------
     WorkItem {
         what: "Swapping modes",
-        switch: Some("-2"),
+        done_when: Some(DoneWhen::Switch("-2")),
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -168,7 +171,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Library mode: replay deals by index",
-        switch: Some("-l"),
+        done_when: Some(DoneWhen::Switch("-l")),
         issue: None,
         effort: Effort::High,
         value: Value::Low,
@@ -176,7 +179,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Upper-case the honour cards in output",
-        switch: Some("-u"),
+        done_when: Some(DoneWhen::Switch("-u")),
         issue: None,
         effort: Effort::Low,
         value: Value::Low,
@@ -184,7 +187,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Export in RP zrd format",
-        switch: Some("-Z"),
+        done_when: Some(DoneWhen::Switch("-Z")),
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -192,7 +195,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Double-dummy solver mode",
-        switch: Some("-M"),
+        done_when: Some(DoneWhen::Switch("-M")),
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -200,7 +203,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Script parameters `$0`-`$9`",
-        switch: None,
+        done_when: None,
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
@@ -211,7 +214,7 @@ pub const REMAINING: &[WorkItem] = &[
     },
     WorkItem {
         what: "Exhaust mode",
-        switch: Some("-e"),
+        done_when: Some(DoneWhen::Switch("-e")),
         issue: None,
         effort: Effort::High,
         value: Value::Low,
@@ -259,14 +262,15 @@ mod tests {
     #[test]
     fn nothing_in_the_list_is_already_done() {
         for item in REMAINING {
-            let Some(switch) = item.switch else { continue };
-            assert_ne!(
-                support(switch, ""),
-                Support::Yes,
-                "\"{}\" is still listed as outstanding, but `{}` is implemented — delete the \
-                 row rather than ticking it",
+            let Some(check) = item.done_when else {
+                continue;
+            };
+            assert!(
+                !check.is_done(),
+                "\"{}\" is still listed as outstanding, but {} exists — delete the row rather \
+                 than ticking it",
                 item.what,
-                switch
+                check.describe()
             );
         }
     }
@@ -276,7 +280,9 @@ mod tests {
     #[test]
     fn every_named_switch_exists_in_the_comparison_table() {
         for item in REMAINING {
-            let Some(switch) = item.switch else { continue };
+            let Some(DoneWhen::Switch(switch)) = item.done_when else {
+                continue;
+            };
             assert!(
                 crate::switches::SWITCH_ROWS
                     .iter()
@@ -292,9 +298,13 @@ mod tests {
     /// "yes" — a helper that always returned `No` would let every finished item
     /// sit in the list forever while the test passed.
     #[test]
-    fn the_done_check_can_actually_detect_a_finished_switch() {
-        assert_eq!(support("-p", "--produce"), Support::Yes);
-        assert_eq!(support("-M", ""), Support::No);
+    fn the_done_check_can_actually_detect_finished_work() {
+        assert!(DoneWhen::Switch("-p").is_done());
+        assert!(!DoneWhen::Switch("-M").is_done());
+        assert!(DoneWhen::Function("hcp").is_done());
+        assert!(!DoneWhen::Function("nosuchfunction").is_done());
+        assert!(DoneWhen::Statement("condition").is_done());
+        assert!(!DoneWhen::Statement("nosuchstatement").is_done());
     }
 
     #[test]

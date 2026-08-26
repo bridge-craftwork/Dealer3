@@ -21,6 +21,8 @@ dealer_statement = {
     | vulnerable_stmt
     | predeal_stmt
     | csvrpt_stmt
+    | pointcount_stmt
+    | altcount_stmt
     | average_stmt
     | frequency_stmt
     | print_stmt
@@ -42,6 +44,12 @@ dealer_stmt = { ^"dealer" ~ compass }
 vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
 predeal_stmt = { ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
+
+// Script-defined point counts. Values run from the ace downwards; ranks not
+// reached score nothing. The count of values is checked when the statement is
+// built rather than here, so the message can say what the limit is.
+pointcount_stmt = { ^"pointcount" ~ literal+ }
+altcount_stmt = { ^"altcount" ~ literal ~ literal+ }
 
 // CSV terms for csvrpt
 csv_term = {
@@ -119,6 +127,7 @@ primary = _{
     | shape_pattern
     | card
     | suit  // Suit keywords (spades, hearts, etc) as standalone values
+    | denomination_word  // notrump/notrumps, as the number 4
     | position
     | literal
     | ident  // Variable references (must be last to avoid conflicts)
@@ -129,16 +138,30 @@ paren_expr = { "(" ~ expr ~ ")" }
 // Function calls: hcp(north), hearts(south,spades), hascard(south,AS)
 function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 
+// Longest spelling first, always. `function_call` is `function_name ~ "("`, and
+// PEG does not retry an alternation once a branch has matched: `hcp` ahead of
+// `hcps` would match three letters of `hcps(`, fail on the `(`, and fall all the
+// way through to `ident`. The original grammar knew this for the suit names
+// ("must be before singular"); tests/vocabulary_matches_grammar.rs now enforces
+// it for every pair.
 function_name = @{
-    "hcp" | "controls" | "losers" | "loser"
-    | "shape" | "hascard"
-    | "tens" | "jacks" | "queens" | "kings" | "aces"
+    "controls" | "control"
+    | "hascard" | "hcps" | "hcp"
+    | "losers" | "loser"
+    | "shape" | "quality" | "cccc" | "score"
+    | "tens" | "ten"
+    | "jacks" | "jack"
+    | "queens" | "queen"
+    | "kings" | "king"
+    | "aces" | "ace"
     | "top2" | "top3" | "top4" | "top5" | "c13"
     | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
-    | "quality" | "cccc"
-    | "tricks" | "score" | "imps"  // Double-dummy and scoring functions
-    | "hearts" | "spades" | "diamonds" | "clubs"  // Plural forms (must be before singular)
-    | "heart" | "spade" | "diamond" | "club"  // Singular aliases
+    | "tricks" | "trick"
+    | "imps" | "imp"
+    | "hearts" | "heart"
+    | "spades" | "spade"
+    | "diamonds" | "diamond"
+    | "clubs" | "club"
 }
 
 // Comparison operators
@@ -149,6 +172,17 @@ cmp_op = {
 // Arithmetic operators
 add_op = { "+" | "-" }
 mul_op = { "*" | "/" | "%" }
+
+// The original's spelling of the fourth denomination. dealer.exe resolves the
+// token to the literal 4 in its grammar —
+//     TRICKS '(' compass ',' NOTRUMPS ')'  { newtree (TRT_TRICKS, NIL, NIL, $3, 4); }
+// — and dealer3 already numbers strains 0=C, 1=D, 2=H, 3=S, 4=NT for both
+// `tricks` and `score`, so the same resolution works here.
+//
+// This is more permissive than the original, which accepts the word only as an
+// argument to `tricks`. Restricting it that way would mean per-function argument
+// rules; being a plain value everywhere is the deliberate trade.
+denomination_word = @{ (^"notrumps" | ^"notrump") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // Positions at the bridge table
 // Use word boundary: must not be followed by alphanumeric or underscore
@@ -199,7 +233,8 @@ suit_char = { "S" | "H" | "D" | "C" }
 // names like `conditionMet` from matching the bare keyword.
 statement_keyword = @{
     (^"condition" | ^"produce" | ^"generate" | ^"action" | ^"dealer"
-     | ^"vulnerable" | ^"predeal" | ^"csvrpt" | ^"average" | ^"frequency")
+     | ^"vulnerable" | ^"predeal" | ^"csvrpt" | ^"average" | ^"frequency"
+     | ^"pointcount" | ^"altcount")
     ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
@@ -217,9 +252,7 @@ statement_keyword = @{
 //
 // Held to `vocabulary::NOT_SUPPORTED` by tests/vocabulary_matches_grammar.rs.
 reserved_unsupported = @{
-    (^"notrumps" | ^"notrump" | ^"printes" | ^"pointcount" | ^"altcount"
-     | ^"control" | ^"hcps" | ^"print" | ^"trick" | ^"queen" | ^"king"
-     | ^"jack" | ^"ace" | ^"ten" | ^"imp" | ^"rnd")
+    (^"printes" | ^"print" | ^"rnd")
     ~ !(ASCII_ALPHANUMERIC | "_")
 }
 

@@ -16,18 +16,19 @@
 
 /// Functions callable in an expression, e.g. `hcp(north)`.
 pub const FUNCTIONS: &[&str] = &[
-    // Hand evaluation
-    "hcp", "controls", "losers", "loser", "quality", "cccc",
+    // Hand evaluation — singular and plural spellings are both accepted, as in
+    // the original dealer's lexer (`controls?`, `hcps?`, `losers?`)
+    "hcp", "hcps", "controls", "control", "losers", "loser", "quality", "cccc",
     // Shape and specific cards
     "shape", "hascard",
     // Suit lengths — plural and singular forms are both accepted
     "spades", "hearts", "diamonds", "clubs", "spade", "heart", "diamond", "club",
-    // Named point counts
-    "tens", "jacks", "queens", "kings", "aces", "top2", "top3", "top4", "top5", "c13",
-    // Indexed point counts
+    // Named point counts, plural and singular
+    "tens", "ten", "jacks", "jack", "queens", "queen", "kings", "king", "aces", "ace", "top2",
+    "top3", "top4", "top5", "c13", // Indexed point counts
     "pt0", "pt1", "pt2", "pt3", "pt4", "pt5", "pt6", "pt7", "pt8", "pt9",
     // Double-dummy and scoring
-    "tricks", "score", "imps",
+    "tricks", "trick", "score", "imps", "imp",
 ];
 
 /// Statement keywords that introduce a directive.
@@ -40,6 +41,8 @@ pub const STATEMENT_KEYWORDS: &[&str] = &[
     "vulnerable",
     "predeal",
     "csvrpt",
+    "pointcount",
+    "altcount",
     "average",
     "frequency",
 ];
@@ -63,8 +66,10 @@ pub const VULNERABILITIES: &[&str] = &["none", "ns", "ew", "all"];
 /// Word-form logical operators, alternatives to `&&`, `||` and `!`.
 pub const LOGICAL_WORDS: &[&str] = &["and", "or", "not"];
 
-/// Other reserved words: `any` introduces a shape pattern, `deal` is a csvrpt term.
-pub const OTHER_KEYWORDS: &[&str] = &["any", "deal"];
+/// Other reserved words: `any` introduces a shape pattern, `deal` is a csvrpt
+/// term, and `notrump`/`notrumps` is the fourth denomination — the same number
+/// `4` that `tricks` and `score` take, spelled the way the original spells it.
+pub const OTHER_KEYWORDS: &[&str] = &["any", "deal", "notrump", "notrumps"];
 
 /// Symbolic operators, longest-first so a tokenizer matching in order does not
 /// split `>=` into `>` and `=`.
@@ -129,8 +134,8 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         example: "hcp(north) >= 12 && hcp(north, spades) >= 4",
         alias_of: None,
         note: Some(
-            "The original dealer can re-scale this with a `pointcount` statement. dealer3 has \
-             no such statement, so the 4-3-2-1 scale is fixed.",
+            "The 4-3-2-1 scale is the default, not a fixture: a `pointcount` statement \
+             replaces it for the whole script.",
         ),
     },
     FunctionDoc {
@@ -140,7 +145,25 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         summary: "Controls: each ace counts 2 and each king 1.",
         example: "controls(north) >= 5",
         alias_of: None,
-        note: Some("The original dealer also accepts the singular `control`. dealer3 does not."),
+        note: None,
+    },
+    FunctionDoc {
+        name: "hcps",
+        group: "Hand evaluation",
+        signature: "hcps(compass)  ·  hcps(compass, suit)",
+        summary: "Plural spelling of `hcp`.",
+        example: "hcps(north) >= 12",
+        alias_of: Some("hcp"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "control",
+        group: "Hand evaluation",
+        signature: "control(compass)  ·  control(compass, suit)",
+        summary: "Singular spelling of `controls`.",
+        example: "control(north) >= 5",
+        alias_of: Some("controls"),
+        note: None,
     },
     FunctionDoc {
         name: "losers",
@@ -381,6 +404,51 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         alias_of: None,
         note: None,
     },
+    FunctionDoc {
+        name: "ten",
+        group: "Honour counts",
+        signature: "ten(compass)  ·  ten(compass, suit)",
+        summary: "Singular spelling of `tens`.",
+        example: "ten(north) >= 2",
+        alias_of: Some("tens"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "jack",
+        group: "Honour counts",
+        signature: "jack(compass)  ·  jack(compass, suit)",
+        summary: "Singular spelling of `jacks`.",
+        example: "jack(north) >= 2",
+        alias_of: Some("jacks"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "queen",
+        group: "Honour counts",
+        signature: "queen(compass)  ·  queen(compass, suit)",
+        summary: "Singular spelling of `queens`.",
+        example: "queen(north) >= 2",
+        alias_of: Some("queens"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "king",
+        group: "Honour counts",
+        signature: "king(compass)  ·  king(compass, suit)",
+        summary: "Singular spelling of `kings`.",
+        example: "king(north) >= 2",
+        alias_of: Some("kings"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "ace",
+        group: "Honour counts",
+        signature: "ace(compass)  ·  ace(compass, suit)",
+        summary: "Singular spelling of `aces`.",
+        example: "ace(north) >= 2",
+        alias_of: Some("aces"),
+        note: None,
+    },
     // The pt0..pt9 spellings are the original dealer's own, and scripts in the
     // wild use both, so each gets an entry pointing at the readable name.
     FunctionDoc {
@@ -484,13 +552,28 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         example: "tricks(south, spades) >= 10",
         alias_of: None,
         note: Some(
-            "Notrump has to be written as the number 4. The original dealer's `notrumps` \
-             keyword is not part of dealer3's grammar and is rejected outright — it used to \
-             be read as a variable, and since an unset variable is 0 and 0 means clubs, the \
-             script quietly asked about the wrong strain. Solving a deal is far slower than \
-             any other function here, so a script using `tricks` wants a tight `condition` \
-             ahead of it.",
+            "Notrump is `notrump`, `notrumps`, or the number 4 — the original's spelling and \
+             dealer3's number are the same value. Solving a deal is far slower than any other \
+             function here, so a script using `tricks` wants a tight `condition` ahead of it.",
         ),
+    },
+    FunctionDoc {
+        name: "trick",
+        group: "Double-dummy and scoring",
+        signature: "trick(compass, strain)",
+        summary: "Singular spelling of `tricks`.",
+        example: "trick(south, spades) >= 10",
+        alias_of: Some("tricks"),
+        note: None,
+    },
+    FunctionDoc {
+        name: "imp",
+        group: "Double-dummy and scoring",
+        signature: "imp(scoredifference)",
+        summary: "Singular spelling of `imps`.",
+        example: "imp(score(0, 43, 10) - score(0, 34, 9)) >= 1",
+        alias_of: Some("imps"),
+        note: None,
     },
     FunctionDoc {
         name: "score",
@@ -760,6 +843,31 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
         ),
     },
     StatementDoc {
+        keyword: Some("pointcount"),
+        form: "pointcount <value> <value> ...",
+        summary: "Re-scale the high card points. Values run from the ace downwards, and ranks \
+                  not reached score nothing.",
+        example: "pointcount 6 4 2 1",
+        note: Some(
+            "That example is the 6-4-2-1 scale: ace 6, king 4, queen 2, jack 1, everything \
+             else 0. At most thirteen values, one per rank.",
+        ),
+    },
+    StatementDoc {
+        keyword: Some("altcount"),
+        form: "altcount <count> <value> <value> ...",
+        summary: "Re-scale one of the other counts, the same way `pointcount` re-scales the \
+                  high card points.",
+        example: "altcount 2 1 1 1",
+        note: Some(
+            "The number is a row of the original's count table, and **it is not the `ptN` \
+             number**: row 0 is `hcp`, row 1 is `controls`, and row 2 is `pt0`. So \
+             `altcount 2` sets `tens`, and `altcount 0` overwrites `hcp`. Rows run 0 to 11. \
+             `losers` reads the `controls` and `top3` rows, so redefining either moves the \
+             loser count with it.",
+        ),
+    },
+    StatementDoc {
         keyword: Some("dealer"),
         form: "dealer <compass>",
         summary: "Records who dealt. Affects the output only, never which deals are produced.",
@@ -874,58 +982,6 @@ pub struct NotSupported {
 /// `reserved_unsupported` rule disagree — so implementing one means taking it
 /// out of both, and the language reference stops mentioning it automatically.
 pub const NOT_SUPPORTED: &[NotSupported] = &[
-    NotSupported {
-        name: "notrump",
-        instead: "In `tricks`, write notrump as the number 4.",
-    },
-    NotSupported {
-        name: "notrumps",
-        instead: "In `tricks`, write notrump as the number 4.",
-    },
-    NotSupported {
-        name: "control",
-        instead: "Write `controls`.",
-    },
-    NotSupported {
-        name: "hcps",
-        instead: "Write `hcp`.",
-    },
-    NotSupported {
-        name: "ten",
-        instead: "Write `tens`, or `pt0`.",
-    },
-    NotSupported {
-        name: "jack",
-        instead: "Write `jacks`, or `pt1`.",
-    },
-    NotSupported {
-        name: "queen",
-        instead: "Write `queens`, or `pt2`.",
-    },
-    NotSupported {
-        name: "king",
-        instead: "Write `kings`, or `pt3`.",
-    },
-    NotSupported {
-        name: "ace",
-        instead: "Write `aces`, or `pt4`.",
-    },
-    NotSupported {
-        name: "trick",
-        instead: "Write `tricks`.",
-    },
-    NotSupported {
-        name: "imp",
-        instead: "Write `imps`.",
-    },
-    NotSupported {
-        name: "pointcount",
-        instead: "There is no way to re-scale the high card points; `hcp` is always 4-3-2-1.",
-    },
-    NotSupported {
-        name: "altcount",
-        instead: "The `pt0`..`pt9` counts are fixed and cannot be redefined.",
-    },
     NotSupported {
         name: "print",
         instead: "Use `printall`, or one of the other print actions.",

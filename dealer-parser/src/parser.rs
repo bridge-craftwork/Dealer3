@@ -63,6 +63,37 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
     Ok(Program { statements })
 }
 
+/// Rows in the count table. Kept here so the parser can reject an out-of-range
+/// `altcount` where the script is written, rather than at evaluation time; the
+/// evaluator's `counts::NUM_ROWS` is the same number and a test ties them.
+pub const NUM_COUNT_ROWS: usize = 12;
+
+/// Ranks a count row can name: ace down to two.
+pub const MAX_COUNT_VALUES: usize = 13;
+
+fn read_count_values(pairs: pest::iterators::Pairs<Rule>) -> Result<Vec<i32>, ParseError> {
+    pairs
+        .map(|p| {
+            p.as_str().parse::<i32>().map_err(|_| ParseError {
+                message: format!("Invalid point count value: {}", p.as_str()),
+            })
+        })
+        .collect()
+}
+
+fn check_count_length(values: &[i32]) -> Result<(), ParseError> {
+    if values.len() > MAX_COUNT_VALUES {
+        return Err(ParseError {
+            message: format!(
+                "too many pointcount values: {} given, at most {} (ace down to two)",
+                values.len(),
+                MAX_COUNT_VALUES
+            ),
+        });
+    }
+    Ok(())
+}
+
 /// Build a statement from pest parse tree
 fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let inner = pair.into_inner().next().unwrap();
@@ -213,6 +244,40 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })?;
             Ok(Statement::Vulnerable(vuln))
         }
+        Rule::pointcount_stmt => {
+            let values = read_count_values(inner.into_inner())?;
+            check_count_length(&values)?;
+            Ok(Statement::PointCount(values))
+        }
+
+        Rule::altcount_stmt => {
+            let mut parts = inner.into_inner();
+            let row_pair = parts.next().ok_or_else(|| ParseError {
+                message: "altcount needs a count number".to_string(),
+            })?;
+            let row: i64 = row_pair.as_str().parse().map_err(|_| ParseError {
+                message: format!("Invalid altcount number: {}", row_pair.as_str()),
+            })?;
+            // The original accepts any number here and writes past the end of a
+            // twelve-row table. That is a memory bug, not behaviour to copy.
+            if !(0..NUM_COUNT_ROWS as i64).contains(&row) {
+                return Err(ParseError {
+                    message: format!(
+                        "altcount {} is out of range: the counts are numbered 0 to {} \
+                         (0 is hcp, 1 is controls, and 2 is pt0)",
+                        row,
+                        NUM_COUNT_ROWS - 1
+                    ),
+                });
+            }
+            let values = read_count_values(parts)?;
+            check_count_length(&values)?;
+            Ok(Statement::AltCount {
+                row: row as usize,
+                values,
+            })
+        }
+
         Rule::predeal_stmt => {
             let mut parts = inner.into_inner();
 
@@ -718,6 +783,12 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                 }
             };
             Ok(Expr::Position(position))
+        }
+
+        Rule::denomination_word => {
+            // dealer.exe resolves NOTRUMPS to 4 in its own grammar, and dealer3
+            // numbers strains the same way, so the word simply is that number.
+            Ok(Expr::Literal(4))
         }
 
         Rule::literal => {

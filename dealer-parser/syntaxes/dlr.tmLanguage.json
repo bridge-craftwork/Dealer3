@@ -103,19 +103,19 @@
       "patterns": [
         {
           "name": "keyword.control.dlr",
-          "match": "\\b(printcompact|printoneline|vulnerable|condition|frequency|generate|printall|printpbn|average|predeal|printew|produce|action|csvrpt|dealer)\\b"
+          "match": "\\b(printcompact|printoneline|pointcount|vulnerable|condition|frequency|altcount|generate|printall|printpbn|average|predeal|printew|produce|action|csvrpt|dealer)\\b"
         },
         {
           "name": "keyword.other.condition.dlr",
-          "match": "\\b(deal|and|any|not|!=|&&|<=|==|>=|or||||!|%|*|+|-|/|:|<|=|>|?)\\b"
+          "match": "\\b(notrumps|notrump|deal|and|any|not|!=|&&|<=|==|>=|or||||!|%|*|+|-|/|:|<|=|>|?)\\b"
         },
         {
           "name": "support.function.dlr",
-          "match": "\\b(controls|diamonds|diamond|hascard|quality|hearts|losers|queens|spades|tricks|clubs|heart|jacks|kings|loser|score|shape|spade|aces|cccc|club|imps|tens|top2|top3|top4|top5|c13|hcp|pt0|pt1|pt2|pt3|pt4|pt5|pt6|pt7|pt8|pt9)\\b"
+          "match": "\\b(controls|diamonds|control|diamond|hascard|quality|hearts|losers|queens|spades|tricks|clubs|heart|jacks|kings|loser|queen|score|shape|spade|trick|aces|cccc|club|hcps|imps|jack|king|tens|top2|top3|top4|top5|ace|c13|hcp|imp|pt0|pt1|pt2|pt3|pt4|pt5|pt6|pt7|pt8|pt9|ten)\\b"
         },
         {
           "name": "constant.language.dlr",
-          "match": "\\b(north|south|deal|east|none|west|all|and|any|not|!=|&&|<=|==|>=|ew|ns|or||||!|%|*|+|-|/|:|<|=|>|?)\\b"
+          "match": "\\b(notrumps|notrump|north|south|deal|east|none|west|all|and|any|not|!=|&&|<=|==|>=|ew|ns|or||||!|%|*|+|-|/|:|<|=|>|?)\\b"
         },
         {
           "name": "constant.language.compass.dlr",

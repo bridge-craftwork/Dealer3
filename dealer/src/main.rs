@@ -13,7 +13,10 @@ mod switches;
 
 use clap::Parser;
 use dealer_core::{Deal, FastDealConfig, Position};
-use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
+use dealer_eval::{
+    eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
+    extract_variables, EvalContext,
+};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
@@ -647,6 +650,17 @@ fn main() {
     let program_variables = extract_variables(&program);
     let constraint = extract_constraint(&program);
 
+    // `None` unless the script redefines a count, which keeps the hardcoded
+    // counts on the hot path for every script that does not.
+    let point_counts = match extract_point_counts(&program) {
+        Ok(counts) => counts,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let point_counts = point_counts.as_ref();
+
     // Determine limits for generation
     // -g limits total hands generated, -p limits matching hands produced
     // When both are specified, stop when either limit is reached
@@ -815,7 +829,7 @@ fn main() {
          csv_writer: &mut Option<BufWriter<std::fs::File>>| {
             // Calculate averages for this matching deal
             if !averages.is_empty() || !frequencies.is_empty() {
-                let ctx = EvalContext::with_variables(deal, &program_variables);
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
                 for (_, expr, sum, count) in averages.iter_mut() {
                     match eval(expr, &ctx) {
@@ -872,7 +886,7 @@ fn main() {
 
             // Write CSV reports if any
             if !csv_reports.is_empty() && csv_writer.is_some() {
-                let ctx = EvalContext::with_variables(deal, &program_variables);
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
                 for csv_terms in &csv_reports {
                     let mut line_parts: Vec<String> = Vec::new();
@@ -1012,7 +1026,9 @@ fn main() {
 
             // Evaluate constraint
             let eval_result = match constraint {
-                Some(expr) => eval_with_context(expr, &program_variables, &deal),
+                Some(expr) => {
+                    eval_with_context_and_counts(expr, &program_variables, &deal, point_counts)
+                }
                 None => Ok(1),
             };
 
@@ -1099,7 +1115,12 @@ fn main() {
                     Some(expr) => {
                         // Note: This creates a new EvalContext for each deal in parallel
                         // The program_variables are shared (read-only)
-                        match eval_with_context(expr, &program_variables, deal) {
+                        match eval_with_context_and_counts(
+                            expr,
+                            &program_variables,
+                            deal,
+                            point_counts,
+                        ) {
                             Ok(result) => result != 0,
                             Err(_) => false, // Treat errors as non-matching
                         }

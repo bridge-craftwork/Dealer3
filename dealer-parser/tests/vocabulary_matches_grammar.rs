@@ -246,3 +246,68 @@ fn reserved_words_are_ordered_longest_first() {
         }
     }
 }
+
+/// Literals of a rule in the order the grammar lists them, both `"x"` and `^"x"`.
+fn literals_in_order(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let chars: Vec<char> = body.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '"' {
+            let mut j = i + 1;
+            let mut word = String::new();
+            while j < chars.len() && chars[j] != '"' {
+                word.push(chars[j]);
+                j += 1;
+            }
+            if !word.is_empty()
+                && word.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+                && word.chars().all(|c| c.is_ascii_alphanumeric())
+            {
+                out.push(word);
+            }
+            i = j + 1;
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
+/// A rule whose branches are an ordered choice followed by something else must
+/// list the longest spelling first.
+///
+/// `function_call` is `function_name ~ "("`. PEG commits to the first branch
+/// that matches and does not retry the alternation when the rest of the sequence
+/// fails, so `hcp` ahead of `hcps` matches three letters of `hcps(`, fails on the
+/// `(`, and drops through to `ident` — which then rejects it. The grammar knew
+/// this for the suit names and nothing enforced it; now something does.
+#[test]
+fn function_names_are_ordered_longest_first() {
+    let order = literals_in_order(&rule_body("function_name"));
+    assert!(order.len() > 30, "extracted only {} names", order.len());
+    for (i, name) in order.iter().enumerate() {
+        for later in &order[i + 1..] {
+            assert!(
+                !later.starts_with(name),
+                "`{}` is listed before `{}`, which it is a prefix of — the shorter one wins \
+                 and the longer becomes unreachable",
+                name,
+                later
+            );
+        }
+    }
+}
+
+/// The remaining reserved words must appear in the grammar too, so the editor
+/// and the reference cannot advertise one the parser has never heard of.
+#[test]
+fn other_keywords_are_all_in_the_grammar() {
+    for word in dealer_parser::vocabulary::OTHER_KEYWORDS {
+        assert!(
+            GRAMMAR.contains(&format!("^\"{}\"", word)),
+            "`{}` is in OTHER_KEYWORDS but not in grammar.pest",
+            word
+        );
+    }
+}

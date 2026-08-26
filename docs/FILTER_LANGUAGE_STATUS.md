@@ -35,16 +35,17 @@ for the same predealt deal.
 
 <!-- BEGIN GENERATED: functions -->
 
-**24 functions**, under 39 spellings — the extra 15 are alternative names, listed with the function they stand for.
+**24 functions**, under 48 spellings — the extra 24 are alternative names, listed with the function they stand for.
 
 ### Hand evaluation
 
 | Function | What it computes | Example |
 |---|---|---|
 | `hcp(compass)  ·  hcp(compass, suit)` | High card points on the 4-3-2-1 scale: ace 4, king 3, queen 2, jack 1. With a suit, only that suit's cards are counted. | `hcp(north) >= 12 && hcp(north, spades) >= 4` |
-| | The original dealer can re-scale this with a `pointcount` statement. dealer3 has no such statement, so the 4-3-2-1 scale is fixed. | |
+| | The 4-3-2-1 scale is the default, not a fixture: a `pointcount` statement replaces it for the whole script. | |
 | `controls(compass)  ·  controls(compass, suit)` | Controls: each ace counts 2 and each king 1. | `controls(north) >= 5` |
-| | The original dealer also accepts the singular `control`. dealer3 does not. | |
+| `hcps(compass)  ·  hcps(compass, suit)` | Another spelling of `hcp` | `hcps(north) >= 12` |
+| `control(compass)  ·  control(compass, suit)` | Another spelling of `controls` | `control(north) >= 5` |
 | `losers(compass)  ·  losers(compass, suit)` | Losing trick count: a void is 0; a singleton is 0 holding the ace and 1 otherwise; a doubleton is 0 holding A-K, 1 holding the ace or the king and 2 otherwise; three cards or more is 3 minus the number of A, K and Q held. | `losers(south) <= 6` |
 | `loser(compass)  ·  loser(compass, suit)` | Another spelling of `losers` | `loser(south) <= 6` |
 | `quality(compass, suit)` | Quality of one suit, by the algorithm published in The Bridge World, October 1982, multiplied by 100 — so 450 means 4.50. | `quality(north, spades) >= 400` |
@@ -87,6 +88,11 @@ for the same predealt deal.
 | `top4(compass)  ·  top4(compass, suit)` | Number of the top four honours held: ace, king, queen, jack. | `top4(north, hearts) >= 3` |
 | `top5(compass)  ·  top5(compass, suit)` | Number of the top five honours held: ace, king, queen, jack, ten. | `top5(east, spades) >= 3` |
 | `c13(compass)  ·  c13(compass, suit)` | C13 points: ace 6, king 4, queen 2, jack 1. | `c13(north) >= 18` |
+| `ten(compass)  ·  ten(compass, suit)` | Another spelling of `tens` | `ten(north) >= 2` |
+| `jack(compass)  ·  jack(compass, suit)` | Another spelling of `jacks` | `jack(north) >= 2` |
+| `queen(compass)  ·  queen(compass, suit)` | Another spelling of `queens` | `queen(north) >= 2` |
+| `king(compass)  ·  king(compass, suit)` | Another spelling of `kings` | `king(north) >= 2` |
+| `ace(compass)  ·  ace(compass, suit)` | Another spelling of `aces` | `ace(north) >= 2` |
 | `pt0(compass)  ·  pt0(compass, suit)` | Another spelling of `tens` | `pt0(north) >= 2` |
 | `pt1(compass)  ·  pt1(compass, suit)` | Another spelling of `jacks` | `pt1(north) >= 2` |
 | `pt2(compass)  ·  pt2(compass, suit)` | Another spelling of `queens` | `pt2(north) >= 2` |
@@ -103,7 +109,9 @@ for the same predealt deal.
 | Function | What it computes | Example |
 |---|---|---|
 | `tricks(compass, strain)` | Tricks that compass takes as declarer in that strain with every hand seen — the double-dummy result. Strain is a suit name, or a number: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. | `tricks(south, spades) >= 10` |
-| | Notrump has to be written as the number 4. The original dealer's `notrumps` keyword is not part of dealer3's grammar and is rejected outright — it used to be read as a variable, and since an unset variable is 0 and 0 means clubs, the script quietly asked about the wrong strain. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
+| | Notrump is `notrump`, `notrumps`, or the number 4 — the original's spelling and dealer3's number are the same value. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
+| `trick(compass, strain)` | Another spelling of `tricks` | `trick(south, spades) >= 10` |
+| `imp(scoredifference)` | Another spelling of `imps` | `imp(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
 | `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
 | | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
 | `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
@@ -148,6 +156,8 @@ Tightest binding first. Operators sharing a level are applied left to right.
 | `action <action>, <action>, ...` | What to do with each matching deal: a print format, and any averages or frequencies to accumulate. | `action printoneline, average "hcp" hcp(north)` |
 | `average ["label"] <expression>` | Report the mean of the expression over the deals that matched. | `average "north hcp" hcp(north)` |
 | `frequency ["label"] (<expression>, <low>, <high>)` | Report a histogram of the expression over the deals that matched, counting from low to high inclusive. | `frequency "north hcp" (hcp(north), 10, 20)` |
+| `pointcount <value> <value> ...` | Re-scale the high card points. Values run from the ace downwards, and ranks not reached score nothing. | `pointcount 6 4 2 1` |
+| `altcount <count> <value> <value> ...` | Re-scale one of the other counts, the same way `pointcount` re-scales the high card points. | `altcount 2 1 1 1` |
 | `dealer <compass>` | Records who dealt. Affects the output only, never which deals are produced. | `dealer south` |
 | `vulnerable none \| ns \| ew \| all` | Records the vulnerability. Affects the output only, never which deals are produced. | `vulnerable ns` |
 | `predeal <compass> <holding>, <holding>, ...` | Places cards in a hand before shuffling; the rest of the deal is dealt around them. A holding is a suit letter followed by its ranks, using T for the ten. | `predeal north SAKQ,HT98` |
@@ -176,19 +186,6 @@ changes what a script means — see the note on #15 below.
 
 | Word | Instead |
 |---|---|
-| `notrump` | In `tricks`, write notrump as the number 4. |
-| `notrumps` | In `tricks`, write notrump as the number 4. |
-| `control` | Write `controls`. |
-| `hcps` | Write `hcp`. |
-| `ten` | Write `tens`, or `pt0`. |
-| `jack` | Write `jacks`, or `pt1`. |
-| `queen` | Write `queens`, or `pt2`. |
-| `king` | Write `kings`, or `pt3`. |
-| `ace` | Write `aces`, or `pt4`. |
-| `trick` | Write `tricks`. |
-| `imp` | Write `imps`. |
-| `pointcount` | There is no way to re-scale the high card points; `hcp` is always 4-3-2-1. |
-| `altcount` | The `pt0`..`pt9` counts are fixed and cannot be redefined. |
 | `print` | Use `printall`, or one of the other print actions. |
 | `printes` | There is no expression-printing action; use `average` or `csvrpt`. |
 | `rnd` | There is no random function inside the language. |

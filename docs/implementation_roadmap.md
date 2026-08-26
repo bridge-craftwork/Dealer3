@@ -277,10 +277,8 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔴 Do first | Accept the singular and plural spellings, and `notrump` | Low | High | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) | `control`, `hcps`, `ten`, `jack`, `queen`, `king`, `ace`, `trick`, `imp`. They are rejected loudly now, so nothing gives a wrong answer, but a script written for dealer.exe still will not run. |
 | 🟡 Worth it | Allow variables whose name begins with a statement keyword | Low | Medium | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |  |
 | 🟡 Worth it | Route `tricks()` through bridge-solver | Medium | High | [#14](https://github.com/bridge-craftwork/Dealer3/issues/14) | Minutes per solve on the legacy solver, which puts every double-dummy script out of reach. The fast solver is already a dependency and is never called. |
-| 🟡 Worth it | `pointcount` and `altcount`, to re-scale the point counts | Medium | High | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) | Rejected loudly today. `altcount` is what makes `pt0`-`pt9` ten counts a script can define rather than ten fixed ones, which is the case for rating this above its zero usage in the 1,076-script corpus. The statements are small; the cost is that dealer3 computes these counts from hardcoded matches across 22 methods in `dealer-core`, and `Card::hcp()` belongs to the shared `bridge-types` crate — so the counts have to read a table carried on `EvalContext` instead. Note that `altcount N` sets `pt(N-2)`, and `altcount 0` overwrites `hcp`: verified against dealer.exe, and contrary to the manual. |
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | Worth little until the solver behind `tricks()` is the fast one. |

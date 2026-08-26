@@ -35,7 +35,9 @@ fn evaluate(script: &str, deal: &Deal) -> Result<i32, EvalError> {
 /// parsed by `dealer-parser`, and its argument handling is covered by that
 /// crate's own tests; running it here would make `cargo test` unusable.
 fn uses_the_solver(example: &str) -> bool {
-    example.contains("tricks(")
+    // `trick`, not `tricks`: the singular alias shipped later and this filter
+    // missed it, which turned a millisecond test into a several-minute one.
+    example.contains("trick")
 }
 
 #[test]

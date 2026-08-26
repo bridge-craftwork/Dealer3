@@ -17,7 +17,10 @@
 //! so the Tier 2 regression hashes pin this build too.
 
 use dealer_core::{FastDealConfig, FastDealGenerator, Position};
-use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
+use dealer_eval::{
+    eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
+    extract_variables, EvalContext,
+};
 use dealer_parser::vocabulary;
 use dealer_parser::{Expr, Statement, VulnerabilityType};
 use dealer_pbn::{format_oneline, format_printall, format_printpbn, Vulnerability};
@@ -170,6 +173,9 @@ pub fn generate(
 
     let variables = extract_variables(&program);
     let constraint = extract_constraint(&program);
+    let point_counts = extract_point_counts(&program)
+        .map_err(|e| JsError::new(&format!("Point count error: {}", e)))?;
+    let point_counts = point_counts.as_ref();
 
     // `average` and `frequency` accumulate over matching deals only, mirroring
     // the CLI. Collected up front so the per-deal loop stays a tight walk.
@@ -254,7 +260,7 @@ pub fn generate(
         generated += 1;
 
         let matched = match constraint {
-            Some(expr) => eval_with_context(expr, &variables, &deal)
+            Some(expr) => eval_with_context_and_counts(expr, &variables, &deal, point_counts)
                 .map_err(|e| JsError::new(&format!("Evaluation error: {}", e)))?
                 != 0,
             None => true,
@@ -264,7 +270,7 @@ pub fn generate(
         }
 
         if collecting_stats {
-            let ctx = EvalContext::with_variables(&deal, &variables);
+            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
             for (_, expr, sum, count) in averages.iter_mut() {
                 let v = eval(expr, &ctx)
                     .map_err(|e| JsError::new(&format!("Average evaluation error: {}", e)))?;

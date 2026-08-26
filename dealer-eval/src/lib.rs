@@ -1,3 +1,7 @@
+pub mod counts;
+
+pub use counts::{CountError, CountRow, PointCounts};
+
 use dealer_core::{Card, Deal, Position, Suit};
 use dealer_dds::{Denomination, DoubleDummySolver};
 use dealer_parser::{BinaryOp, Expr, Function, Program, ShapePattern, Statement, UnaryOp};
@@ -313,6 +317,12 @@ pub struct EvalContext<'a> {
     /// Keys are &str references to avoid String cloning on cache insert
     /// FxHashMap uses a faster (non-cryptographic) hash function
     cache: RefCell<FxHashMap<&'a str, i32>>,
+    /// Point counts a script redefined with `pointcount` or `altcount`.
+    ///
+    /// `None` is the ordinary case — no script in the 1,076-script corpus uses
+    /// either statement — and it means the hardcoded counts run exactly as they
+    /// did before. Only a script that redefines something pays for the table.
+    counts: Option<&'a PointCounts>,
 }
 
 /// Empty variables map for contexts without variables
@@ -326,6 +336,7 @@ impl<'a> EvalContext<'a> {
             deal,
             variables: &EMPTY_VARIABLES,
             cache: RefCell::new(FxHashMap::default()),
+            counts: None,
         }
     }
 
@@ -335,6 +346,25 @@ impl<'a> EvalContext<'a> {
             deal,
             variables,
             cache: RefCell::new(FxHashMap::default()),
+            counts: None,
+        }
+    }
+
+    /// A context whose counts a script has redefined.
+    ///
+    /// Pass `None` when the script has no `pointcount` or `altcount` statement —
+    /// `extract_point_counts` returns exactly that — so the ordinary path keeps
+    /// running the hardcoded counts.
+    pub fn with_counts(
+        deal: &'a Deal,
+        variables: &'a FxHashMap<String, &'a Expr>,
+        counts: Option<&'a PointCounts>,
+    ) -> Self {
+        EvalContext {
+            deal,
+            variables,
+            cache: RefCell::new(FxHashMap::default()),
+            counts,
         }
     }
 }
@@ -349,6 +379,31 @@ pub fn extract_variables(program: &Program) -> FxHashMap<String, &Expr> {
         }
     }
     variables
+}
+
+/// Build the count table a program defines, or `None` if it defines none.
+///
+/// `None` is the answer for almost every script, and it is what keeps the
+/// hardcoded counts on the hot path — see `counts` for why that matters.
+/// Statements apply in order, so a later one wins, as in the original.
+pub fn extract_point_counts(program: &Program) -> Result<Option<PointCounts>, CountError> {
+    let mut counts: Option<PointCounts> = None;
+    for statement in &program.statements {
+        match statement {
+            Statement::PointCount(values) => {
+                counts
+                    .get_or_insert_with(PointCounts::standard)
+                    .set_row(CountRow::Hcp as usize, values)?;
+            }
+            Statement::AltCount { row, values } => {
+                counts
+                    .get_or_insert_with(PointCounts::standard)
+                    .set_row(*row, values)?;
+            }
+            _ => {}
+        }
+    }
+    Ok(counts)
 }
 
 /// Extract the final constraint expression from a program (call once before the eval loop)
@@ -377,7 +432,20 @@ pub fn eval_with_context(
     variables: &FxHashMap<String, &Expr>,
     deal: &Deal,
 ) -> Result<i32, EvalError> {
-    let ctx = EvalContext::with_variables(deal, variables);
+    eval_with_context_and_counts(constraint, variables, deal, None)
+}
+
+/// As `eval_with_context`, honouring counts the script redefined.
+///
+/// `counts` is `None` for any script without a `pointcount` or `altcount`
+/// statement, which is the case that has to stay fast.
+pub fn eval_with_context_and_counts(
+    constraint: &Expr,
+    variables: &FxHashMap<String, &Expr>,
+    deal: &Deal,
+    counts: Option<&PointCounts>,
+) -> Result<i32, EvalError> {
+    let ctx = EvalContext::with_counts(deal, variables, counts);
     eval(constraint, &ctx)
 }
 
@@ -560,6 +628,29 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
     }
 }
 
+/// One of the twelve counts, honouring a table the script redefined.
+///
+/// The `None` arm is the ordinary case and calls exactly the hardcoded routine
+/// that ran before this existed, so a script with no `pointcount` or `altcount`
+/// pays a single well-predicted branch rather than a table walk. See
+/// `counts` for the measurements behind that choice.
+#[inline(always)]
+fn counted(
+    ctx: &EvalContext,
+    hand: &dealer_core::Hand,
+    row: CountRow,
+    suit: Option<Suit>,
+    standard: impl FnOnce() -> i32,
+) -> i32 {
+    match ctx.counts {
+        None => standard(),
+        Some(counts) => match suit {
+            Some(suit) => counts.count_suit(hand, row, suit),
+            None => counts.count_hand(hand, row),
+        },
+    }
+}
+
 /// Evaluate a function call
 fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Result<i32, EvalError> {
     match function {
@@ -577,12 +668,17 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 2 {
-                // HCP in a specific suit
                 let suit = eval_suit_arg(&args[1])?;
-                let hcp: u8 = hand.cards_in_suit(suit).iter().map(|c| c.hcp()).sum();
-                Ok(hcp as i32)
+                Ok(counted(ctx, hand, CountRow::Hcp, Some(suit), || {
+                    hand.cards_in_suit(suit)
+                        .iter()
+                        .map(|c| c.hcp() as i32)
+                        .sum()
+                }))
             } else {
-                Ok(hand.hcp() as i32)
+                Ok(counted(ctx, hand, CountRow::Hcp, None, || {
+                    hand.hcp() as i32
+                }))
             }
         }
 
@@ -652,20 +748,21 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 2 {
-                // Controls in a specific suit (A=2, K=1)
                 let suit = eval_suit_arg(&args[1])?;
-                let controls: u8 = hand
-                    .cards_in_suit(suit)
-                    .iter()
-                    .map(|c| match c.rank {
-                        dealer_core::Rank::Ace => 2,
-                        dealer_core::Rank::King => 1,
-                        _ => 0,
-                    })
-                    .sum();
-                Ok(controls as i32)
+                Ok(counted(ctx, hand, CountRow::Controls, Some(suit), || {
+                    hand.cards_in_suit(suit)
+                        .iter()
+                        .map(|c| match c.rank {
+                            dealer_core::Rank::Ace => 2,
+                            dealer_core::Rank::King => 1,
+                            _ => 0,
+                        })
+                        .sum()
+                }))
             } else {
-                Ok(hand.controls() as i32)
+                Ok(counted(ctx, hand, CountRow::Controls, None, || {
+                    hand.controls() as i32
+                }))
             }
         }
 
@@ -704,13 +801,20 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
+            // Losers are derived from the controls and top3 rows, so a script
+            // that redefines either moves the loser count with it — which is
+            // what dealer.exe does, verified on the VM.
             if args.len() == 1 {
-                // Total losers in hand
-                Ok(hand.losers() as i32)
+                Ok(match ctx.counts {
+                    None => hand.losers() as i32,
+                    Some(counts) => counts.losers(hand),
+                })
             } else {
-                // Losers in specific suit
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.losers_in_suit(suit) as i32)
+                Ok(match ctx.counts {
+                    None => hand.losers_in_suit(suit) as i32,
+                    Some(counts) => counts.losers_in_suit(hand, suit),
+                })
             }
         }
 
@@ -744,10 +848,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.tens() as i32)
+                Ok(counted(ctx, hand, CountRow::Tens, None, || {
+                    hand.tens() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.tens_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Tens, Some(suit), || {
+                    hand.tens_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -764,10 +872,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.jacks() as i32)
+                Ok(counted(ctx, hand, CountRow::Jacks, None, || {
+                    hand.jacks() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.jacks_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Jacks, Some(suit), || {
+                    hand.jacks_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -784,10 +896,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.queens() as i32)
+                Ok(counted(ctx, hand, CountRow::Queens, None, || {
+                    hand.queens() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.queens_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Queens, Some(suit), || {
+                    hand.queens_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -804,10 +920,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.kings() as i32)
+                Ok(counted(ctx, hand, CountRow::Kings, None, || {
+                    hand.kings() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.kings_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Kings, Some(suit), || {
+                    hand.kings_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -824,10 +944,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.aces() as i32)
+                Ok(counted(ctx, hand, CountRow::Aces, None, || {
+                    hand.aces() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.aces_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Aces, Some(suit), || {
+                    hand.aces_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -844,10 +968,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.top2() as i32)
+                Ok(counted(ctx, hand, CountRow::Top2, None, || {
+                    hand.top2() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.top2_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Top2, Some(suit), || {
+                    hand.top2_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -864,10 +992,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.top3() as i32)
+                Ok(counted(ctx, hand, CountRow::Top3, None, || {
+                    hand.top3() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.top3_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Top3, Some(suit), || {
+                    hand.top3_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -884,10 +1016,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.top4() as i32)
+                Ok(counted(ctx, hand, CountRow::Top4, None, || {
+                    hand.top4() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.top4_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Top4, Some(suit), || {
+                    hand.top4_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -904,10 +1040,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.top5() as i32)
+                Ok(counted(ctx, hand, CountRow::Top5, None, || {
+                    hand.top5() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.top5_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::Top5, Some(suit), || {
+                    hand.top5_in_suit(suit) as i32
+                }))
             }
         }
 
@@ -924,10 +1064,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             let hand = ctx.deal.hand(position);
 
             if args.len() == 1 {
-                Ok(hand.c13() as i32)
+                Ok(counted(ctx, hand, CountRow::C13, None, || {
+                    hand.c13() as i32
+                }))
             } else {
                 let suit = eval_suit_arg(&args[1])?;
-                Ok(hand.c13_in_suit(suit) as i32)
+                Ok(counted(ctx, hand, CountRow::C13, Some(suit), || {
+                    hand.c13_in_suit(suit) as i32
+                }))
             }
         }
 

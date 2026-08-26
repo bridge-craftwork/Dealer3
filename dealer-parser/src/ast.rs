@@ -37,6 +37,16 @@ pub enum Statement {
     },
     /// CSV report statement: csvrpt(terms...)
     CsvReport(Vec<CsvTerm>),
+    /// Redefine the high card point scale: pointcount 6 4 2 1
+    ///
+    /// Values run from the ace downwards. Ranks not reached score nothing.
+    PointCount(Vec<i32>),
+    /// Redefine one of the alternate counts: altcount 2 1 1 1
+    ///
+    /// The number is a row of the original's count table, **not** a `ptN`
+    /// index — row 0 is `hcp` and row 1 is `controls`, so `altcount 2` is what
+    /// sets `pt0`. Verified against dealer.exe.
+    AltCount { row: usize, values: Vec<i32> },
 }
 
 /// A single term in a CSV report
@@ -341,20 +351,20 @@ impl Function {
     /// Parse function name from string
     pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "hcp" => Some(Function::Hcp),
+            "hcp" | "hcps" => Some(Function::Hcp),
             "spades" | "spade" => Some(Function::Spades),
             "hearts" | "heart" => Some(Function::Hearts),
             "diamonds" | "diamond" => Some(Function::Diamonds),
             "clubs" | "club" => Some(Function::Clubs),
-            "controls" => Some(Function::Controls),
+            "controls" | "control" => Some(Function::Controls),
             "losers" | "loser" => Some(Function::Losers),
             "shape" => Some(Function::Shape),
             "hascard" => Some(Function::HasCard),
-            "tens" | "pt0" => Some(Function::Tens),
-            "jacks" | "pt1" => Some(Function::Jacks),
-            "queens" | "pt2" => Some(Function::Queens),
-            "kings" | "pt3" => Some(Function::Kings),
-            "aces" | "pt4" => Some(Function::Aces),
+            "tens" | "ten" | "pt0" => Some(Function::Tens),
+            "jacks" | "jack" | "pt1" => Some(Function::Jacks),
+            "queens" | "queen" | "pt2" => Some(Function::Queens),
+            "kings" | "king" | "pt3" => Some(Function::Kings),
+            "aces" | "ace" | "pt4" => Some(Function::Aces),
             "top2" | "pt5" => Some(Function::Top2),
             "top3" | "pt6" => Some(Function::Top3),
             "top4" | "pt7" => Some(Function::Top4),
@@ -362,9 +372,9 @@ impl Function {
             "c13" | "pt9" => Some(Function::C13),
             "quality" => Some(Function::Quality),
             "cccc" => Some(Function::Cccc),
-            "tricks" => Some(Function::Tricks),
+            "tricks" | "trick" => Some(Function::Tricks),
             "score" => Some(Function::Score),
-            "imps" => Some(Function::Imps),
+            "imps" | "imp" => Some(Function::Imps),
             _ => None,
         }
     }
