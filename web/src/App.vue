@@ -4,6 +4,15 @@
       <h1>dealer3</h1>
       <span class="bar-sub">bridge hand generator — runs entirely in your browser</span>
       <span class="bar-spacer"></span>
+      <!-- Opens in its own tab: looking a function up is something you do while
+           part-way through writing a script, and losing the editor to do it
+           would mean coming back to an empty page. -->
+      <a
+        class="bar-link"
+        href="./reference.html"
+        target="_blank"
+        rel="noopener"
+      >Language reference ↗</a>
       <!-- Feedback needs somewhere durable to land. Without this the only route
            is email, and a report with no script attached is hard to act on. -->
       <a

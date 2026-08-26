@@ -24,15 +24,22 @@ src/
 │   ├── pbsScenarios.js   PBS manifest + script access (vendored)
 │   ├── cardFormatting.js card/suit primitives and oneline parsing (vendored)
 │   ├── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
+│   ├── reference.js      shaping the vocabulary into reference sections
 │   └── download.js       saving results as PBN or text
+├── Reference.vue         the language reference page
 └── components/
     ├── ScenarioPicker.vue  340+ PBS scenarios, grouped and searchable
     ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
     ├── DealGrid.vue        deals as bridge hands, with HCP
+    ├── RichText.vue        backticked spans in descriptions, as code
     └── ResultsPanel.vue    deals, averages, frequency charts
 ```
 
-## Three things worth knowing
+Two pages, both Vite entries: `index.html` (the app) and `reference.html` (the
+language reference). They share the engine chunk; the reference pulls in none of
+the editor.
+
+## Four things worth knowing
 
 **Diagnostics come from the parser, not a regex.** `check_script()` is the same
 pest parser the CLI uses, so a squiggle means the engine will reject the script,
@@ -43,6 +50,15 @@ runtime from `language_info()`, which comes from `dealer_parser::vocabulary` —
 the same list checked against `grammar.pest` by two tests. Highlighting cannot
 advertise a function the parser rejects, or miss one it accepts. That is the bug
 that left 19 functions uncoloured in the VS Code extension for years.
+
+**The language reference is generated, not written.** `reference.html` renders
+every function, operator and statement from that same `language_info()`, so it
+cannot list something the parser rejects or leave out something it accepts. The
+descriptions live in `dealer-parser/src/vocabulary.rs` beside the word lists,
+where `tests/vocabulary_docs.rs` holds them to it: **adding a function to the
+grammar fails the build until it is documented**. Every example on the page is
+parsed by that test and *evaluated* by `dealer-eval`'s, so no snippet in the
+reference is one the engine would reject.
 
 **Scenarios are fetched, not bundled.** `pbsScenarios.js` reads the manifest that
 Practice-Bidding-Scenarios CI builds, straight from raw.githubusercontent.com,
@@ -171,7 +187,14 @@ Both drive off the same vocabulary, so the choice is presentation only.
 npm test
 ```
 
-24 cases covering manifest parsing and the language derivation — tokenizer
-classification, longest-first matching, case-insensitivity, and completion shape.
+77 cases covering manifest parsing, the language derivation — tokenizer
+classification, longest-first matching, case-insensitivity, completion shape —
+and the reference page's transforms of the vocabulary.
+
 The Vue components are not covered by unit tests; they are exercised by the
-browser smoke checks instead.
+browser smoke checks instead. That division is deliberate: every real bug in
+this app so far has been a wiring or ordering fault that unit tests could not
+see. The reference page was no exception — its first build rendered zero entries
+because `npm run build` skips the wasm step, so the page ran against an engine
+that predated the docs. **Build with `build:all` before checking anything in a
+browser.**

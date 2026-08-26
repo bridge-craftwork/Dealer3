@@ -124,6 +124,42 @@ Function names, keywords, actions, positions, vulnerabilities and operators, fro
 `dealer-parser/tests/vocabulary_matches_grammar.rs`, so an editor built on this
 cannot advertise a function the parser does not accept.
 
+It also carries the **documentation** for that vocabulary — `function_docs`,
+`operator_docs`, `statement_docs`, `action_docs`, `function_groups` and
+`not_supported` — which is what `web/reference.html` renders:
+
+```json
+{
+  "function_docs": [
+    {
+      "name": "cccc",
+      "group": "Hand evaluation",
+      "signature": "cccc(compass)",
+      "summary": "Whole-hand evaluation by the algorithm published in …",
+      "example": "cccc(north) >= 1200",
+      "alias_of": null,
+      "note": "Honours are valued by suit with penalties for …"
+    }
+  ],
+  "operator_docs": [{ "symbol": "!", "word": "not", "precedence": 1, "…": "…" }],
+  "not_supported": [{ "name": "notrumps", "instead": "In `tricks`, write notrump as the number 4." }]
+}
+```
+
+`precedence` is 1 for the tightest binding; operators come back in that order,
+which `vocabulary_docs.rs` enforces. `alias_of` marks a second spelling — `pt0`
+for `tens`, `loser` for `losers` — so a page can show it without repeating the
+description. Descriptions use backticks around code, the only markup they carry.
+
+`dealer-parser` has no serde dependency, so these shapes are restated in
+`wasm/src/lib.rs` and copied across field by field.
+
+`tests/vocabulary_docs.rs` fails the build when a function in `FUNCTIONS` has no
+entry — so a new function cannot reach the grammar without being documented —
+and parses every example. `dealer-eval/tests/doc_examples_evaluate.rs` then
+*runs* them, and pins `quality`, `cccc`, `losers`, `c13`, `controls` and `top5`
+to the values dealer.exe produces for the same predealt deal.
+
 ## Syntax highlighting
 
 `dealer-parser/syntaxes/dlr.tmLanguage.json` is a TextMate grammar generated from

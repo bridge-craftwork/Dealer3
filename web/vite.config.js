@@ -3,6 +3,8 @@ import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+const entry = (name) => fileURLToPath(new URL(name, import.meta.url))
+
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
 export default defineConfig({
@@ -24,6 +26,13 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
+      // Two pages: the app, and a language reference generated from the
+      // engine's own vocabulary. The reference imports the engine, so it has to
+      // be a bundler entry rather than a static file copied past it.
+      input: {
+        main: entry('index.html'),
+        reference: entry('reference.html'),
+      },
       output: {
         // Keep the engine and the editor in their own chunks. Both are large,
         // both are content-hashed, and neither changes when app code does — so

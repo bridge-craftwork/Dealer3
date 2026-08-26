@@ -400,6 +400,123 @@ fn parse_position(msg: &str) -> (Option<usize>, Option<usize>) {
     )
 }
 
+/// The documentation tables, mirrored for serialisation.
+///
+/// `dealer-parser` deliberately has no serde dependency — it is the parser, and
+/// the editors and pages that read its vocabulary are downstream of it. So the
+/// shapes are restated here and copied field by field, which costs a dozen
+/// lines once and keeps serde out of the parser.
+mod docs {
+    use dealer_parser::vocabulary;
+    use serde::Serialize;
+
+    #[derive(Serialize)]
+    pub struct FunctionDoc {
+        pub name: &'static str,
+        pub group: &'static str,
+        pub signature: &'static str,
+        pub summary: &'static str,
+        pub example: &'static str,
+        pub alias_of: Option<&'static str>,
+        pub note: Option<&'static str>,
+    }
+
+    #[derive(Serialize)]
+    pub struct OperatorDoc {
+        pub symbol: &'static str,
+        pub word: Option<&'static str>,
+        pub precedence: u8,
+        pub summary: &'static str,
+        pub example: &'static str,
+        pub note: Option<&'static str>,
+    }
+
+    #[derive(Serialize)]
+    pub struct StatementDoc {
+        pub keyword: Option<&'static str>,
+        pub form: &'static str,
+        pub summary: &'static str,
+        pub example: &'static str,
+        pub note: Option<&'static str>,
+    }
+
+    #[derive(Serialize)]
+    pub struct ActionDoc {
+        pub name: &'static str,
+        pub summary: &'static str,
+        pub note: Option<&'static str>,
+    }
+
+    #[derive(Serialize)]
+    pub struct NotSupported {
+        pub name: &'static str,
+        pub instead: &'static str,
+    }
+
+    pub fn functions() -> Vec<FunctionDoc> {
+        vocabulary::FUNCTION_DOCS
+            .iter()
+            .map(|d| FunctionDoc {
+                name: d.name,
+                group: d.group,
+                signature: d.signature,
+                summary: d.summary,
+                example: d.example,
+                alias_of: d.alias_of,
+                note: d.note,
+            })
+            .collect()
+    }
+
+    pub fn operators() -> Vec<OperatorDoc> {
+        vocabulary::OPERATOR_DOCS
+            .iter()
+            .map(|d| OperatorDoc {
+                symbol: d.symbol,
+                word: d.word,
+                precedence: d.precedence,
+                summary: d.summary,
+                example: d.example,
+                note: d.note,
+            })
+            .collect()
+    }
+
+    pub fn statements() -> Vec<StatementDoc> {
+        vocabulary::STATEMENT_DOCS
+            .iter()
+            .map(|d| StatementDoc {
+                keyword: d.keyword,
+                form: d.form,
+                summary: d.summary,
+                example: d.example,
+                note: d.note,
+            })
+            .collect()
+    }
+
+    pub fn actions() -> Vec<ActionDoc> {
+        vocabulary::ACTION_DOCS
+            .iter()
+            .map(|d| ActionDoc {
+                name: d.name,
+                summary: d.summary,
+                note: d.note,
+            })
+            .collect()
+    }
+
+    pub fn not_supported() -> Vec<NotSupported> {
+        vocabulary::NOT_SUPPORTED
+            .iter()
+            .map(|d| NotSupported {
+                name: d.name,
+                instead: d.instead,
+            })
+            .collect()
+    }
+}
+
 #[derive(Serialize)]
 struct LanguageInfo {
     functions: Vec<&'static str>,
@@ -410,13 +527,25 @@ struct LanguageInfo {
     logical_words: Vec<&'static str>,
     other_keywords: Vec<&'static str>,
     operators: Vec<&'static str>,
+
+    // The same vocabulary, described. The language reference page is rendered
+    // from these, so it cannot list a function the parser rejects or miss one it
+    // accepts — the guarantee the editor's highlighting already relies on.
+    function_groups: Vec<&'static str>,
+    function_docs: Vec<docs::FunctionDoc>,
+    operator_docs: Vec<docs::OperatorDoc>,
+    statement_docs: Vec<docs::StatementDoc>,
+    action_docs: Vec<docs::ActionDoc>,
+    not_supported: Vec<docs::NotSupported>,
 }
 
-/// The language's full vocabulary, for editor completion and hover.
+/// The language's full vocabulary, for editor completion and hover, and its
+/// documentation, for the language reference page.
 ///
 /// Comes from `dealer_parser::vocabulary`, which is itself checked against
 /// `grammar.pest`, so an editor built on this cannot advertise a function the
-/// parser does not accept.
+/// parser does not accept — and a reference page built on it cannot describe
+/// a language other than the one that runs.
 #[wasm_bindgen]
 pub fn language_info() -> String {
     let info = LanguageInfo {
@@ -428,6 +557,13 @@ pub fn language_info() -> String {
         logical_words: vocabulary::LOGICAL_WORDS.to_vec(),
         other_keywords: vocabulary::OTHER_KEYWORDS.to_vec(),
         operators: vocabulary::OPERATORS.to_vec(),
+
+        function_groups: vocabulary::FUNCTION_GROUPS.to_vec(),
+        function_docs: docs::functions(),
+        operator_docs: docs::operators(),
+        statement_docs: docs::statements(),
+        action_docs: docs::actions(),
+        not_supported: docs::not_supported(),
     };
     serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string())
 }
