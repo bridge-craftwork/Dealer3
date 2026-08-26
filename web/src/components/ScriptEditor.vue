@@ -21,9 +21,13 @@ import { ref, onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
-import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language'
+import { bracketMatching } from '@codemirror/language'
 import { autocompletion, closeBrackets } from '@codemirror/autocomplete'
 import { linter, lintGutter } from '@codemirror/lint'
+// A dark editor on a light page. Syntax palettes are built for dark grounds —
+// the same colours that read clearly there are washed out on white, which is
+// what the default highlight style looked like here.
+import { oneDark } from '@codemirror/theme-one-dark'
 import { dlrLanguage, dlrCompletion } from '@/lib/dlrLanguage.js'
 import { checkScript, languageInfo, ready } from '@/lib/engine.js'
 
@@ -114,7 +118,7 @@ onMounted(async () => {
         bracketMatching(),
         closeBrackets(),
         keymap.of([...defaultKeymap, ...historyKeymap]),
-        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        oneDark,
         dlrLanguage(info),
         autocompletion({ override: [dlrCompletion(info)] }),
         lintGutter(),
@@ -126,6 +130,9 @@ onMounted(async () => {
           '&': { height: '100%', fontSize: '13px' },
           '.cm-scroller': { fontFamily: 'var(--mono)', overflow: 'auto' },
           '&.cm-focused': { outline: 'none' },
+          // one-dark ships no rule for the lint gutter marker; without this it
+          // renders near-invisible against the dark gutter.
+          '.cm-lint-marker-error': { filter: 'brightness(1.4)' },
         }),
       ],
     }),
@@ -151,10 +158,14 @@ defineExpose({ focus: () => view.value?.focus() })
 .editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .editor-host {
   flex: 1; min-height: 0; overflow: hidden;
-  border: 1px solid var(--line); border-radius: 4px;
+  border: 1px solid var(--editor-line); border-radius: 4px 4px 0 0;
 }
+/* Reads as part of the dark editor rather than the light page. */
 .editor-status {
-  padding: 4px 8px; font-size: 12px; color: var(--fg-muted); font-family: var(--mono);
+  padding: 4px 8px; font-size: 12px; font-family: var(--mono);
+  color: #9aa3b2; background: var(--editor-bg);
+  border: 1px solid var(--editor-line); border-top: 0;
+  border-radius: 0 0 4px 4px; margin-top: -5px;
 }
-.editor-status.is-error { color: var(--danger); }
+.editor-status.is-error { color: #ff8a80; }
 </style>

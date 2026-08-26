@@ -178,6 +178,10 @@ async function run() {
   --warn-fg: #8a6300;
   --warn-subtle: #fdf6e3;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* The editor is dark against the light page; these keep its chrome — border,
+     status strip — matched to it rather than to the surrounding UI. */
+  --editor-bg: #282c34;
+  --editor-line: #3a4049;
 }
 
 * { box-sizing: border-box; }

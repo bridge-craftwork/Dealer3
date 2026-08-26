@@ -92,6 +92,14 @@ matches what was shown.
 
 PBN output carries the script's `dealer` and `vulnerable` settings in its tags.
 
+## Editor appearance
+
+The editor is dark (One Dark) on an otherwise light page. Syntax palettes are
+designed for dark grounds, and the same colours that read clearly there are
+washed out on white — which is how CodeMirror's default highlight style looked
+here. The editor's border and status strip are matched to it (`--editor-bg`,
+`--editor-line`) so it reads as one component rather than a hole in the page.
+
 ## Editor choice
 
 CodeMirror 6, not Monaco. Monaco was tried first, on the assumption that loading
