@@ -186,10 +186,24 @@ predeal_card = @{
 rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" }
 suit_char = { "S" | "H" | "D" | "C" }
 
+// Words that introduce a statement. Kept out of bare-identifier position: a
+// malformed statement otherwise backtracks into `expr` and parses as bare
+// identifiers the evaluator ignores, so `dealer soudfsfd` was silently accepted
+// where dealer.exe reports "syntax error".
+//
+// Referenced only from `ident`, which is atomic, so no implicit whitespace is
+// inserted before the boundary lookahead. The trailing `!(ALNUM | "_")` keeps
+// names like `conditionMet` from matching the bare keyword.
+statement_keyword = @{
+    (^"condition" | ^"produce" | ^"generate" | ^"action" | ^"dealer"
+     | ^"vulnerable" | ^"predeal" | ^"csvrpt" | ^"average" | ^"frequency")
+    ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
 // Identifiers (for variables)
 // Allow any alphanumeric identifier - the parser will try more specific rules first
 // Variables like "spadeFit" or "heartCount" must be allowed even though they start with keywords
-ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+ident = @{ !statement_keyword ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Shape patterns: any 4333 + 54xx - any 0xxx
 // Spaces can act as implicit "+" (addition) between shape specs
