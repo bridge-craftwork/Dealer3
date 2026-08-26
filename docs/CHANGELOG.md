@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **BREAKING: legacy mode (`--legacy`) and the ported GNU `random()`.**
+  `-s/--seed` no longer reproduces dealer.exe's deal sequence. Scripts port
+  unchanged and filter semantics are unaffected — only the specific deals for a
+  given seed differ. The flag is still parsed and reports its removal rather than
+  failing with an unknown-argument error; it will be dropped entirely in a future
+  release (target: 2027).
+  - The `gnurandom` crate is removed from the workspace. Its xoshiro256++
+    implementation, which was always the production RNG, moved to
+    `dealer-core/src/rng.rs`. The GNU `random()` port derived from Berkeley
+    `random.c` and carried a 1983 UC Regents notice; it now lives in the
+    `dealer-legacy-shuffle` repository, which handles its attribution.
+  - Also removed: the `dealer-test` crate, `tools/rng-experiments/`, and the
+    golden shuffle tests, all of which existed to verify the legacy RNG.
+  - `scripts/compare-dealer.sh` is superseded: it compared deals one-for-one,
+    which required legacy mode. Use `scripts/test-filter.py` or
+    `scripts/generate-corpus.py` instead.
+
+### Changed
+- CI's "Check dealer.exe Compatibility" job, which only asserted output was
+  non-empty, is replaced by a job running both regression tiers explicitly and
+  verifying `gnurandom` is absent from the dependency tree
+
 ### Added
 - `--input-deals -` now reads deals from stdin, so deals can be piped in without a
   temporary file. Requires the script to be passed as a file argument, since stdin is

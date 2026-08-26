@@ -107,6 +107,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    # Every remaining crate is dealer3's own work, so a blanket Unlicense check
+    # is accurate. It was not while the workspace still contained gnurandom, whose
+    # RNG derived from Berkeley random.c and carried a 1983 UC Regents notice that
+    # this project had no standing to waive. That code now lives in
+    # dealer-legacy-shuffle, which handles its attribution.
     - name: Verify all crates use Unlicense
       run: |
         echo "Checking license fields in Cargo.toml files..."
@@ -120,8 +125,8 @@ jobs:
         done
         echo "All crates have correct license!"
 
-  check-compatibility:
-    name: Check dealer.exe Compatibility
+  regression:
+    name: Regression Tiers
     runs-on: ubuntu-latest
 
     steps:
@@ -140,43 +145,34 @@ jobs:
           target
         key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Build dealer3
-      run: cargo build --release --bin dealer
+    # Tier 1 replays deal sequences captured from dealer.exe and committed under
+    # dealer/tests/corpus/. It never invokes dealer.exe itself.
+    - name: Tier 1 - corpus replay vs dealer.exe
+      run: cargo test -p dealer --test corpus_replay
 
-    - name: Test RNG compatibility (seed 1)
+    # Tier 2 pins dealer3's own output. A failure here means generation or
+    # filtering changed, not that we disagree with dealer.exe.
+    - name: Tier 2 - self-regression hashes
+      run: cargo test -p dealer --test regression_hash
+
+    - name: Verify legacy mode is gone
       run: |
-        # Test that seed 1 produces expected deals
-        # This verifies RNG compatibility with dealer.exe
-        echo "hcp(north) >= 0" | ./target/release/dealer -s 1 -p 1 > output.txt
-
-        # Check output is not empty
-        if [ ! -s output.txt ]; then
-          echo "Error: No output generated"
+        cargo build --release --bin dealer
+        if cargo tree | grep -q gnurandom; then
+          echo "gnurandom is still a dependency"
           exit 1
         fi
-
-        echo "RNG test passed - dealer3 generates deals correctly"
-
-    - name: Test predeal switches
-      run: |
-        # Test new DealerV2_4 predeal switches
-        echo "hcp(north) >= 0" | ./target/release/dealer \
-          -E S8743,HA9,D642,CQT64 \
-          -W SQ965,HK63,DAQJT,CA5 \
-          -p 1 -s 42 > predeal_output.txt
-
-        # Verify output exists
-        if [ ! -s predeal_output.txt ]; then
-          echo "Error: Predeal test failed"
+        # --legacy must report its removal rather than silently doing nothing
+        if ./target/release/dealer --legacy -p 1 </dev/null; then
+          echo "--legacy should exit non-zero"
           exit 1
         fi
-
-        echo "Predeal switches test passed"
+        echo "legacy mode removed, gnurandom not in the dependency tree"
 
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [test, lint, check-licenses, check-compatibility]
+    needs: [test, lint, check-licenses, regression]
 
     steps:
     - name: Summary
@@ -185,4 +181,4 @@ jobs:
         echo "✅ All platforms (Linux, Windows, macOS) built successfully"
         echo "✅ Code formatting and linting passed"
         echo "✅ License compliance verified"
-        echo "✅ dealer.exe compatibility verified"
+        echo "✅ Regression tiers passed"

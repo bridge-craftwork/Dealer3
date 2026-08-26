@@ -1,8 +1,0 @@
-[package]
-name = "gnurandom"
-version = "1.0.0"
-edition = "2021"
-license = "Unlicense"
-description = "Exact compatibility implementation of GNU/glibc random() RNG"
-
-[dependencies]

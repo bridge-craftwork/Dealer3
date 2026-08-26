@@ -1,7 +1,7 @@
 mod fast_parallel;
 
 use clap::Parser;
-use dealer_core::{Deal, DealGenerator, FastDealConfig, Position};
+use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
@@ -142,11 +142,10 @@ struct Args {
     #[arg(long = "batch-size", default_value = "0")]
     batch_size: usize,
 
-    /// Use legacy mode: single-threaded with dealer.exe-compatible RNG.
-    /// Required for bit-for-bit output comparison with dealer.exe.
-    /// Without this flag, dealer3 uses a faster parallel algorithm that produces
-    /// statistically equivalent but different random deals.
-    #[arg(long = "legacy")]
+    /// REMOVED: legacy dealer.exe-compatible RNG mode.
+    /// Still parsed so the flag reports what happened instead of an unknown-argument
+    /// error. Will be dropped entirely in a future release.
+    #[arg(long = "legacy", hide = true)]
     legacy: bool,
 }
 
@@ -409,6 +408,26 @@ fn main() {
         println!();
         println!("See documentation for full contribution details.");
         std::process::exit(0);
+    }
+
+    // --legacy was removed in 0.5.0. It is still parsed so that scripts using it
+    // get an explanation rather than clap's "unexpected argument" error. Drop the
+    // flag entirely once the deprecation window has passed (target: 2027).
+    if args.legacy {
+        eprintln!("Error: legacy mode has been removed.");
+        eprintln!();
+        eprintln!("'--legacy' selected a single-threaded mode using a port of the GNU");
+        eprintln!("random() from the original C dealer, so that '-s' reproduced");
+        eprintln!("dealer.exe's exact deal sequence. That RNG has been removed.");
+        eprintln!();
+        eprintln!("dealer3 still accepts the same scripts and produces the same kinds of");
+        eprintln!("deals; only the specific sequence for a given seed has changed.");
+        eprintln!();
+        eprintln!("If you need dealer.exe's exact sequence, use dealer.exe, or see the");
+        eprintln!("dealer-legacy-shuffle repository for the extracted implementation.");
+        eprintln!();
+        eprintln!("Suggestion: remove '--legacy' from your command.");
+        std::process::exit(1);
     }
 
     // Check for deprecated switches and provide helpful error messages
@@ -751,9 +770,6 @@ fn main() {
         if args.seed.is_some() {
             eprintln!("Warning: --seed is ignored when using --input-deals");
         }
-        if args.legacy {
-            eprintln!("Warning: --legacy is ignored when using --input-deals");
-        }
     }
 
     let mut produced = 0;
@@ -1017,100 +1033,6 @@ fn main() {
 
         if skipped > 0 {
             eprintln!("Warning: skipped {} unreadable deal(s) from input", skipped);
-        }
-    } else if args.legacy {
-        // Legacy mode: single-threaded with gnurandom for exact dealer.exe compatibility
-        // Initialize the legacy DealGenerator and apply predeal
-        let mut generator = DealGenerator::new(seed);
-
-        // Apply predeal to legacy generator
-        for statement in &program.statements {
-            if let Statement::Predeal { position, cards } = statement {
-                if let Err(e) = generator.predeal(*position, cards) {
-                    eprintln!("Predeal error: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
-        // Command-line predeals were already validated with fast_predeal_config,
-        // now apply them to the legacy generator
-        if let Some(ref cards_str) = args.north_predeal {
-            if let Ok(cards) = parse_predeal_cards(cards_str) {
-                let _ = generator.predeal(Position::North, &cards);
-            }
-        }
-        if let Some(ref cards_str) = args.east_predeal {
-            if let Ok(cards) = parse_predeal_cards(cards_str) {
-                let _ = generator.predeal(Position::East, &cards);
-            }
-        }
-        if let Some(ref cards_str) = args.south_predeal {
-            if let Ok(cards) = parse_predeal_cards(cards_str) {
-                let _ = generator.predeal(Position::South, &cards);
-            }
-        }
-        if let Some(ref cards_str) = args.west_predeal {
-            if let Ok(cards) = parse_predeal_cards(cards_str) {
-                let _ = generator.predeal(Position::West, &cards);
-            }
-        }
-
-        while produced < produce_count && generated < max_generate {
-            // Check timeout (check every 1000 deals to avoid excessive time calls)
-            if let Some(timeout_secs) = args.timeout {
-                if generated.is_multiple_of(1000) {
-                    let elapsed = start_time.elapsed().unwrap().as_secs();
-                    if elapsed >= timeout_secs {
-                        timed_out = true;
-                        eprintln!(
-                            "Timeout after {} seconds ({} generated, {} produced)",
-                            elapsed, generated, produced
-                        );
-                        break;
-                    }
-                }
-            }
-
-            let deal = generator.generate();
-            generated += 1;
-
-            // Show progress meter if enabled (matches dealer.exe -m)
-            if args.progress && generated - last_progress_report >= progress_interval {
-                let elapsed = start_time.elapsed().unwrap().as_secs_f64();
-                eprintln!(
-                    "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
-                    generated, produced, elapsed
-                );
-                last_progress_report = generated;
-            }
-
-            // Evaluate constraint with pre-extracted variables (optimized hot path)
-            let eval_result = match constraint {
-                Some(expr) => eval_with_context(expr, &program_variables, &deal),
-                None => Ok(1), // No constraint = always match
-            };
-
-            match eval_result {
-                Ok(result) if result != 0 => {
-                    // Constraint satisfied (non-zero = true)
-                    process_matching_deal(
-                        &deal,
-                        produced,
-                        &mut averages,
-                        &mut frequencies,
-                        &mut csv_writer,
-                    );
-                    produced += 1;
-                }
-                Ok(_) => {
-                    // Constraint not satisfied (zero = false)
-                    continue;
-                }
-                Err(e) => {
-                    eprintln!("Evaluation error: {}", e);
-                    std::process::exit(1);
-                }
-            }
         }
     } else {
         // Fast mode: parallel execution with xoshiro256++ RNG

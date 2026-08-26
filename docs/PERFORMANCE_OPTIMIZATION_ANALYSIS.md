@@ -305,7 +305,7 @@ When implementing these optimizations:
 - `dealer-core/src/hand.rs` - Current `Hand` implementation
 - `dealer-eval/src/lib.rs` - Expression evaluator (hot path)
 - `dealer-core/src/deal.rs` - Deal generation
-- `gnurandom/src/lib.rs` - RNG implementation (candidate for fast_randint optimization)
+- `dealer-core/src/rng.rs` - RNG implementation (candidate for fast_randint optimization)
 
 ### Reference Implementations
 - Original C: `/Users/rick/Development/GitHub/Dealer-cleanup/dealer.c`

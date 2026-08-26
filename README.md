@@ -7,7 +7,7 @@ A Rust implementation of the classic dealer.exe bridge hand generator, with full
 
 ## Features
 
-- **dealer.exe Compatible**: Exact RNG compatibility ensures same seed = same deals
+- **dealer.exe Compatible**: Runs dealer.exe scripts unchanged; filter semantics verified against it
 - **DealerV2_4 Enhancements**: Command-line predeal switches, CSV export, title metadata
 - **Constraint Language**: Full dealer.exe expression language with variables
 - **Multiple Output Formats**: PBN, compact, one-line, and more
@@ -177,17 +177,21 @@ dealer3/
 ├── dealer-parser/   - Constraint language parser (PEG grammar)
 ├── dealer-eval/     - Expression evaluator
 ├── dealer-pbn/      - PBN format I/O
-├── gnurandom/       - GNU/glibc random() RNG implementation
 ├── docs/            - Documentation
 └── scripts/         - Build and utility scripts
 ```
 
 ## Compatibility
 
-### dealer.exe (Thomas Andrews)
-✅ **100% RNG compatible** - Same seed produces identical deals
+### dealer.exe
 ✅ **Full constraint language** - All functions and operators supported
 ✅ **Command-line switches** - Core switches work identically
+✅ **Filter semantics verified** - checked against dealer.exe by the Tier 1
+   regression corpora (see [Regression Testing](docs/REGRESSION_TESTING.md))
+
+⚠️ **Deal sequences differ.** dealer3 uses xoshiro256++, not the GNU `random()`
+of the original. The same seed does *not* reproduce dealer.exe's deals. Scripts
+port unchanged; specific deals do not. See the [CHANGELOG](docs/CHANGELOG.md).
 
 ### DealerV2_4 (Thorvald Aagaard)
 ✅ **Predeal switches** - `-N/-E/-S/-W` for command-line predeal

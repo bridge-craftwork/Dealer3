@@ -1,14 +1,21 @@
 # Multithreading Design for dealer3
 
 **Date**: 2026-01-07
-**Status**: Implemented
+**Status**: Implemented. Updated 2026-08-25: legacy mode was removed in 0.5.0;
+the sections describing it are retained as history and marked as such.
 
 ## Overview
 
-dealer3 implements two parallel execution modes:
+dealer3 generates deals with xoshiro256++ and stateless per-deal generation,
+which parallelises freely: each deal derives from its own `u64` seed, so workers
+share no state and output does not depend on thread count.
 
-1. **Fast Mode** (default) - Uses xoshiro256++ RNG with stateless deal generation for maximum parallelism
-2. **Legacy Mode** (`--legacy`) - Single-threaded, dealer.exe-compatible using GNU random
+> **Historical:** a second mode (`--legacy`) once used a port of the GNU
+> `random()` from the original C dealer to reproduce its exact deal sequence. It
+> was single-threaded by necessity, since that generator's shuffle state carries
+> from one deal to the next. It was removed in 0.5.0 once the regression suite
+> could verify filter behaviour without it — see `docs/REGRESSION_TESTING.md`.
+> Sections below that describe it are kept for context.
 
 ## Performance Results
 
@@ -33,7 +40,7 @@ dealer3 implements two parallel execution modes:
 ### Key Findings
 
 - **Core generation is well parallelized** - 770-866% CPU utilization with 12 threads
-- **Rust is 1.15x faster than C** even in single-threaded legacy mode
+- **Rust was 1.15x faster than C** even in the single-threaded legacy mode (removed in 0.5.0)
 - **Fast mode achieves 5x+ speedup** over C dealer.exe
 - **Output serialization is a bottleneck** - writing output reduces parallelism significantly
 - **Filter evaluation is significant** - complex filters add overhead per deal
@@ -89,9 +96,10 @@ Fast mode uses stateless deal generation where each deal depends only on its see
 
 4. **Deterministic Output**: Same seed always produces same sequence of deals
 
-### Legacy Mode (`--legacy`)
+### Legacy Mode (`--legacy`) — removed in 0.5.0
 
-Legacy mode preserves exact dealer.exe compatibility by using:
+Described here for historical context. Legacy mode preserved exact dealer.exe
+compatibility by using:
 - GNU random() with 64-bit state (matching dealer.exe binary behavior)
 - Sequential shuffle-state-dependent generation
 - Single-threaded execution only
@@ -198,9 +206,7 @@ This maintains full parallelism while supporting predeal constraints.
 
 ```
 -R N, --threads N     Number of worker threads (default: 0 = auto-detect)
-                      Only affects fast mode; legacy mode is always single-threaded
 
---legacy              Use legacy single-threaded mode (dealer.exe compatible)
                       Required for exact deal sequence matching with dealer.exe
 
 --batch-size N        Work units per batch (default: auto = 200 × threads)
@@ -229,9 +235,11 @@ The `deal-validator` tool validates that fast mode produces correct deals:
 - **Pros**: 5x+ speedup, scales with cores, fully parallel
 - **Cons**: Different deal sequences than dealer.exe (same statistical properties)
 
-### Legacy Mode
+### Legacy Mode (removed in 0.5.0)
 - **Pros**: Exact dealer.exe compatibility, byte-for-byte identical output
-- **Cons**: Single-threaded only, no parallelism possible due to shuffle-state dependency
+- **Cons**: Single-threaded only, no parallelism possible due to shuffle-state
+  dependency; and it carried a third-party RNG whose licence terms this project
+  could not waive
 
 ## Future Optimizations
 
@@ -244,11 +252,10 @@ Potential improvements identified through profiling:
 
 ## Files
 
-- `gnurandom/src/lib.rs` - Xoshiro256PlusPlus implementation
+- `dealer-core/src/rng.rs` - Xoshiro256PlusPlus implementation
 - `dealer-core/src/fast_deal.rs` - Stateless deal generation
 - `dealer/src/fast_parallel.rs` - FastSupervisor for parallel dispatch
-- `dealer/src/parallel.rs` - Legacy parallel module (reference only)
-- `dealer/src/main.rs` - CLI integration with `--legacy` flag
+- `dealer/tests/regression_hash.rs` - pins that output is thread-count independent
 
 ## References
 

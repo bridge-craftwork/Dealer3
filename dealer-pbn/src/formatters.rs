@@ -364,12 +364,12 @@ pub fn format_hand_pbn(hand: &dealer_core::Hand) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dealer_core::DealGenerator;
+    use dealer_core::FastDealGenerator;
 
     #[test]
     fn test_format_printall() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let output = format_printall(&deal, 0);
 
         // Should contain board number
@@ -380,8 +380,8 @@ mod tests {
 
     #[test]
     fn test_format_printew() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let output = format_printew(&deal);
 
         // Should have 5 lines (4 suits + blank)
@@ -394,8 +394,8 @@ mod tests {
 
     #[test]
     fn test_format_printpbn() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let output = format_printpbn(&deal, 0, None, None, None, Some(1), None);
 
         // Should contain standard PBN tags
@@ -408,8 +408,8 @@ mod tests {
 
     #[test]
     fn test_printpbn_dealer_rotation() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Board 0 -> North dealer
         let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
@@ -430,8 +430,8 @@ mod tests {
 
     #[test]
     fn test_printpbn_vulnerability_rotation() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         // Board 0 -> None
         let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
@@ -452,8 +452,8 @@ mod tests {
 
     #[test]
     fn test_printpbn_explicit_dealer_and_vuln() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
 
         let output = format_printpbn(
             &deal,
@@ -471,8 +471,8 @@ mod tests {
 
     #[test]
     fn test_format_printcompact() {
-        let mut gen = DealGenerator::new(1);
-        let deal = gen.generate();
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
         let output = format_printcompact(&deal);
 
         // Should have 4 lines (one per position)

@@ -5,7 +5,6 @@ edition = "2021"
 license = "Unlicense"
 
 [dependencies]
-gnurandom = { path = "../gnurandom" }
 bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 
 [dev-dependencies]

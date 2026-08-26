@@ -2,6 +2,20 @@
 #
 # compare-dealer.sh - Compare dealer3 (Rust) vs reference dealer output
 #
+# SUPERSEDED. This script compared deals one-for-one, which only worked while
+# dealer3 could reproduce dealer.exe's exact deal sequence via '--legacy'. That
+# mode and its RNG were removed in 0.5.0, so the two programs no longer generate
+# the same deals from a given seed and a direct diff is meaningless.
+#
+# Use instead:
+#   scripts/test-filter.py       ad-hoc check that dealer3 accepts every deal
+#                                dealer.exe produced for a script
+#   scripts/generate-corpus.py   build a committed regression corpus
+#                                (see docs/REGRESSION_TESTING.md)
+#
+# Kept for reference, and in case it is reworked to compare via '--input-deals'.
+# Set COMPARE_DEALER_FORCE=1 to run it anyway; the deal diff will not be useful.
+#
 # Usage:
 #   compare-dealer.sh [options] [dealer-options] [input-file]
 #   echo "condition" | compare-dealer.sh [options] [dealer-options]
@@ -29,6 +43,25 @@
 #
 
 set -uo pipefail
+
+# dealer3 no longer reproduces dealer.exe's deal sequence, so a deal-by-deal
+# diff compares two unrelated sets of deals. Refuse by default rather than
+# emit mismatches that look like real failures.
+if [[ "${COMPARE_DEALER_FORCE:-0}" != "1" ]]; then
+    echo "compare-dealer.sh is superseded and disabled by default." >&2
+    echo "" >&2
+    echo "It compared deals one-for-one, which required '--legacy' to reproduce" >&2
+    echo "dealer.exe's exact sequence. That mode was removed in 0.5.0, so the two" >&2
+    echo "programs no longer generate the same deals and a diff proves nothing." >&2
+    echo "" >&2
+    echo "Use instead:" >&2
+    echo "  scripts/test-filter.py       ad-hoc filter check against dealer.exe" >&2
+    echo "  scripts/generate-corpus.py   build a committed regression corpus" >&2
+    echo "                               (see docs/REGRESSION_TESTING.md)" >&2
+    echo "" >&2
+    echo "Set COMPARE_DEALER_FORCE=1 to run it anyway." >&2
+    exit 2
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # Reference dealer binary — defaults to Dealer-cleanup sibling repo
@@ -188,8 +221,8 @@ run_comparison() {
     shift
     local args=("$@")
 
-    # Build Rust-specific args (--legacy for RNG-compatible output)
-    local rust_args=(--legacy -t "$TIMEOUT" -X)
+    # Build Rust-specific args
+    local rust_args=(-t "$TIMEOUT" -X)
     if [[ -n "$RUST_THREADS" ]]; then
         rust_args+=(-R "$RUST_THREADS")
     fi
@@ -293,8 +326,8 @@ if [[ -n "$RUST_THREADS" ]]; then
 fi
 echo ""
 
-# Build Rust-specific args for full test (--legacy for RNG-compatible output)
-RUST_SPECIFIC_ARGS=(--legacy -t "$TIMEOUT" -X)
+# Build Rust-specific args for full test
+RUST_SPECIFIC_ARGS=(-t "$TIMEOUT" -X)
 if [[ -n "$RUST_THREADS" ]]; then
     RUST_SPECIFIC_ARGS+=(-R "$RUST_THREADS")
 fi
