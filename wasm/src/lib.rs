@@ -19,8 +19,8 @@
 use dealer_core::{FastDealConfig, FastDealGenerator, Position};
 use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
 use dealer_parser::vocabulary;
-use dealer_parser::{Expr, Statement};
-use dealer_pbn::{format_oneline, format_printall};
+use dealer_parser::{Expr, Statement, VulnerabilityType};
+use dealer_pbn::{format_oneline, format_printall, format_printpbn, Vulnerability};
 use serde::Serialize;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -42,6 +42,8 @@ pub fn start() {
 enum Format {
     OneLine,
     PrintAll,
+    /// Full PBN, suitable for saving and opening elsewhere.
+    Pbn,
 }
 
 impl Format {
@@ -49,17 +51,29 @@ impl Format {
         match s.to_ascii_lowercase().as_str() {
             "oneline" | "printoneline" => Ok(Format::OneLine),
             "printall" | "all" => Ok(Format::PrintAll),
+            "pbn" | "printpbn" => Ok(Format::Pbn),
             other => Err(JsError::new(&format!(
-                "Unknown format '{}'. Use 'oneline' or 'printall'.",
+                "Unknown format '{}'. Use 'oneline', 'printall' or 'pbn'.",
                 other
             ))),
         }
     }
 
-    fn render(self, deal: &dealer_core::Deal, index: usize) -> String {
+    fn render(self, deal: &dealer_core::Deal, index: usize, ctx: &OutputContext) -> String {
         match self {
             Format::OneLine => format_oneline(deal).trim_end().to_string(),
             Format::PrintAll => format_printall(deal, index),
+            // Board numbers, dealer and vulnerability all belong in the PBN
+            // tags; a file without them is far less useful to whatever opens it.
+            Format::Pbn => format_printpbn(
+                deal,
+                index,
+                ctx.dealer,
+                ctx.vulnerability,
+                None,
+                Some(ctx.seed),
+                None,
+            ),
         }
     }
 }
@@ -121,6 +135,13 @@ struct GenerateResult {
     seconds: f64,
 }
 
+/// Script settings that affect output but not generation.
+struct OutputContext {
+    dealer: Option<Position>,
+    vulnerability: Option<Vulnerability>,
+    seed: u32,
+}
+
 /// Wall-clock milliseconds. `std::time::SystemTime::now()` panics on
 /// wasm32-unknown-unknown, so read the clock through JS instead.
 fn now_ms() -> f64 {
@@ -171,6 +192,28 @@ pub fn generate(
         }
     }
     let collecting_stats = !averages.is_empty() || !freqs.is_empty();
+
+    // `dealer` and `vulnerable` statements do not affect which deals are
+    // produced, only how they are labelled in PBN output.
+    let mut output = OutputContext {
+        dealer: None,
+        vulnerability: None,
+        seed,
+    };
+    for statement in &program.statements {
+        match statement {
+            Statement::Dealer(pos) => output.dealer = Some(*pos),
+            Statement::Vulnerable(v) => {
+                output.vulnerability = Some(match v {
+                    VulnerabilityType::None => Vulnerability::None,
+                    VulnerabilityType::NS => Vulnerability::NS,
+                    VulnerabilityType::EW => Vulnerability::EW,
+                    VulnerabilityType::All => Vulnerability::All,
+                })
+            }
+            _ => {}
+        }
+    }
 
     // Predeal fixes cards before shuffling. Missing this silently produced deals
     // that ignored the script's `predeal` lines, which verify.mjs caught by
@@ -238,7 +281,7 @@ pub fn generate(
         // Deals are capped independently of `produced` so a large `produce` used
         // purely to gather statistics does not have to ship every deal to JS.
         if deals.len() < MAX_RETURNED_DEALS {
-            deals.push(format.render(&deal, produced));
+            deals.push(format.render(&deal, produced, &output));
         }
         produced += 1;
     }

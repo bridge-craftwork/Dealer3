@@ -68,8 +68,26 @@
       </section>
 
       <section v-if="result.deals.length" class="block">
-        <h3>Deals</h3>
-        <pre class="deals">{{ result.deals.join('\n') }}</pre>
+        <div class="deals-head">
+          <h3>Deals</h3>
+          <div class="deals-tools">
+            <div class="toggle" role="group" aria-label="Deal view">
+              <button :class="{ on: view === 'grid' }" @click="view = 'grid'">Hands</button>
+              <button :class="{ on: view === 'text' }" @click="view = 'text'">Text</button>
+            </div>
+            <button class="dl" :disabled="downloading" @click="$emit('download', 'pbn')">
+              Save PBN
+            </button>
+            <button class="dl" @click="$emit('download', 'text')">Save text</button>
+          </div>
+        </div>
+
+        <p v-if="view === 'grid' && !parsedDeals.length" class="results-muted">
+          This output format cannot be shown as hands. Switch to Text, or generate with the
+          one-line format.
+        </p>
+        <DealGrid v-else-if="view === 'grid'" :deals="parsedDeals" />
+        <pre v-else class="deals">{{ result.deals.join('\n') }}</pre>
       </section>
       <p v-else-if="!result.hitLimit" class="results-muted">
         No deals matched the condition.
@@ -79,16 +97,33 @@
 </template>
 
 <script setup>
-// Renders everything a script produces: the stats block, `average` results, and
-// `frequency` histograms.
+// Renders everything a script produces: the stats block, `average` results,
+// `frequency` histograms, and the deals themselves — as hands or as text.
 //
 // Frequencies arrive as data rather than the CLI's ASCII table, so they are
 // drawn as bars. The numbers are kept alongside — this replaces the table's
 // presentation, not its precision.
+import { ref, computed } from 'vue'
+import DealGrid from '@/components/DealGrid.vue'
+import { parseOnelineDeals } from '@/lib/cardFormatting.js'
+
 const props = defineProps({
   result: { type: Object, default: null },
   error: { type: String, default: '' },
   requested: { type: Number, default: 0 },
+  downloading: { type: Boolean, default: false },
+})
+defineEmits(['download'])
+
+// Hands read far more easily than one-line strings, so that is the default.
+const view = ref('grid')
+
+// Only the one-line format can be laid out as hands: printall is already a
+// visual layout, and PBN is a record format. Returns [] for those, and the
+// template offers Text instead rather than showing an empty grid.
+const parsedDeals = computed(() => {
+  if (!props.result?.deals?.length) return []
+  return parseOnelineDeals(props.result.deals.join('\n'))
 })
 
 /** Bars scale to the tallest bin, so a flat distribution still reads. */
@@ -145,6 +180,22 @@ function formatValue(v) {
 .freq-bar.is-zero { background: transparent; }
 .freq-count { font-family: var(--mono); text-align: right; }
 .freq-pct { font-family: var(--mono); text-align: right; color: var(--fg-muted); }
+
+.deals-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.deals-head h3 { margin: 0; }
+.deals-tools { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.toggle button {
+  border: 0; background: var(--bg); color: var(--fg-muted);
+  font: inherit; font-size: 11px; padding: 3px 9px; cursor: pointer;
+}
+.toggle button.on { background: var(--accent); color: #fff; }
+.dl {
+  border: 1px solid var(--line); border-radius: 4px; background: var(--bg);
+  color: var(--fg); font: inherit; font-size: 11px; padding: 3px 9px; cursor: pointer;
+}
+.dl:hover { background: var(--bg-subtle); }
+.dl:disabled { opacity: 0.5; cursor: default; }
 
 .deals {
   font-family: var(--mono); font-size: 12px; line-height: 1.5;

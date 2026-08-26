@@ -22,10 +22,13 @@ src/
 ├── lib/
 │   ├── engine.js         wasm loader and typed wrapper
 │   ├── pbsScenarios.js   PBS manifest + script access (vendored)
-│   └── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
+│   ├── cardFormatting.js card/suit primitives and oneline parsing (vendored)
+│   ├── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
+│   └── download.js       saving results as PBN or text
 └── components/
     ├── ScenarioPicker.vue  340+ PBS scenarios, grouped and searchable
     ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
+    ├── DealGrid.vue        deals as bridge hands, with HCP
     └── ResultsPanel.vue    deals, averages, frequency charts
 ```
 
@@ -57,6 +60,31 @@ npx wrangler pages deploy
 
 Pages rather than GitHub Pages because it can send the COOP/COEP headers a
 threaded wasm build will need. `public/_headers` already sets them.
+
+## Viewing and saving
+
+Deals show as **hands** by default — a compass grid with per-hand HCP and
+partnership totals — because a one-line string is far harder to read than a
+layout. Toggle to **Text** for the raw output.
+
+The grid only applies to the one-line format: `printall` is already a visual
+layout and PBN is a record format, so those offer Text instead rather than an
+empty grid.
+
+`cardFormatting.js` is vendored from `Bridge-Classroom/src/utils/cardFormatting.js`.
+Its `HandDisplay.vue` was **not**: at 521 lines it is built for an interactive
+table — clickable cards, a selector popup, per-card marks, dynamic fit — and
+almost none of that applies to a static grid. The primitives were the reusable
+part.
+
+**Save PBN** and **Save text** download the results. Selecting text out of the
+page is clumsy (a select-all takes the whole document), and a long run is
+thousands of lines. Saving re-runs the generator rather than reformatting what is
+on screen: the displayed deals are capped at 500, and PBN needs the engine's own
+formatter. Generation is deterministic for a given seed, so the saved file
+matches what was shown.
+
+PBN output carries the script's `dealer` and `vulnerable` settings in its tags.
 
 ## Editor choice
 
