@@ -1,621 +1,238 @@
-# Dealer Implementation Status
+# The dealer3 script language
 
-**Last Updated:** 2026-01-02
+What dealer3's script language accepts, and where it still differs from the
+original dealer.
 
-## Overview
+## The tables are generated
 
-This document tracks the implementation status of the dealer constraint language, including both filter functions and action keywords.
+Every table below is rendered from `dealer-parser/src/vocabulary.rs`, which is
+itself checked against `grammar.pest`. So this document cannot claim a function
+the parser rejects, or miss one it accepts.
 
-### Quick Summary
+That guarantee is here because the hand-maintained version of this page had
+drifted badly: its summary listed `tricks`, `score` and `imps` as working while
+its "Evaluator Limitations" section said "No double-dummy analysis" and "No
+scoring functions", and its "Next Steps" listed all three as still to do. They
+had been implemented for months.
 
-**✅ Core Features Working:**
-- 25 filter functions (hcp, suits, controls, losers, shape, hascard, tens, jacks, queens, kings, aces, top2-5, c13, quality, cccc, **tricks, score, imps**)
-- **Double-dummy analysis** via built-in alpha-beta solver (~1.4 deals/second)
-- **Contract scoring** with full support for vulnerability, doubles, and slams
-- **IMP conversion** using standard IMP table
-- All arithmetic, comparison, and logical operators (including ternary `?:` and logical NOT `!`/`not`)
-- Shape pattern matching (exact, wildcard, any distribution)
-- Card and suit literals
-- Alternative point counts (pt0-pt9)
-- Hand quality evaluation (quality, cccc)
-- Variables (full support for assignments and references)
-- **Produce mode (`-p N`)** - stop after producing N matching deals (default: 40)
-- **Generate mode (`-g N`)** - generate N total deals, report all matches (default: 10,000,000)
-- Seeded generation (`-s SEED`)
-- **Action keywords (`condition`, `produce`, `action`, `dealer`, `vulnerable`)**
-- **Print formats (printall, printew, printpbn, printcompact, printoneline)**
-- **Duration logging (performance tracking)**
-
-**Test Status:** 130+ tests passing across all crates
-- dealer-core: 20 tests (including 7 predeal tests)
-- dealer-core shuffle: 7 tests
-- dealer-dds: 6 tests
-- dealer-eval: 57 tests (including tricks, score, imps)
-- dealer-parser: 23 tests
-- dealer-pbn: 16 tests
-
----
-
-## Language Features
-
-### ✅ **User-Defined Expressions (Variables)**
-
-The dealer language supports defining reusable expressions:
-
-```
-nt_opener = hcp(north) >= 15 && hcp(north) <= 17 && shape(north, any 4333 + any 4432 + any 5332)
-weak_hand = hcp(south) <= 8
-nt_opener && weak_hand
-```
-
-**Implementation Model**: Variables are **runtime-evaluated**, not macros. Each variable reference is evaluated in the context of the current deal being analyzed, not textually expanded during parsing. This allows variables to dynamically respond to different hands.
-
-**Status**: ✅ **Fully implemented**
-- `Expr::Variable(String)` variant in AST
-- `Program` and `Statement` types for multi-statement support
-- Symbol table in evaluator (HashMap<String, Expr>)
-- Variable lookup during expression evaluation (evaluates stored expression each time)
-- CLI parses full programs with `parse_program()`, not just single expressions
-- Supports variables referencing other variables (recursive evaluation)
-
-**Example Usage**:
 ```bash
-# Simple variable
-printf "opener = hcp(north) >= 15\nopener" | dealer -p 10
-
-# Multiple variables
-printf "strong = hcp(north) >= 15\nlong_hearts = hearts(north) >= 5\nstrong && long_hearts" | dealer -p 10
-
-# Variables can reference other variables
-printf "points = hcp(north)\nopener = points >= 15\nopener" | dealer -p 10
+cargo test -p dealer                  # verifies this file
+UPDATE_DOCS=1 cargo test -p dealer    # rewrites the tables
 ```
 
----
+The same tables drive https://dealer.bridge-classroom.org/reference.html, which
+reads them out of the WebAssembly build at runtime.
 
-## Filter Functions (Constraints)
+Descriptions were written from the evaluator and checked against the original C
+sources — `c4.c` for `quality` and `cccc`, `pointcount.c` for the honour counts,
+`dealer.c` for losers — and against
+[Henk Uijterwaal's manual](https://www.bridgebase.com/tools/dealer/Manual/input.html).
+`quality`, `cccc`, `losers`, `c13`, `controls` and `top5` are pinned in
+`dealer-eval/tests/doc_examples_evaluate.rs` to the values dealer.exe produces
+for the same predealt deal.
 
-### ✅ **Implemented**
+## Functions
 
-| Function | Description | Status |
-|----------|-------------|--------|
-| `hcp(position)` | High card points (4-3-2-1) | ✅ Working |
-| `hearts(position)` | Number of hearts | ✅ Working |
-| `spades(position)` | Number of spades | ✅ Working |
-| `diamonds(position)` | Number of diamonds | ✅ Working |
-| `clubs(position)` | Number of clubs | ✅ Working |
-| `controls(position)` | Control count (A=2, K=1) | ✅ Working |
-| `losers(position)` | Total loser count in hand | ✅ Working |
-| `losers(position, suit)` | Losers in specific suit | ✅ Working |
-| `shape(position, pattern)` | Shape specification | ✅ Working |
-| `hascard(position, card)` | Check for specific card | ✅ Working |
-| `tens(position)` | Number of tens (pt0) | ✅ Working |
-| `tens(position, suit)` | Tens in specific suit | ✅ Working |
-| `jacks(position)` | Number of jacks (pt1) | ✅ Working |
-| `jacks(position, suit)` | Jacks in specific suit | ✅ Working |
-| `queens(position)` | Number of queens (pt2) | ✅ Working |
-| `queens(position, suit)` | Queens in specific suit | ✅ Working |
-| `kings(position)` | Number of kings (pt3) | ✅ Working |
-| `kings(position, suit)` | Kings in specific suit | ✅ Working |
-| `aces(position)` | Number of aces (pt4) | ✅ Working |
-| `aces(position, suit)` | Aces in specific suit | ✅ Working |
-| `top2(position)` | Top 2 honors AK (pt5) | ✅ Working |
-| `top2(position, suit)` | Top 2 in specific suit | ✅ Working |
-| `top3(position)` | Top 3 honors AKQ (pt6) | ✅ Working |
-| `top3(position, suit)` | Top 3 in specific suit | ✅ Working |
-| `top4(position)` | Top 4 honors AKQJ (pt7) | ✅ Working |
-| `top4(position, suit)` | Top 4 in specific suit | ✅ Working |
-| `top5(position)` | Top 5 honors AKQJT (pt8) | ✅ Working |
-| `top5(position, suit)` | Top 5 in specific suit | ✅ Working |
-| `c13(position)` | C13 points A=6,K=4,Q=2,J=1 (pt9) | ✅ Working |
-| `c13(position, suit)` | C13 points in specific suit | ✅ Working |
-| `quality(position, suit)` | Suit quality metric | ✅ Working |
-| `cccc(position)` | CCCC hand evaluation | ✅ Working |
+<!-- BEGIN GENERATED: functions -->
 
-**Alternative Point Counts (pt0-pt9):**
-The dealer language provides 10 alternative point count functions with readable synonyms:
-- `pt0` / `tens` - Count of tens
-- `pt1` / `jacks` - Count of jacks
-- `pt2` / `queens` - Count of queens
-- `pt3` / `kings` - Count of kings
-- `pt4` / `aces` - Count of aces
-- `pt5` / `top2` - Top 2 honors (A, K)
-- `pt6` / `top3` - Top 3 honors (A, K, Q)
-- `pt7` / `top4` - Top 4 honors (A, K, Q, J)
-- `pt8` / `top5` - Top 5 honors (A, K, Q, J, T)
-- `pt9` / `c13` - C13 point count (A=6, K=4, Q=2, J=1)
+**24 functions**, under 39 spellings — the extra 15 are alternative names, listed with the function they stand for.
 
-Examples: `top3(north) >= 5`, `aces(south, spades) == 1`, `c13(north) + c13(south) >= 40`
+### Hand evaluation
 
-**Loser Count Details:**
-- Uses standard losing trick count algorithm
-- Void: 0 losers
-- Singleton: 0 if Ace, 1 otherwise
-- Doubleton: 0 for AK, 1 for Ax/Kx, 2 otherwise
-- 3+ cards: Start with 3, subtract 1 for each A/K/Q in top 3 positions
-- Examples: `losers(north) <= 7`, `losers(south, spades) == 0`
+| Function | What it computes | Example |
+|---|---|---|
+| `hcp(compass)  ·  hcp(compass, suit)` | High card points on the 4-3-2-1 scale: ace 4, king 3, queen 2, jack 1. With a suit, only that suit's cards are counted. | `hcp(north) >= 12 && hcp(north, spades) >= 4` |
+| | The original dealer can re-scale this with a `pointcount` statement. dealer3 has no such statement, so the 4-3-2-1 scale is fixed. | |
+| `controls(compass)  ·  controls(compass, suit)` | Controls: each ace counts 2 and each king 1. | `controls(north) >= 5` |
+| | The original dealer also accepts the singular `control`. dealer3 does not. | |
+| `losers(compass)  ·  losers(compass, suit)` | Losing trick count: a void is 0; a singleton is 0 holding the ace and 1 otherwise; a doubleton is 0 holding A-K, 1 holding the ace or the king and 2 otherwise; three cards or more is 3 minus the number of A, K and Q held. | `losers(south) <= 6` |
+| `loser(compass)  ·  loser(compass, suit)` | Another spelling of `losers` | `loser(south) <= 6` |
+| `quality(compass, suit)` | Quality of one suit, by the algorithm published in The Bridge World, October 1982, multiplied by 100 — so 450 means 4.50. | `quality(north, spades) >= 400` |
+| | Each honour is worth a multiple of ten times the suit length — ace 4×, king 3×, queen 2×, jack 1× — with an extra allowance for length beyond six cards, and for the ten and nine when they are supported. dealer3's implementation follows the original `c4.c` line for line, and was checked against dealer.exe's own output. | |
+| `cccc(compass)` | Whole-hand evaluation by the algorithm published in The Bridge World, October 1982, multiplied by 100 — a minimum opening bid is around 1200. | `cccc(north) >= 1200` |
+| | Honours are valued by suit with penalties for short or unsupported ones, each suit's `quality` is added, and short suits contribute shape points. dealer3's implementation follows the original `c4.c` line for line, and was checked against dealer.exe's own output. | |
 
-**Shape Pattern Syntax:**
-- Exact shapes: `shape(north, 5431)` - exactly 5-4-3-1 in S-H-D-C order
-- Wildcard patterns: `shape(south, 54xx)` - 5 spades, 4 hearts, any minors
-- Any distribution: `shape(east, any 4333)` - any 4-3-3-3 regardless of suits
-- Combinations: `shape(west, any 4333 + any 5332 - 5332)` - balanced except exact 5-3-3-2
-- Uses `+` for inclusion, `-` for exclusion
+### Suit length
 
-**Card Syntax:**
-- Format: rank + suit (e.g., AS, KH, TC, 2D)
-- Ranks: A, K, Q, J, T, 9, 8, 7, 6, 5, 4, 3, 2
-- Suits: S (spades), H (hearts), D (diamonds), C (clubs)
-- Example: `hascard(north, AS)` checks if north has ace of spades
+| Function | What it computes | Example |
+|---|---|---|
+| `spades(compass)` | Number of spades held. | `spades(north) + spades(south) >= 8` |
+| `hearts(compass)` | Number of hearts held. | `hearts(north) + hearts(south) >= 8` |
+| `diamonds(compass)` | Number of diamonds held. | `diamonds(west) >= 6` |
+| `clubs(compass)` | Number of clubs held. | `clubs(east) <= 2` |
+| `spade(compass)` | Another spelling of `spades` | `spade(north) >= 5` |
+| `heart(compass)` | Another spelling of `hearts` | `heart(north) >= 5` |
+| `diamond(compass)` | Another spelling of `diamonds` | `diamond(north) >= 5` |
+| `club(compass)` | Another spelling of `clubs` | `club(north) >= 5` |
 
-**Suit Keywords:**
-- Used as arguments to functions like `losers(position, suit)`
-- Keywords: spades, hearts, diamonds, clubs (case-insensitive)
-- Example: `losers(north, spades) == 0` checks for solid spade suit
+### Shape and cards
 
-**Hand Quality Metrics (Bridge World Oct 1982):**
+| Function | What it computes | Example |
+|---|---|---|
+| `shape(compass, pattern)` | True when the hand matches the pattern. Four digits are lengths in spades, hearts, diamonds, clubs order; `x` matches any length; `any` allows the suits in any order; `+` adds a pattern and `-` excludes one. | `shape(north, any 4333 + any 4432 + any 5332)` |
+| | Matching is a table lookup over all 560 shapes, so a long pattern list costs no more than a short one. | |
+| `hascard(compass, card)` | True when the hand holds exactly that card, written rank then suit — `TC` is the ten of clubs. | `hascard(east, TC) && hascard(east, AS)` |
 
-The quality and cccc functions implement hand evaluation algorithms from Bridge World, October 1982. Both return values multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
+### Honour counts
 
-**Quality Function - `quality(position, suit)`:**
-Evaluates the quality of a specific suit based on length and honor cards.
-- Base values: A=4×SuitFactor, K=3×SuitFactor, Q=2×SuitFactor, J=1×SuitFactor (where SuitFactor = Length × 10)
-- Ten bonus: Full SuitFactor if 2+ higher honors or has J; half otherwise
-- Nine bonus: Half SuitFactor if 2 higher honors, or has T, or has 8
-- Long suit bonus (7+ cards): Adds points for missing honors that would be replaced
-- **Note**: Quality values are multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
-- Examples:
-  - `quality(north, spades) >= 4000` - Strong spade suit (40.00+ quality points)
-  - `quality(south, hearts) < 100` - Weak heart suit (< 1.00 quality points)
+| Function | What it computes | Example |
+|---|---|---|
+| `tens(compass)  ·  tens(compass, suit)` | Number of tens held. | `tens(north) >= 2` |
+| `jacks(compass)  ·  jacks(compass, suit)` | Number of jacks held. | `jacks(north) >= 2` |
+| `queens(compass)  ·  queens(compass, suit)` | Number of queens held. | `queens(north) >= 2` |
+| `kings(compass)  ·  kings(compass, suit)` | Number of kings held. | `kings(north) >= 2` |
+| `aces(compass)  ·  aces(compass, suit)` | Number of aces held. | `aces(north) >= 2` |
+| `top2(compass)  ·  top2(compass, suit)` | Number of the top two honours held: ace, king. | `top2(north, spades) == 2` |
+| `top3(compass)  ·  top3(compass, suit)` | Number of the top three honours held: ace, king, queen. | `top3(north, hearts) >= 2` |
+| `top4(compass)  ·  top4(compass, suit)` | Number of the top four honours held: ace, king, queen, jack. | `top4(north, hearts) >= 3` |
+| `top5(compass)  ·  top5(compass, suit)` | Number of the top five honours held: ace, king, queen, jack, ten. | `top5(east, spades) >= 3` |
+| `c13(compass)  ·  c13(compass, suit)` | C13 points: ace 6, king 4, queen 2, jack 1. | `c13(north) >= 18` |
+| `pt0(compass)  ·  pt0(compass, suit)` | Another spelling of `tens` | `pt0(north) >= 2` |
+| `pt1(compass)  ·  pt1(compass, suit)` | Another spelling of `jacks` | `pt1(north) >= 2` |
+| `pt2(compass)  ·  pt2(compass, suit)` | Another spelling of `queens` | `pt2(north) >= 2` |
+| `pt3(compass)  ·  pt3(compass, suit)` | Another spelling of `kings` | `pt3(north) >= 2` |
+| `pt4(compass)  ·  pt4(compass, suit)` | Another spelling of `aces` | `pt4(north) >= 2` |
+| `pt5(compass)  ·  pt5(compass, suit)` | Another spelling of `top2` | `pt5(north, spades) == 2` |
+| `pt6(compass)  ·  pt6(compass, suit)` | Another spelling of `top3` | `pt6(north, spades) >= 2` |
+| `pt7(compass)  ·  pt7(compass, suit)` | Another spelling of `top4` | `pt7(north, spades) >= 3` |
+| `pt8(compass)  ·  pt8(compass, suit)` | Another spelling of `top5` | `pt8(north, spades) >= 3` |
+| `pt9(compass)  ·  pt9(compass, suit)` | Another spelling of `c13` | `pt9(north) >= 18` |
 
-**CCCC Function - `cccc(position)`:**
-Comprehensive hand evaluation combining honor strength, suit quality, and shape.
-- Honor points: A=300, K=200, Q=100, with adjustments for shortage
-  - Singleton K: -150, Singleton Q: -75, Doubleton Q: -25
-  - Unsupported Q (no higher honor): -25
-  - J: +50 if 2 higher honors, +25 if 1 higher
-  - T: +25 if 2 higher honors, +25 if 1 higher + nine
-- Adds suit_quality for each suit
-- Shape points: +100 for each short suit (< 3 cards)
-- Balanced adjustment: -50 if balanced, else ShapePoints - 100
-- **Note**: CCCC values are multiplied by 100 to use integer math (e.g., 1500 = 15.00 points).
-- **Automatic preprocessing**: 4-digit numbers in regular expressions work correctly (e.g., `cccc(north) >= 1500`) thanks to automatic preprocessing that distinguishes shape patterns from numeric literals.
-- Examples:
-  - `cccc(north) >= 1500` - Strong opening hand (15.00+ points)
-  - `cccc(south) + cccc(north) >= 2400` - Game-level partnership (24.00+ combined points)
+### Double-dummy and scoring
 
-### ✅ **Double-Dummy and Scoring Functions**
-
-| Function | Description | Status |
-|----------|-------------|--------|
-| `tricks(position, denomination)` | Double-dummy trick count | ✅ Working |
-| `score(vulnerability, contract, tricks)` | Contract score calculation | ✅ Working |
-| `imps(score_diff)` | Convert score difference to IMPs | ✅ Working |
-
-**Tricks Function - `tricks(position, denomination)`:**
-Returns the double-dummy trick count for a given declarer and denomination.
-- `position`: north, south, east, west
-- `denomination`: Use suit keyword (spades, hearts, diamonds, clubs) or numeric (0=C, 1=D, 2=H, 3=S, 4=NT)
-- Returns: 0-13 (number of tricks)
-- Examples:
-  - `tricks(north, spades)` - Tricks for North declaring in spades
-  - `tricks(south, 4)` - Tricks for South declaring in notrump (4=NT)
-- **Note**: This function uses the built-in alpha-beta solver (~1.4 deals/second)
-
-**Score Function - `score(vulnerability, contract, tricks)`:**
-Calculates the contract score based on vulnerability, contract, and tricks taken.
-- `vulnerability`: 0 = non-vulnerable, 1 = vulnerable
-- `contract`: Encoded as `doubled_flag * 100 + level * 10 + strain`
-  - `strain`: 0=C, 1=D, 2=H, 3=S, 4=NT
-  - `doubled_flag`: 0=undoubled, 1=doubled, 2=redoubled
-  - Examples: 3NT=34, 4S=43, 3NT doubled=134, 4Sx=143, 4Sxx=243
-- `tricks`: 0-13 (tricks taken by declarer)
-- Returns: Positive score if made, negative if failed
-- Examples:
-  - `score(0, 34, 9)` - 3NT non-vul making exactly = 400
-  - `score(1, 43, 10)` - 4S vul making exactly = 620
-  - `score(0, 34, 8)` - 3NT non-vul down 1 = -50
-  - `score(0, 143, 9)` - 4S doubled non-vul down 1 = -100
-
-**IMPs Function - `imps(score_diff)`:**
-Converts a score difference to IMPs using the standard IMP table.
-- `score_diff`: Any integer (positive or negative)
-- Returns: IMP value (preserves sign)
-- Examples:
-  - `imps(420)` - 10 IMPs (410-489 range)
-  - `imps(0 - 420)` - -10 IMPs
-  - `imps(score(0, 34, 9) - score(0, 34, 8))` - Compare 3NT making vs down 1
-
-**Combined Usage Example:**
-```
-# Find deals where 3NT scores better than 4S
-score(0, 34, tricks(north, 4)) > score(0, 43, tricks(north, spades))
-```
-
----
+| Function | What it computes | Example |
+|---|---|---|
+| `tricks(compass, strain)` | Tricks that compass takes as declarer in that strain with every hand seen — the double-dummy result. Strain is a suit name, or a number: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. | `tricks(south, spades) >= 10` |
+| | Notrump has to be written as the number 4: the original dealer's `notrumps` keyword is not part of dealer3's grammar, and would be read as a variable — which is worth knowing, because an unset variable is 0, and 0 means clubs. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
+| `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
+| | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
+| `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
+<!-- END GENERATED: functions -->
 
 ## Operators
 
-### ✅ **Implemented**
+<!-- BEGIN GENERATED: operators -->
 
-| Category | Operators | Status |
-|----------|-----------|--------|
-| **Arithmetic** | `+`, `-`, `*`, `/`, `%` | ✅ Working |
-| **Comparison** | `==`, `!=`, `<`, `<=`, `>`, `>=` | ✅ Working |
-| **Logical** | `&&`, `||`, `!` | ✅ Working |
-| **Unary** | `-` (negation), `!` (not) | ✅ Working |
-| **Ternary** | `? :` (condition ? true_expr : false_expr) | ✅ Working |
+Tightest binding first. Operators sharing a level are applied left to right.
 
-**Operator Examples:**
+| Level | Operator | Also | What it does |
+|---|---|---|---|
+| 1 | `!` | `not` | True when its operand is zero, and false otherwise. |
+| 2 | `*` |  | Multiplication. |
+| 2 | `/` |  | Division. Whole numbers throughout, so the remainder is discarded. |
+| 2 | `%` |  | Remainder after division. |
+| 3 | `+` |  | Addition. |
+| 3 | `-` |  | Subtraction, and negation when written in front of a single value. |
+| 4 | `<` |  | Less than. |
+| 4 | `<=` |  | Less than or equal to. |
+| 4 | `>` |  | Greater than. |
+| 4 | `>=` |  | Greater than or equal to. |
+| 4 | `==` |  | Equal to. Note the two signs: a single `=` assigns a variable instead. |
+| 4 | `!=` |  | Not equal to. |
+| 5 | `&&` | `and` | True when both sides are true. The right side is skipped when the left is false. |
+| 6 | `\|\|` | `or` | True when either side is true. The right side is skipped when the left is true. |
+| 7 | `?` |  | First half of the three-way choice `test ? when_true : when_false`. |
+| 7 | `:` |  | Second half of the three-way choice `test ? when_true : when_false`. |
+| 8 | `=` |  | Gives a name to an expression. This is a statement, not something that can appear inside a larger expression. |
+<!-- END GENERATED: operators -->
 
-*Logical NOT (`!` and `not` keyword):*
+## Statements
+
+<!-- BEGIN GENERATED: statements -->
+
+| Statement | What it does | Example |
+|---|---|---|
+| `condition <expression>` | Keep a deal when the expression is anything other than zero. | `condition hcp(north) >= 15 && shape(north, any 5332)` |
+| `produce <number>` | Stop once this many deals have matched. | `produce 25` |
+| `generate <number>` | Stop after dealing this many hands, however few matched. | `generate 100000` |
+| `action <action>, <action>, ...` | What to do with each matching deal: a print format, and any averages or frequencies to accumulate. | `action printoneline, average "hcp" hcp(north)` |
+| `average ["label"] <expression>` | Report the mean of the expression over the deals that matched. | `average "north hcp" hcp(north)` |
+| `frequency ["label"] (<expression>, <low>, <high>)` | Report a histogram of the expression over the deals that matched, counting from low to high inclusive. | `frequency "north hcp" (hcp(north), 10, 20)` |
+| `dealer <compass>` | Records who dealt. Affects the output only, never which deals are produced. | `dealer south` |
+| `vulnerable none \| ns \| ew \| all` | Records the vulnerability. Affects the output only, never which deals are produced. | `vulnerable ns` |
+| `predeal <compass> <holding>, <holding>, ...` | Places cards in a hand before shuffling; the rest of the deal is dealt around them. A holding is a suit letter followed by its ranks, using T for the ten. | `predeal north SAKQ,HT98` |
+| `csvrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal. A term is an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, or the word `deal` for all four. | `csvrpt(deal, hcp(north), "north")` |
+| `<name> = <expression>` | Names an expression so a long condition can be written in pieces. The name stands for the expression and is worked out afresh for every deal. | `fit = spades(north) + spades(south)` |
+| `<expression>` | An expression on its own is the condition, so the `condition` keyword can be left off. | `hcp(north) >= 20` |
+
+### Actions
+
+| Action | What it prints |
+|---|---|
+| `printall` | All four hands, laid out around the compass. This is what happens with no action given. |
+| `printew` | East and West only, West on the left. |
+| `printpbn` | PBN, the record format other bridge programs read. |
+| `printcompact` | Four lines per deal. |
+| `printoneline` | One line per deal. |
+<!-- END GENERATED: statements -->
+
+## Not supported
+
+Words the original dealer accepts that dealer3 does not.
+
+<!-- BEGIN GENERATED: not-supported -->
+
+| Word | Instead |
+|---|---|
+| `notrump` | In `tricks`, write notrump as the number 4. |
+| `notrumps` | In `tricks`, write notrump as the number 4. |
+| `control` | Write `controls`. |
+| `hcps` | Write `hcp`. |
+| `ten` | Write `tens`, or `pt0`. |
+| `jack` | Write `jacks`, or `pt1`. |
+| `queen` | Write `queens`, or `pt2`. |
+| `king` | Write `kings`, or `pt3`. |
+| `ace` | Write `aces`, or `pt4`. |
+| `trick` | Write `tricks`. |
+| `imp` | Write `imps`. |
+| `pointcount` | There is no way to re-scale the high card points; `hcp` is always 4-3-2-1. |
+| `altcount` | The `pt0`..`pt9` counts are fixed and cannot be redefined. |
+| `print` | Use `printall`, or one of the other print actions. |
+| `printes` | There is no expression-printing action; use `average` or `csvrpt`. |
+| `rnd` | There is no random function inside the language. |
+<!-- END GENERATED: not-supported -->
+
+## Where dealer3 still differs
+
+Beyond the words above, these are the known behavioural differences. None is
+tracked by a generated table, so this section is maintained by hand.
+
+| Difference | Status |
+|---|---|
+| Singular/plural spellings (`control`, `hcps`, `jack`, `trick`, …) and `notrump` are not accepted | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
+| `pointcount` and `altcount` cannot re-scale the point counts | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
+| `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
+| `frequency` has no two-dimensional form | Documented, no issue |
+| `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
+| Variables whose name begins with a statement keyword are rejected | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |
+| `tricks()` is unusably slow — minutes per solve | [#14](https://github.com/bridge-craftwork/Dealer3/issues/14) |
+
+## Variables
+
+Variables are **evaluated per deal, not expanded as text**. A name stands for an
+expression, and that expression is worked out afresh for every deal, so it
+responds to the hand in front of it:
+
 ```
-# Using ! operator
-!(hcp(north) < 10)
-
-# Using not keyword
-not (hcp(north) >= 20)
-
-# In compound expressions
-hcp(north) >= 15 && not (hearts(north) >= 5)
-```
-
-*Ternary operator:*
-```
-# Simple ternary
-hcp(north) >= 15 ? 1 : 0
-
-# Arithmetic in branches
-hcp(north) >= 20 ? hcp(north) + 100 : hcp(north)
-
-# Nested ternary
-hcp(north) >= 15 ? (hearts(north) >= 5 ? 2 : 1) : 0
-```
-
----
-
-## Action Keywords
-
-### ✅ **Implemented**
-
-| Action | Description | Status |
-|--------|-------------|--------|
-| `produce N` | Generate N matching deals | ✅ Keyword & `-p` flag |
-| `condition expr` | Define filter constraint | ✅ Working |
-| `action printall` | Print all 4 hands (newspaper columns) | ✅ Working |
-| `action printew` | Print E/W hands only | ✅ Working |
-| `action printpbn` | PBN format output with metadata | ✅ Working |
-| `action printcompact` | Compact 4-line format | ✅ Working |
-| `action printoneline` | Single-line format | ✅ Working |
-| `dealer N/E/S/W` | Set dealer position (north/east/south/west) | ✅ Working |
-| `vulnerable none/NS/EW/all` | Set vulnerability | ✅ Working |
-| `action average "label" expr` | Calculate average of expression (optional label) | ✅ Working |
-| `action frequency "label" expr` | Display frequency distribution (optional label) | ✅ Working |
-| `action frequency "label" expr min max` | Frequency with explicit range | ✅ Working |
-| `predeal N/E/S/W cards` | Predeal specific cards to a position | ✅ Working |
-| `csvrpt(terms...)` | Write CSV report to file (requires `-C FILE`) | ✅ Working |
-
-**CSV Report Terms:**
-- Expressions: `hcp(north)`, `controls(south)`, etc.
-- Strings: `"Strong hand"`, `"Opener"`, etc. (automatically quoted with single quotes)
-- Compass: `north`, `east`, `south`, `west` (outputs hand in PBN format)
-- Side: `ns`, `ew` (outputs two hands)
-- All hands: `deal` (outputs all four hands)
-
-**Example Usage:**
-```bash
-# Full dealer.exe syntax with vulnerable and dealer
-cat << 'EOF' | dealer -s 1
-vulnerable ew
-dealer west
-nt_opener = hcp(north) >= 15 && hcp(north) <= 17
-condition nt_opener
-produce 5
-action printpbn
-EOF
-
-# Command-line flags override input file keywords
-echo "dealer south
-vulnerable all
-condition hcp(north) >= 20
-produce 3
-action printcompact" | dealer -p 10 -f oneline -d north -v none
-# Will produce 10 (not 3) in oneline format (not compact) with dealer=north, vulnerable=none
-
-# Average and frequency actions with labeled expressions
-cat << 'EOF' | dealer -p 100
-condition hcp(north) >= 15
-action average "North HCP" hcp(north), frequency "HCP Distribution" hcp(north), printoneline
-EOF
-# Outputs average and frequency table to stderr:
-# North HCP: 16.57
-#
-# HCP Distribution:
-#  15     37 (37.00%)
-#  16     22 (22.00%)
-#  17     15 (15.00%)
-#  ...
-
-# Predeal specific cards to positions
-cat << 'EOF' | dealer -p 5 -s 1
-predeal north AS,AH,AD,AC
-condition hcp(north) >= 4
-EOF
-
-# CSV export examples
-cat << 'EOF' | dealer -p 10 -s 1 -C results.csv
-condition hcp(north) >= 20
-csvrpt(north, hcp(north), controls(north), "Strong hand")
-EOF
-# Creates results.csv with lines like:
-#  K.AQ3.AK7.AQ6532,22,8,'Strong hand'
-
-# CSV with partnerships and multiple expressions
-cat << 'EOF' | dealer -p 100 -C w:partnerships.csv -q
-condition hcp(north) + hcp(south) >= 25
-csvrpt("NS Partnership", ns, hcp(north), hcp(south), hcp(north) + hcp(south))
-EOF
-# Creates/overwrites partnerships.csv (w: prefix) with format:
-#  'NS Partnership',KQ4.QJ982..AKQ43 9.K54.KQT732.652,17,8,25
-
-# CSV with all four hands
-cat << 'EOF' | dealer -p 50 -C deals.csv
-condition hcp(north) >= 15
-csvrpt(deal, hcp(north), hcp(east), hcp(south), hcp(west))
-EOF
-# Outputs all four hands in PBN format with HCP for each position
-```
-
-**CSV File Modes:**
-- `-C filename` or `--CSV filename` - Append mode (default) - adds to existing file
-- `-C w:filename` or `--CSV w:filename` - Write mode - overwrites file
-
-**PBN Title Metadata:**
-```bash
-# Add custom title to PBN output
-echo "hcp(north) >= 20" | dealer -p 10 -f pbn -T "Strong Opening Hands"
-# Or use long form
-echo "hcp(north) >= 20" | dealer -p 10 -f pbn --title "Strong Opening Hands"
-# Output includes: [Event "Strong Opening Hands"]
-```
-
-# Multiple predeal statements
-cat << 'EOF' | dealer -p 3
-predeal north AS,KS,QS
-predeal south AH,KH,QH
-condition hcp(north) + hcp(south) >= 12
-EOF
-# North gets ASKSQs, South gets AHKHQH
-```
-
-**Implementation Details:**
-- Action keywords can be overridden by command-line flags (CLI has highest priority)
-- `condition` sets the constraint expression (equivalent to standalone expression)
-- `produce N` sets default produce count (overridden by `-p N` flag if specified)
-- `action` sets output format (overridden by `-f FORMAT` flag if specified)
-- `dealer` sets dealer position (overridden by `-d POS` flag if specified)
-- `vulnerable` sets vulnerability (overridden by `-v VULN` flag if specified)
-- `average` calculates and displays average of expression over all matching deals
-  - Optional string literal label for labeling output
-  - Printed to stderr after all deals are generated
-  - Multiple average statements can be used in one program
-- `frequency` displays frequency distribution tables for expressions
-  - Optional string literal label for labeling output
-  - Optional explicit range (min max) for table display
-  - Auto-detects range from data if not specified
-  - Shows count and percentage for each value
-  - Printed to stderr after all deals are generated
-  - Multiple frequency statements can be used in one program
-- `predeal` assigns specific cards to a position before shuffling
-  - Syntax: `predeal position card1,card2,...` (e.g., `predeal north AS,KH,QD`)
-  - Cards use standard notation: rank (A,K,Q,J,T,9-2) + suit (S,H,D,C)
-  - Multiple predeal statements can assign cards to different positions
-  - Shuffle algorithm skips predealt cards (matches dealer.exe exactly)
-  - Error if same card dealt twice or more than 13 cards to one position
-  - Affects the random number sequence (rebuilds internal lookup table)
-- Precedence: Command-line flags > Input file keywords > Defaults
-- Backward compatible: simple expressions still work with command-line flags
-
-### ❌ **Not Implemented**
-
-#### Print Actions
-- `print(expression)` - Print custom expression
-- `printes` - Print in ES format
-
-#### Control Commands
-- `generate N` - Generate exactly N deals (report all matches)
-- `pointcount name values` - Define custom point count
-- `altcount name values` - Alternative counting method
-
----
-
-## Current CLI Implementation
-
-### Command-Line Arguments
-
-| Argument | Description | Status |
-|----------|-------------|--------|
-| `-p N` / `--produce N` | Produce N matching deals (default: 40). Mutually exclusive with `-g` | ✅ Implemented |
-| `-g N` / `--generate N` | Generate N total deals, report all matches (default: 10,000,000). Mutually exclusive with `-p` | ✅ Implemented |
-| `-s SEED` / `--seed SEED` | Set random seed for reproducible results | ✅ Implemented |
-| `-f FORMAT` / `--format FORMAT` | Output format (oneline, printall, printew, printpbn, printcompact) | ✅ Implemented |
-| `-d POS` / `--dealer POS` | Dealer position for PBN (N/E/S/W) | ✅ Implemented |
-| `--vulnerable VULN` | Vulnerability for PBN (None/NS/EW/All) | ✅ Implemented |
-| `-v` / `--verbose` | Verbose output, prints statistics at end of run (matches dealer.exe) | ✅ Implemented |
-| `-V` / `--version` | Print version information and exit (matches dealer.exe) | ✅ Implemented |
-| `-q` / `--quiet` | Quiet mode - suppress deal output, only show statistics (matches dealer.exe) | ✅ Implemented |
-| `-m` / `--progress` | Show progress meter during generation (every 10,000 deals, matches dealer.exe) | ✅ Implemented |
-
-**Note**: The `-v` switch was changed from vulnerability to verbose to match dealer.exe behavior. Use `--vulnerable` (long form) for vulnerability setting.
-
-### Produce vs Generate Mode
-
-**Produce Mode (`-p N`, default):**
-- Stops after producing N **matching** deals
-- Use when you want a specific number of hands that meet your criteria
-- Example: `-p 10` generates deals until 10 matches are found
-- Default: 40 deals
-
-**Generate Mode (`-g N`):**
-- Generates exactly N **total** deals and reports all matches
-- Use when you want to test a rare condition or gather statistics
-- Example: `-g 100000` generates 100,000 deals and shows all that match
-- Default: 10,000,000 deals
-
-**Examples:**
-```bash
-# Produce mode: Stop after finding 10 strong openings
-echo "hcp(north) >= 20" | dealer -p 10
-
-# Generate mode: Check 1000 deals for strong openings
-echo "hcp(north) >= 20" | dealer -g 1000
-
-# In generate mode, you might find 0, 1, or many matches
-# In produce mode, you'll always get exactly N matches (unless generation limit reached)
-```
-
-### Default Behavior
-
-- **Input**: Reads constraint from stdin
-- **Output**: Oneline format to stdout (default)
-- **Statistics**: Printed to stderr (generated count, produced count, seed, duration)
-- **Seed**: Microsecond-resolution timestamp if not specified
-- **Mode**: Produce mode with 40 deals (unless `-g` or `produce` keyword specified)
-
----
-
-## Architecture Status
-
-### Crates
-
-| Crate | Purpose | Status |
-|-------|---------|--------|
-
-| `dealer-core` | Deal generation | ✅ Complete (13 tests) |
-| `dealer-pbn` | PBN format I/O | ✅ Basic (9 tests) |
-| `dealer-parser` | Constraint parsing | ✅ Expanded (20 tests) |
-| `dealer-eval` | Expression evaluation | ✅ Expanded (45 tests) |
-| `dealer` | CLI application | ✅ Basic (produce mode) |
-
-### Test Coverage
-
-- **Total Tests**: 102 passing
-- **Variables**: 9 tests for variable assignment, lookup, and recursive evaluation
-- **Preprocessing**: 7 tests for 4-digit number disambiguation
-- **Quality/CCCC**: 7 tests for hand evaluation functions (2 unit tests, 3 evaluation tests, 2 integration tests)
-- **Print Formats**: 9 tests for output formatting (printall, printew, printpbn, printcompact, oneline)
-- **Action Keywords**: Parser tests for condition, produce, action statements
-- **Coverage**: All core constraint functions, alternative point counts, hand quality metrics, variables, automatic preprocessing, action keywords, and print formats implemented
-- **Missing**: Statistical functions, double-dummy analysis
-
-### Preprocessing System
-
-The parser includes an automatic preprocessing step that solves the ambiguity between 4-digit shape patterns and 4-digit numeric literals:
-
-**Problem**: In PEG parsers, `shape(north, 5242)` and `cccc(north) >= 1500` both contain 4-digit numbers, but only the first should be parsed as a shape pattern.
-
-**Solution**: Before parsing, all input is preprocessed to mark 4-digit numbers inside `shape()` functions with a `%s` prefix:
-- `shape(north, 5242)` → `shape(north, %s5242)` (marked as shape pattern)
-- `cccc(north) >= 1500` → unchanged (numeric literal)
-- `shape(north, any 4333 - 4333)` → `shape(north, any 4333 - %s4333)` (only mark non-"any" patterns)
-
-The grammar is then designed to require the `%s` marker for pure-digit shape patterns, while wildcards (e.g., `54xx`) and "any"-prefixed patterns don't need it. This allows users to write natural expressions like `cccc(north) >= 1500` without workarounds.
-
----
-
-## Limitations of Current Implementation
-
-### Parser Limitations
-1. ✅ ~~Only parses constraint expressions, not action blocks~~ **IMPLEMENTED**
-2. ✅ ~~No support for full dealer input format~~ **IMPLEMENTED** (`condition`, `produce`, `action`, `average`, `frequency` keywords working)
-
-### Evaluator Limitations
-1. 22 core functions implemented (hcp, 4 suits, controls, losers, shape, hascard, tens-aces, top2-5, c13, quality, cccc)
-2. No double-dummy analysis (tricks)
-3. No scoring functions (score, imps)
-4. No statistical aggregation
-
-### CLI Limitations
-1. ✅ ~~Only "produce" mode (no "generate" mode)~~ **IMPLEMENTED** (Both `-p` produce and `-g` generate modes working)
-2. ✅ ~~Output format hardcoded to printoneline~~ **IMPLEMENTED** (5 formats available via `-f` flag or `action` keyword)
-3. ✅ ~~No action language support~~ **IMPLEMENTED** (condition, produce, action, dealer, vulnerable, average, frequency, predeal keywords working)
-4. ✅ ~~No predeal support~~ **IMPLEMENTED** (predeal keyword assigns cards to positions before shuffling, matches dealer.exe exactly)
-5. ✅ ~~No average output~~ **IMPLEMENTED** (average action calculates and displays statistics)
-6. ✅ ~~No frequency output~~ **IMPLEMENTED** (frequency action displays distribution tables)
-
----
-
-## Dealer Language Architecture
-
-The full dealer language has two parts:
-
-1. **Condition Section** - Filter expressions ✅ **IMPLEMENTED**
-2. **Action Section** - Output and statistics (partially implemented)
-
-Example full dealer input:
-```
-# Variables
 nt_opener = hcp(north) >= 15 && hcp(north) <= 17 && shape(north, any 4333 + any 4432 + any 5332)
-
-# Condition
-condition nt_opener
-
-# Actions (partially working)
-produce 100
-action printpbn    # ✅ Print formats working
-
-# Not yet implemented:
-# average hcp(north)
-# frequency shape(north)
+weak = hcp(south) <= 8
+condition nt_opener && weak
 ```
 
-**Current implementation:**
-- ✅ Variables and condition expressions fully working
-- ✅ Print format actions fully working (printall, printew, printpbn, printcompact, printoneline)
-- ✅ Produce directive fully working
-- ✅ Average action fully working (calculates averages over matching deals)
-- ✅ Frequency action fully working (displays distribution tables with counts and percentages)
-- ✅ Predeal directive fully working (assigns specific cards to positions before shuffling)
+Variables may refer to other variables. A result is cached for the duration of
+one deal, so referring to the same variable twice costs one evaluation — with
+the exception noted in [#14](https://github.com/bridge-craftwork/Dealer3/issues/14),
+where a variable holding a `tricks()` call is re-solved per reference.
 
----
+## Comments
 
-## Next Steps for Full Implementation
+`#` and `//` to end of line, `/* */` across lines. A `# key: value` line at the
+start of a file is treated as a header by the web editor's highlighting, which
+is how the Practice-Bidding-Scenarios scripts carry their metadata.
 
-### High Priority
-1. ✅ ~~Add `-g` / `--generate` mode~~ **IMPLEMENTED**
-2. ✅ ~~Parse and handle action blocks~~ **IMPLEMENTED**
-3. ✅ ~~Multiple output format support~~ **IMPLEMENTED**
-4. ✅ ~~Statistical actions (average)~~ **IMPLEMENTED**
-5. ✅ ~~Frequency action~~ **IMPLEMENTED**
-6. ✅ ~~Predeal support~~ **IMPLEMENTED**
+## Related documents
 
-### Medium Priority
-7. ✅ ~~Vulnerability/dealer position~~ **IMPLEMENTED**
-8. Performance optimization for large deal generation
-
-### Low Priority
-9. Double-dummy analysis (tricks) - requires DDS library
-10. Scoring functions (score, imps)
-11. Additional evaluation metrics
-
----
-
-## Testing Strategy
-
-### Current Testing
-- Unit tests for each component
-- Golden tests for shuffle algorithm
-- Integration tests for basic constraints
-
-### Needed Testing
-- Comparison tests against dealer.exe output
-- Statistical accuracy tests
-- Performance benchmarks
-- Edge case coverage (void suits, yarborough, etc.)
-
----
-
-## References
-
-- **Dealer Manual**: https://www.bridgebase.com/tools/dealer/Manual/input.html
-- **Original Dealer**: https://github.com/ThorvaldAagaard/Dealer
-- **DealerV2_4**: https://github.com/ThorvaldAagaard/DealerV2_4
+- `command_line_comparison.md` — the switch table, generated the same way
+- `WASM.md` — the `language_info()` payload these tables come from
+- `../web/README.md` — how the reference page is built
+- `CHANGELOG.md` — the 0.2.0 breaking change to `-v`

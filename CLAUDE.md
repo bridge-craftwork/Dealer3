@@ -4,15 +4,31 @@
 
 dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full compatibility for the original dealer.exe command-line interface and support for DealerV2_4 enhancements.
 
-**Key Achievement**: Phase 0 and Phase 1 complete - dealer3 is now **fully compatible** with essential dealer.exe command-line behavior!
-
 ## Current Status
 
-- **Version**: 0.2.0 (unreleased, pre-1.0)
-- **Last Updated**: 2026-01-01
-- **Phase 0**: ✅ COMPLETE (Breaking changes for dealer.exe compatibility)
-- **Phase 1**: ✅ COMPLETE (Essential dealer.exe switches)
-- **Phase 2**: 🚧 IN PROGRESS (DealerV2_4 enhancements - CSV export complete)
+- **Version**: 1.0.0
+- **Last Updated**: 2026-08-26
+- **Switches**: 23 of 35 implemented across the three dealers
+- **Language**: 24 functions under 39 spellings; the remaining gaps are in issues #12, #14 and #15
+- **Also shipping**: a WebAssembly build and a browser app at
+  https://dealer.bridge-classroom.org, with a generated language reference
+
+**Do not write status figures into a document by hand.** Both tables below are
+generated from the code and verified by `cargo test`, because the hand-kept
+versions drifted badly — the switch table listed `-R` as unimplemented months
+after it shipped, and the language page listed `tricks`, `score` and `imps` as
+to-do while its own summary said they worked.
+
+| Question | Where it is answered |
+|---|---|
+| Which switches work, and how they compare to dealer.exe and DealerV2_4 | `docs/command_line_comparison.md` (generated from clap) |
+| Which functions, operators and statements the language accepts | `docs/FILTER_LANGUAGE_STATUS.md` (generated from `vocabulary.rs`) |
+| What is still missing, with the reasons | the "Where dealer3 still differs" table in that same file |
+
+```bash
+cargo test -p dealer                  # verifies both documents
+UPDATE_DOCS=1 cargo test -p dealer    # rewrites their generated tables
+```
 
 ## Architecture
 
@@ -67,7 +83,10 @@ dealer3/
 ## Important Files to Know
 
 ### Documentation (Always Check These First!)
-- `docs/FILTER_LANGUAGE_STATUS.md` - Complete feature implementation status
+- `docs/FILTER_LANGUAGE_STATUS.md` - The language, generated from `vocabulary.rs`
+- `docs/command_line_comparison.md` - Switch comparison, generated from clap
+- `docs/WASM.md` - The WebAssembly build and its API
+- `web/README.md` - The browser app and the language reference page
 - `docs/CHANGELOG.md` - Breaking changes and migration guide
 - `docs/command_line_switch_requirements.md` - CLI switch strategy and status
 - `docs/PHASE_0_COMPLETION.md` - Phase 0 implementation report
@@ -122,13 +141,18 @@ condition hcp(north) + hcp(south) >= 12
 EOF
 ```
 
-## Next Steps (Phase 2)
+## Next Steps
 
-Priority features for next implementation:
-1. Compass predeal switches (`-N/E/S/W CARDS`)
-2. CSV export (`-C FILE`)
-3. Title metadata (`-T "text"`)
-4. BBO strict mode (`--bbo-strict`)
+Compass predeal, CSV export and title metadata are all **done** — this list said
+otherwise for months, which is why the status tables are now generated.
+
+1. Implement the missing spellings and reject the unimplemented ones (#15)
+2. Route `tricks()` through `bridge-solver` (#14)
+3. BBO strict mode, `--bbo-strict` (#13, low priority)
+4. Variables named like statement keywords (#12)
+
+Remaining switch gaps are the DealerV2_4-only ones (`-M`, `-Z`, `-U`, `-O`,
+`-D`) and dealer.exe's swapping modes; see the generated comparison table.
 
 ## Development Guidelines
 
@@ -168,8 +192,14 @@ All located at `/Users/rick/Development/GitHub/`:
 
 ## Known Issues
 
-1. ⚠️ Warning: unused function `vulnerability_type_to_vulnerability` in main.rs (cleanup needed)
-2. Statistics always shown even without `-v` (minor, user-friendly behavior)
+Tracked on GitHub rather than listed here, so this file cannot go stale:
+`gh issue list`. The ones worth knowing before touching anything:
+
+- **#15** — words the original accepts that dealer3 does not (`control`, `hcps`,
+  `notrumps`, `pointcount`, …) are accepted *silently* and give wrong answers.
+- **#14** — `tricks()` takes **minutes per solve** and saturates every core. Never
+  put it in a casual probe; it can starve the Parallels VM until SSH looks dead.
+- **#12** — variables whose name begins with a statement keyword are rejected.
 
 ## Source Material & Reference Implementations
 

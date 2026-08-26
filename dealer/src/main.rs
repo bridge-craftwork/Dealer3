@@ -1,5 +1,14 @@
 mod fast_parallel;
 
+// Documentation generated from the code rather than kept in step by hand: the
+// switch comparison and the language tables in `docs/`. Test-only, since the
+// binary never renders them — `cargo test -p dealer` verifies them and
+// `UPDATE_DOCS=1 cargo test -p dealer` rewrites them.
+#[cfg(test)]
+mod generated_docs;
+#[cfg(test)]
+mod switches;
+
 use clap::Parser;
 use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};

@@ -2,25 +2,13 @@
 
 ## Current Status
 
-**Implemented Switches** (6):
-- ✅ `-p/--produce N` - Max hands to produce
-- ✅ `-g/--generate N` - Max hands to generate
-- ✅ `-s/--seed N` - Random seed
-- ✅ `-f/--format FORMAT` - Output format (our enhancement)
-- ✅ `-d/--dealer POS` - Dealer position (our enhancement)
-- ✅ `-v/--vulnerable VULN` - Vulnerability (our enhancement, **conflicts with original**)
+**Not written down here.** `docs/command_line_comparison.md` carries it, and is
+generated from clap so it cannot drift. This block used to list `-m`, `-q` and
+`-V` as missing while the timeline below ticked them off as done, and claimed
+`-v` still meant vulnerability a release after that changed.
 
-**Original dealer.exe Switches Missing** (10):
-- ❌ `-e` - Exhaust mode
-- ❌ `-l N` - Library mode
-- ❌ `-m` - Progress meter
-- ❌ `-q` - Quiet mode
-- ❌ `-u` - Upper/lowercase toggle
-- ❌ `-v` - Verbose (conflicts with our `-v`)
-- ❌ `-V` - Version info
-- ❌ `-0` - No swapping (our default)
-- ❌ `-2` - 2-way swapping
-- ❌ `-3` - 3-way swapping
+What remains of this document is the *plan* — effort, value and ordering — which
+is a judgement no program can generate.
 
 ---
 
@@ -195,26 +183,20 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 
 ## Compatibility Considerations
 
-### Resolving the `-v` Conflict
+### The `-v` conflict, as resolved
 
-**Current Situation**:
-- dealer.exe: `-v` = verbose (toggle stats)
-- dealer3: `-v` = vulnerability
-- DealerV2_4: `-v` = verbose, `-P` = vulnerability
+dealer3 0.1 used `-v` for vulnerability; dealer.exe uses it for verbose.
 
-**Option A: Keep Current (Recommended)**
-- Pros: Our `-v` is more useful (vulnerability control)
-- Pros: We always show stats (verbose always on)
-- Cons: Incompatible with dealer.exe
-- Solution: Document the difference clearly
+**Option B was taken**, not the Option A this document used to recommend:
+compatibility with dealer.exe mattered more than the convenience of a short
+vulnerability flag, because a BBO script written for the original has to run
+here unchanged. So in 0.2.0:
 
-**Option B: Switch to Match Original**
-- `-v` → verbose (toggle stats)
-- `-V` → vulnerability (capitalized)
-- Pros: Compatible with dealer.exe
-- Cons: Breaking change for our users
+- `-v` became verbose, matching dealer.exe
+- vulnerability moved to `--vulnerable`, long form only
+- `-X` forces statistics on regardless, also matching dealer.exe
 
-**Recommendation**: Keep Option A, add `--verbose` flag for suppression
+See `CHANGELOG.md` for the migration note.
 
 ---
 
@@ -227,20 +209,26 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 - [x] Remove `-v` for vulnerability, use `--vulnerable` only - **COMPLETED (Breaking Change)**
 - [x] Progress meter (`-m`) - **COMPLETED**
 
-### Sprint 2 (Near-term - 2-3 days)
-- [ ] Compass predeal switches (`-N/E/S/W`)
-- [ ] CSV export (`-C`)
-- [ ] Title metadata (`-T`)
+### Sprint 2 (Near-term - 2-3 days) ✅ **COMPLETED**
+- [x] Compass predeal switches (`-N/E/S/W`) - **COMPLETED**
+- [x] CSV export (`-C`) - **COMPLETED**
+- [x] Title metadata (`-T`) - **COMPLETED**
 
-### Sprint 3 (Medium-term - 1 week)
-- [ ] Multi-threading (`-R`)
-- [ ] Swapping modes (`-x`)
+### Sprint 3 (Medium-term - 1 week) — partly done
+- [x] Multi-threading (`-R`, plus `--batch-size`) - **COMPLETED**
+- [ ] Swapping modes (`-x`) - recognised and rejected, not implemented
 
-### Sprint 4 (Long-term - 2-3 weeks)
-- [ ] DDS integration
-- [ ] Library mode
-- [ ] Export formats
-- [ ] Script parameters
+### Sprint 4 (Long-term - 2-3 weeks) — partly done
+- [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`, but
+      unusably slow on the legacy solver (#14)
+- [ ] Library mode - `--input-deals` covers the common case; `-l` is rejected
+- [ ] Export formats (`-Z` zrd, DL52)
+- [ ] Script parameters (`$0`-`$9`)
+
+### Unplanned, and shipped anyway
+Five switches arrived without ever appearing in this document: `--input-deals`,
+`-t/--timeout`, `-X/--stats-on`, `--license` and `--credits`. Plus the whole
+WebAssembly build and browser app, which predate none of these phases.
 
 ---
 

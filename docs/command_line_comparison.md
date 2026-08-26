@@ -1,253 +1,140 @@
-# Command-Line Switch Comparison: dealer.exe vs Our Implementation vs DealerV2_4
+# Command-line switches: dealer3 vs dealer.exe vs DealerV2_4
 
-## Overview
+Three implementations of the same idea:
 
-This document compares command-line switches across three implementations:
-1. **dealer.exe** (Original Thomas Andrews version)
-2. **Our Rust Implementation** (dealer3 v0.2.0)
-3. **DealerV2_4** (Thorvald Aagaard's enhanced version)
+1. **dealer.exe** — Henk Uijterwaal's original.
+2. **dealer3** — this project.
+3. **DealerV2_4** — Thorvald Aagaard's expanded version.
 
-**Last Updated**: January 2026
+## The table is generated
 
----
+The dealer3 column is read from the argument parser at test time, not written
+down, because the hand-maintained version of this document drifted: it listed
+`-R` as unimplemented months after it shipped, never gained `--input-deals`,
+`--timeout`, `--stats-on` or `--batch-size`, and still claimed "v0.2.0, 18
+switches" when there were 24.
 
-## Complete Switch Comparison Table
+`dealer/src/switches.rs` holds the part no program here can answer — what the
+other two implementations do — and `cargo test -p dealer` fails when a switch is
+added without a row, or when this file falls behind. Regenerate with:
 
-| Switch | dealer.exe | dealer3 (ours) | DealerV2_4 | Status | Notes |
-|--------|------------|----------------|------------|--------|-------|
-| **Core Generation** |
-| `INPUT_FILE` | ✅ Positional arg | ✅ Same | ✅ Same | **IMPLEMENTED** | Input file as first argument |
-| `-p N` | Produce N hands (default 40) | ✅ Same | ✅ Same | **IMPLEMENTED** | Core feature |
-| `-g N` | Generate N hands (default 10M) | ✅ Same | ✅ Same | **IMPLEMENTED** | Can combine with `-p` |
-| `-s N` | Random seed | ✅ Same | ✅ Same | **IMPLEMENTED** | Core feature |
-| **Output Control** |
-| `-q` | Suppress deal output | ✅ Same | ✅ PBN Quiet mode | **IMPLEMENTED** | Only show stats |
-| `-v` | Verbose (show stats) | ✅ Same | ✅ Toggle EOJ stats | **IMPLEMENTED** | Compatible |
-| `-V` | Version info | ✅ Same | ✅ Show version and exit | **IMPLEMENTED** | Standard practice |
-| `-h` | Help | ✅ Auto (clap) | ✅ Help | **IMPLEMENTED** | Standard |
-| **Format/Display** |
-| `-f FORMAT` | ❌ Not in original | ✅ Format selection | ❌ Not in V2_4 | **IMPLEMENTED** | Our enhancement |
-| `-u` | Upper/lowercase AKQJT | ❌ Not implemented | ❌ Not in V2_4 | Low | Cosmetic |
-| `-m` | Progress meter | ✅ Same | ✅ Progress meter | **IMPLEMENTED** | Shows every 10k hands |
-| **Predeal** |
-| `-N/E/S/W CARDS` | ❌ Not in original | ✅ Same as V2_4 | ✅ Compass predeal | **IMPLEMENTED** | Format: S8743,HA9,D642,CQT64 |
-| predeal keyword | ✅ In input file | ✅ In input file | ✅ In input file | **IMPLEMENTED** | We support via input |
-| **Position/Vulnerability** |
-| `-d POS` | ❌ Not in original | ✅ Dealer position | ❌ Not in V2_4 | **IMPLEMENTED** | Our enhancement |
-| `--vulnerable VULN` | ❌ Not in original | ✅ Vulnerability | ❌ Not in V2_4 | **IMPLEMENTED** | Our enhancement (long form) |
-| `-P N` | ❌ Not in original | ❌ Not implemented | ✅ Vulnerability for Par (0-3) | Low | V2_4 only |
-| **Metadata** |
-| `-T "text"` | ❌ Not in original | ✅ Title metadata | ✅ Title in quotes | **IMPLEMENTED** | For PBN output |
-| `--license` | ❌ Not in original | ✅ Show license | ❌ Not in V2_4 | **IMPLEMENTED** | Our addition |
-| `--credits` | ❌ Not in original | ✅ Show credits | ❌ Not in V2_4 | **IMPLEMENTED** | Our addition |
-| **Export/Reporting** |
-| `-C FILE` | ❌ Not in original | ✅ CSV output | ✅ CSV Report filename | **IMPLEMENTED** | Supports append/write modes |
-| `-X FILE` | ❌ Not in original | ❌ Not implemented | ✅ Export predeal holdings | Low | V2_4 feature |
-| `-Z FILE` | ❌ Not in original | ❌ Not implemented | ✅ RP zrd format export | Low | V2_4 format |
-| **Swapping Modes** |
-| `-0` | No swapping (default) | ✅ Default behavior | ✅ Same | **IMPLEMENTED** | Default |
-| `-2` | 2-way swap (E/W) | ❌ Not implemented | ❌ Not in V2_4 | Low | Not compatible with predeal |
-| `-3` | 3-way swap (E/W/S) | ❌ Not implemented | ❌ Not in V2_4 | Low | Not compatible with predeal |
-| `-x MODE` | ❌ Not in original | ❌ Not implemented | ✅ eXchange mode 2\|3 | Low | V2_4 adds this |
-| **Double-Dummy Analysis** (V2_4 only) |
-| `-M MODE` | ❌ Not in original | ❌ Not implemented | ✅ DDS mode 1\|2 | Low | Requires DDS library |
-| `-R N` | ❌ Not in original | ❌ Not implemented | ✅ Resources/Threads 1-9 | Low | Requires DDS library |
-| **Library/Advanced** (V2_4 only) |
-| `-l PATH` | Read from library.dat | ❌ Not implemented | ✅ DL52 format export | Low | Different meaning in V2_4 |
-| `-L PATH` | ❌ Not in original | ❌ Not implemented | ✅ RP Library source path | Low | V2_4 advanced feature |
-| `-U PATH` | ❌ Not in original | ❌ Not implemented | ✅ DealerServer pathname | Low | V2_4 server mode |
-| **OPC** (V2_4 only) |
-| `-O POS` | ❌ Not in original | ❌ Not implemented | ✅ OPC evaluation Opener | Low | V2_4 specific |
-| **Script Parameters** (V2_4 only) |
-| `-0` to `-9` | ❌ Not in original | ❌ Not implemented | ✅ Set $0-$9 script params | Low | V2_4 scripting |
-| **Debug** |
-| `-D LEVEL` | ❌ Not in original | ❌ Not implemented | ✅ Debug verbosity 0-9 | Low | V2_4 debugging |
-| `-e` | Exhaust mode (alpha) | ❌ Not implemented | ❌ Not in V2_4 | Low | Experimental |
-
----
-
-## Summary Statistics
-
-### dealer.exe (Original)
-- **Total switches**: 13
-- **Core features**: 5 (`-p`, `-g`, `-s`, `-h`, `-0`)
-- **Output control**: 4 (`-q`, `-v`, `-V`, `-u`)
-- **Swapping**: 3 (`-0`, `-2`, `-3`)
-- **Advanced**: 2 (`-e`, `-l`, `-m`)
-
-### dealer3 v0.2.0 (Our Implementation)
-- **Total switches**: 18
-- **Implemented from dealer.exe**: 9/13 (69%)
-  - ✅ `-p`, `-g`, `-s`, `-h`, `-q`, `-v`, `-V`, `-m`, `-0`
-- **Implemented from DealerV2_4**: 3
-  - ✅ `-N/E/S/W`, `-C`, `-T`
-- **Our unique enhancements**: 4
-  - ✅ `-f` (format), `-d` (dealer), `--vulnerable`, `--license`, `--credits`
-- **Not implemented (low priority)**: 4 switches (`-2`, `-3`, `-u`, `-e`)
-
-### DealerV2_4 (Thorvald Aagaard)
-- **Total switches**: 29+
-- **From original**: 7
-- **New features**: 22+
-- **Focus areas**:
-  - Double-dummy analysis (DDS integration)
-  - Export formats (CSV, RP zrd, DL52)
-  - Advanced evaluation (OPC, Par)
-  - Scripting support
-
----
-
-## Feature Comparison by Category
-
-### 1. Core Generation Features
-| Feature | dealer.exe | dealer3 | DealerV2_4 |
-|---------|------------|---------|------------|
-| Produce mode | ✅ | ✅ | ✅ |
-| Generate mode | ✅ | ✅ | ✅ |
-| Seeded RNG | ✅ | ✅ | ✅ |
-| Predeal (input) | ✅ | ✅ | ✅ |
-| Predeal (switch) | ❌ | ❌ | ✅ |
-
-### 2. Output Formats
-| Format | dealer.exe | dealer3 | DealerV2_4 |
-|--------|------------|---------|------------|
-| PrintOneLine | ✅ | ✅ | ✅ |
-| PrintAll | ✅ | ✅ | ✅ |
-| PrintEW | ✅ | ✅ | ✅ |
-| PrintPBN | ✅ | ✅ | ✅ |
-| PrintCompact | ✅ | ✅ | ✅ |
-| CSV export | ❌ | ❌ | ✅ |
-| RP zrd format | ❌ | ❌ | ✅ |
-| DL52 format | ❌ | ❌ | ✅ |
-
-### 3. Analysis Features
-| Feature | dealer.exe | dealer3 | DealerV2_4 |
-|---------|------------|---------|------------|
-| Basic eval (HCP, shape, etc) | ✅ | ✅ | ✅ |
-| Double-dummy (tricks) | ❌ | ❌ | ✅ (via DDS) |
-| Par calculation | ❌ | ❌ | ✅ |
-| OPC evaluation | ❌ | ❌ | ✅ |
-
-### 4. Performance Features
-| Feature | dealer.exe | dealer3 | DealerV2_4 |
-|---------|------------|---------|------------|
-| Progress meter | ✅ | ✅ | ✅ |
-| Multi-threading | ❌ | ❌ | ✅ (1-9 threads) |
-| Library mode | ✅ | ❌ | ✅ |
-
----
-
-## Implementation Status (v0.2.0)
-
-### ✅ Fully Implemented
-All high-priority features from dealer.exe have been implemented:
-
-1. **`-V/--version`**: Print version and exit ✅
-2. **`-v/--verbose`**: Toggle statistics output ✅
-3. **`-m/--progress`**: Progress meter for long runs ✅
-4. **`-N/E/S/W`**: Predeal via command line (V2_4 feature) ✅
-5. **`-C/--csv`**: CSV export for analytics ✅
-6. **`-q/--quiet`**: Suppress normal output ✅
-7. **`-T/--title`**: Add title/metadata to output ✅
-8. **`INPUT_FILE`**: Positional argument for input file ✅
-
-### Remaining Low Priority (Not Planned)
-1. **DDS integration**: Double-dummy solver (we have separate `solver` binary)
-2. **Multi-threading**: Parallel generation (`-R`)
-3. **Export formats**: RP zrd, DL52 formats
-4. **Script parameters**: `-0` through `-9` for scripting
-5. **Swapping modes**: `-2`, `-3` (not compatible with predeal)
-
----
-
-## Compatibility Notes
-
-### The `-v` Flag
-- **dealer.exe**: `-v` for verbose (toggle stats)
-- **dealer3**: `-v` for verbose (same behavior) ✅
-- **Vulnerability**: Use `--vulnerable` (long form only)
-
-This maintains compatibility with dealer.exe scripts while providing vulnerability support via a distinct flag.
-
----
-
-## Unique Features by Implementation
-
-### dealer.exe Only
-- 2-way and 3-way swapping modes (`-2`, `-3`)
-- Exhaust mode (`-e`)
-- Upper/lowercase toggle (`-u`)
-
-### dealer3 (Ours) Only
-- Explicit format selection (`-f/--format`)
-- Dealer position flag (`-d/--dealer`)
-- Vulnerability flag (`--vulnerable`)
-- License and credits info (`--license`, `--credits`)
-- **Separate `solver` binary** for double-dummy analysis (pure Rust, no external dependencies)
-
-### DealerV2_4 Only
-- Double-dummy analysis (DDS integration)
-- RP zrd/DL52 export formats
-- Multi-threading support
-- OPC evaluation
-- Par calculation
-- Script parameters (`$0`-`$9`)
-- Server mode integration
-
----
-
-## Compatibility Matrix
-
-| Feature | Works with dealer.exe files | Works with V2_4 files |
-|---------|----------------------------|---------------------|
-| Basic constraints | ✅ Yes | ✅ Yes |
-| Predeal syntax | ✅ Yes | ✅ Yes |
-| Action blocks | ✅ Yes | ✅ Yes |
-| Averages/Frequency | ✅ Yes | ✅ Yes |
-| CSV reports | ✅ Yes | ✅ Yes |
-| Command-line switches | ✅ 69% compatible | ✅ Key switches supported |
-| DDS functions | ❌ N/A | ❌ Use separate `solver` binary |
-| OPC functions | ❌ N/A | ❌ Would need implementation |
-| Script params | ❌ N/A | ❌ Would need implementation |
-
----
-
-## Quick Reference: dealer3 v0.2.0 CLI
-
+```bash
+UPDATE_DOCS=1 cargo test -p dealer
 ```
-dealer [OPTIONS] [INPUT_FILE]
 
-Arguments:
-  [INPUT_FILE]  Input file (reads from stdin if not provided)
+<!-- BEGIN GENERATED: switches -->
 
-Core Options:
-  -p, --produce <N>      Produce N matching hands (default: 40)
-  -g, --generate <N>     Generate up to N total hands (default: 10000000)
-  -s, --seed <N>         Random seed (default: time-based)
+dealer3 implements **23 of the 35 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
-Output Options:
-  -f, --format <FMT>     Output format (oneline, all, ew, pbn, compact)
-  -q, --quiet            Suppress deal output, show only stats
-  -v, --verbose          Show statistics at end of run
-  -m, --progress         Show progress meter during generation
+In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
-Predeal Options:
-  -N, --north <CARDS>    Predeal cards to North (e.g., S8743,HA9,D642,CQT64)
-  -E, --east <CARDS>     Predeal cards to East
-  -S, --south <CARDS>    Predeal cards to South
-  -W, --west <CARDS>     Predeal cards to West
+### Generation
 
-PBN Options:
-  -d, --dealer <POS>     Dealer position (N/E/S/W)
-  --vulnerable <VULN>    Vulnerability (None/NS/EW/All)
-  -T, --title <TEXT>     Title metadata
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-p`, `--produce` | Stop after N deals have matched | ✅ | ✅ | ✅ | Default 40, as in the original. |
+| `-g`, `--generate` | Stop after dealing N hands | ✅ | ✅ | ✅ | Default 10,000,000. Whichever limit is reached first ends the run. |
+| `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Same seed gives the same deals as dealer.exe: the RNG is a reimplementation of its 64-bit GNU random(). |
+| `-t`, `--timeout` | Give up after N seconds | ✅ | — | — |  |
 
-Export Options:
-  -C, --CSV <FILE>       CSV output file (append mode, use w:file for write)
+### Output
 
-Info Options:
-  -V, --version          Print version and exit
-  --license              Print license and exit
-  --credits              Print credits and exit
-  -h, --help             Print help
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. |
+| `-d`, `--dealer` | Dealer position | ✅ | — | — | The original uses the `dealer` statement, which dealer3 also accepts. |
+| `--vulnerable` | Vulnerability | ✅ | — | ⚠️ -P sets vulnerability for par | Long form only. `-v` is verbose, as in the original — this was the 0.2.0 breaking change. |
+| `-v`, `--verbose` | Toggle the closing statistics | ✅ | ✅ | ✅ |  |
+| `-X`, `--stats-on` | Force statistics on, past any -v | ✅ | ✅ | ⚠️ -X exports predeal holdings | In dealer.exe's getopt string but not its usage line. DealerV2_4 reuses the letter for something else entirely. |
+| `-q`, `--quiet` | Suppress the deals, keep the statistics | ✅ | ✅ | ✅ |  |
+| `-m`, `--progress` | Progress meter | ✅ | ✅ | ✅ | Every 10,000 deals. |
+| `-V`, `--version` | Print the version and exit | ✅ | ✅ | ✅ |  |
+| `--license` | Print the licence and exit | ✅ | — | — |  |
+| `--credits` | Print credits and exit | ✅ | — | — |  |
+| `-h`, `--help` | Print help and exit | ❌ | ✅ | ✅ |  |
+
+### Predeal
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-N`, `--north` | Predeal cards to North | ✅ | — | ✅ | Format `S8743,HA9,D642,CQT64`, as DealerV2_4 writes it. |
+| `-E`, `--east` | Predeal cards to East | ✅ | — | ✅ |  |
+| `-S`, `--south` | Predeal cards to South | ✅ | — | ✅ |  |
+| `-W`, `--west` | Predeal cards to West | ✅ | — | ✅ |  |
+
+### Reporting
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-C`, `--CSV` | Write a CSV report to a file | ✅ | — | ✅ | Appends by default; `w:filename` truncates. Driven by the `csvrpt` statement. |
+| `-T`, `--title` | Title for PBN output | ✅ | — | ✅ |  |
+
+### Performance
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-R`, `--threads` | Worker threads, 0 to auto-detect | ✅ | — | ✅ | DealerV2_4 uses it for its double-dummy solver; here it parallelises generation. |
+| `--batch-size` | Work units per batch when parallel | ✅ | — | — |  |
+
+### Reading deals in
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `--input-deals` | Filter deals from a file instead of generating | ✅ | ⚠️ -l replays from a library file by index | ⚠️ -L names a library path, -l exports DL52 | Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are skipped, so check the reported count. |
+
+### Recognised but not supported
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-u` | Upper-case the honour cards in output | ⚠️ rejected with a message | ✅ | — | Cosmetic. |
+| `-2` | Two-way swapping, East/West | ⚠️ rejected with a message | ✅ | ⚠️ -x MODE | dealer3 rejects it with a message rather than ignoring it. |
+| `-3` | Three-way swapping | ⚠️ rejected with a message | ✅ | ⚠️ -x MODE | Neither is compatible with predeal. |
+| `-e` | Exhaust mode | ⚠️ rejected with a message | ⚠️ compiled out; prints "not included" | — | Never finished in the original either. |
+| `-l` | Replay deals from a library file | ⚠️ rejected with a message | ✅ | ⚠️ -l exports DL52 | `--input-deals` covers this use case in dealer3's own way. |
+| `--legacy` | The old single-threaded RNG mode | ⚠️ rejected with a message | — | — | Removed in 0.5.0; still parsed so a script using it gets an explanation. |
+
+### Not implemented
+
+| Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
+|---|---|---|---|---|---|
+| `-M` | Double-dummy solver mode | ❌ | — | ✅ | dealer3 has `tricks()` but no mode switch. |
+| `-Z` | Export in RP zrd format | ❌ | — | ✅ |  |
+| `-U` | DealerServer path | ❌ | — | ✅ |  |
+| `-O` | OPC evaluation for the opener | ❌ | — | ✅ |  |
+| `-D` | Debug verbosity 0-9 | ❌ | — | ✅ |  |
+<!-- END GENERATED: switches -->
+
+## Sources
+
+dealer.exe's switches are its own getopt string, from `dealer.c` in
+`Dealer-cleanup`:
+
+```c
+getopt (argc, argv, "023ehuvmqXp:g:s:l:V")
 ```
+
+`-X` is in there but missing from the program's own usage line, so the usage
+line is not a reliable source for what it accepts.
+
+DealerV2_4's column comes from `dealer_vs_dealer2_switches.md`, compiled from
+its manual, and has not been re-verified against a V2_4 build. Treat it as the
+weaker of the two columns.
+
+## The `-v` breaking change
+
+dealer3 0.1 used `-v` for vulnerability. dealer.exe uses it for verbose, and
+compatibility with dealer.exe matters more, so 0.2.0 moved vulnerability to
+`--vulnerable` (long form only) and gave `-v` its original meaning. See
+`CHANGELOG.md`.
+
+## Where the letters collide
+
+Three letters mean different things in different implementations, which is why
+the table marks them ⚠️ rather than ✅:
+
+- `-X` — force statistics on (dealer.exe, dealer3) vs export predeal holdings
+  (V2_4).
+- `-l` — replay from a library by index (dealer.exe) vs export DL52 (V2_4).
+  dealer3 does neither; `--input-deals` covers the first use case in its own
+  way.
+- `-P` — vulnerability for par in V2_4; dealer3 uses `--vulnerable`.
