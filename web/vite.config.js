@@ -29,8 +29,11 @@ export default defineConfig({
         // both are content-hashed, and neither changes when app code does — so
         // a redeploy does not force everyone to re-download them.
         manualChunks(id) {
-          if (id.includes('monaco-editor')) return 'monaco'
+          // The engine is the one genuinely large, rarely-changing asset. Its
+          // own content-hashed chunk means an app-code deploy does not force
+          // everyone to re-download a megabyte of wasm.
           if (id.includes('/wasm/')) return 'engine'
+          if (id.includes('@codemirror') || id.includes('@lezer')) return 'editor'
         },
       },
     },

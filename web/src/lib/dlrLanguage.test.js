@@ -1,25 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
-import { registerDlrLanguage, LANGUAGE_ID } from './dlrLanguage.js'
-
-// A minimal stand-in for the parts of the Monaco API this module touches.
-function fakeMonaco() {
-  const calls = {}
-  return {
-    calls,
-    languages: {
-      register: (v) => (calls.register = v),
-      setLanguageConfiguration: (id, v) => (calls.config = { id, ...v }),
-      setMonarchTokensProvider: (id, v) => (calls.monarch = { id, ...v }),
-      registerCompletionItemProvider: (id, p) => (calls.completion = { id, ...p }),
-      CompletionItemKind: { Function: 1, Keyword: 2, Constant: 3 },
-      CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
-    },
-  }
-}
+import { describe, it, expect } from 'vitest'
+import { dlrStreamParser, dlrCompletion } from './dlrLanguage.js'
 
 // Shaped like the engine's language_info() output.
 const info = {
-  functions: ['hcp', 'shape', 'spade', 'spades', 'top2', 'pt0'],
+  functions: ['hcp', 'shape', 'spade', 'spades', 'top2', 'pt0', 'cccc'],
   statement_keywords: ['condition', 'produce', 'csvrpt'],
   actions: ['printall', 'printoneline'],
   positions: ['north', 'south', 'n', 's'],
@@ -29,57 +13,142 @@ const info = {
   operators: ['==', '>=', '>', '='],
 }
 
-describe('registerDlrLanguage', () => {
-  it('registers the language id', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    expect(m.calls.register.id).toBe(LANGUAGE_ID)
+/** Run the stream tokenizer over a line and return [token, text] pairs. */
+function tokenize(line, parser = dlrStreamParser(info)) {
+  const state = parser.startState()
+  const out = []
+  let pos = 0
+  const stream = {
+    pos: 0,
+    string: line,
+    sol() { return this.pos === 0 },
+    peek() { return this.string[this.pos] },
+    next() { return this.string[this.pos++] },
+    eatSpace() {
+      const start = this.pos
+      while (/\s/.test(this.string[this.pos])) this.pos++
+      return this.pos > start
+    },
+    skipToEnd() { this.pos = this.string.length },
+    match(pattern, consume = true) {
+      if (typeof pattern === 'string') {
+        if (this.string.startsWith(pattern, this.pos)) {
+          if (consume) this.pos += pattern.length
+          return true
+        }
+        return false
+      }
+      const m = this.string.slice(this.pos).match(pattern)
+      if (m && m.index === 0) {
+        if (consume) this.pos += m[0].length
+        return m
+      }
+      return null
+    },
+  }
+  let guard = 0
+  while (stream.pos < line.length && guard++ < 500) {
+    pos = stream.pos
+    const tok = parser.token(stream, state)
+    if (stream.pos === pos) stream.pos++
+    if (tok) out.push([tok, line.slice(pos, stream.pos).trim()])
+  }
+  return out
+}
+
+describe('dlr tokenizer', () => {
+  it('marks known functions as functions', () => {
+    const t = tokenize('hcp(north) >= 15')
+    expect(t.find(([, text]) => text === 'hcp')[0]).toBe('function')
   })
 
-  it('takes every function from the engine vocabulary', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    for (const f of info.functions) expect(m.calls.monarch.functions).toContain(f)
+  it('marks statement keywords as keywords', () => {
+    expect(tokenize('condition x')[0][0]).toBe('keyword')
+    // csvrpt was missing from the old TextMate grammar entirely.
+    expect(tokenize('csvrpt(deal)')[0][0]).toBe('keyword')
   })
 
-  it('orders words longest-first so a prefix cannot shadow a longer word', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    const fns = m.calls.monarch.functions
-    // `spade` must not be matched where `spades` was written.
-    expect(fns.indexOf('spades')).toBeLessThan(fns.indexOf('spade'))
-  })
-
-  it('treats statement keywords and actions as keywords', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    expect(m.calls.monarch.keywords).toEqual(expect.arrayContaining(['condition', 'csvrpt', 'printall']))
-  })
-
-  it('excludes single-letter positions from constants', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    // `n` and `s` are valid positions but also common variable names; colouring
-    // every one of them would be worse than leaving them plain.
-    expect(m.calls.monarch.constants).toContain('north')
-    expect(m.calls.monarch.constants).not.toContain('n')
-  })
-
-  it('offers completions for functions with their parentheses', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    const model = {
-      getWordUntilPosition: () => ({ startColumn: 1, endColumn: 4 }),
+  it('covers point-count functions the old grammar missed', () => {
+    for (const fn of ['top2', 'pt0']) {
+      const t = tokenize(`${fn}(north)`)
+      expect(t[0], `${fn} should tokenize`).toEqual(['function', fn])
     }
-    const { suggestions } = m.calls.completion.provideCompletionItems(model, { lineNumber: 1 })
-    const hcp = suggestions.find((s) => s.label === 'hcp')
-    expect(hcp.insertText).toBe('hcp($0)')
-    expect(hcp.detail).toBe('function')
+  })
+
+  it('does not mistake a longer word for a shorter function', () => {
+    // `spades` must not tokenize as `spade` + `s`.
+    const t = tokenize('spades(north)')
+    expect(t[0]).toEqual(['function', 'spades'])
+  })
+
+  it('leaves unknown identifiers as variables', () => {
+    const t = tokenize('myOpener = 1')
+    expect(t[0]).toEqual(['variableName', 'myOpener'])
+  })
+
+  it('does not colour single-letter positions', () => {
+    // `n` is a valid position but also a common variable name, and the
+    // evaluator lets a variable shadow it.
+    expect(tokenize('n = 4')[0][0]).toBe('variableName')
+    expect(tokenize('north')[0][0]).toBe('atom')
   })
 
   it('is case-insensitive, matching the grammar', () => {
-    const m = fakeMonaco()
-    registerDlrLanguage(m, info)
-    expect(m.calls.monarch.ignoreCase).toBe(true)
+    expect(tokenize('HCP(NORTH)')[0][0]).toBe('function')
+  })
+
+  it('recognises comments, including PBS metadata headers', () => {
+    expect(tokenize('# alias: Foo')[0][0]).toBe('docComment')
+    expect(tokenize('# just a comment')[0][0]).toBe('comment')
+    expect(tokenize('// slash comment')[0][0]).toBe('comment')
+  })
+
+  it('recognises shape patterns before numbers', () => {
+    expect(tokenize('4333')[0]).toEqual(['number', '4333'])
+    expect(tokenize('5xxx')[0]).toEqual(['number', '5xxx'])
+  })
+
+  it('recognises card literals and predeal holdings', () => {
+    expect(tokenize('AS')[0][0]).toBe('atom')
+    expect(tokenize('SAKQ')[0][0]).toBe('atom')
+  })
+
+  it('tracks block comments across a line', () => {
+    const parser = dlrStreamParser(info)
+    const state = parser.startState()
+    expect(state.inBlockComment).toBe(false)
+  })
+})
+
+describe('dlr completion', () => {
+  const complete = dlrCompletion(info)
+  const context = (text, explicit = false) => ({
+    explicit,
+    matchBefore: (re) => {
+      const m = text.match(re)
+      return m ? { from: text.length - m[0].length, to: text.length, text: m[0] } : null
+    },
+  })
+
+  it('offers every function from the vocabulary', () => {
+    const r = complete(context('hc'))
+    for (const f of info.functions) {
+      expect(r.options.some((o) => o.label === f), `${f} missing`).toBe(true)
+    }
+  })
+
+  it('completes functions with their parentheses', () => {
+    const r = complete(context('hc'))
+    expect(r.options.find((o) => o.label === 'hcp').apply).toBe('hcp()')
+  })
+
+  it('labels the kind of each suggestion', () => {
+    const r = complete(context('co'))
+    expect(r.options.find((o) => o.label === 'condition').detail).toBe('statement')
+    expect(r.options.find((o) => o.label === 'north').detail).toBe('position')
+  })
+
+  it('returns nothing on an empty implicit request', () => {
+    expect(complete(context(''))).toBeNull()
   })
 })

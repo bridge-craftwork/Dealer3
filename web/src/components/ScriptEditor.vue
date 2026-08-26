@@ -11,35 +11,30 @@
 </template>
 
 <script setup>
-// The script editor: Monaco, with highlighting and diagnostics driven by the
-// engine itself.
+// The script editor: CodeMirror 6, with highlighting and diagnostics driven by
+// the engine itself.
 //
 // Diagnostics are the point. `check_script` is the real parser, so a squiggle
 // here means the engine will reject the script — not that a regex guessed. The
 // line and column come straight from pest.
 import { ref, onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
-// Core editor only. The `monaco-editor` barrel pulls in every language it
-// ships — perl, abap, solidity, the lot — which added ~2.5 MB of bundle for a
-// site that registers exactly one language of its own.
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import { registerDlrLanguage, LANGUAGE_ID } from '@/lib/dlrLanguage.js'
-import { checkScript, languageInfo } from '@/lib/engine.js'
+import { EditorState } from '@codemirror/state'
+import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
+import { syntaxHighlighting, defaultHighlightStyle, bracketMatching } from '@codemirror/language'
+import { autocompletion, closeBrackets } from '@codemirror/autocomplete'
+import { linter, lintGutter } from '@codemirror/lint'
+import { dlrLanguage, dlrCompletion } from '@/lib/dlrLanguage.js'
+import { checkScript, languageInfo, ready } from '@/lib/engine.js'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
 })
 const emit = defineEmits(['update:modelValue', 'validity'])
 
-// Monaco expects to find its workers here. Only the base worker is needed:
-// no language services are loaded.
-self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
-
 const host = ref(null)
-const editor = shallowRef(null)
+const view = shallowRef(null)
 const diagnostic = ref(null)
-let registered = false
-let debounce = null
 
 // pest errors are several lines: a location, the offending source, a caret, and
 // the expectation. The status bar wants the last of those.
@@ -49,106 +44,117 @@ function summarise(message) {
   return message.split('\n')[0].replace(/^Parse error:\s*/, '').trim() || 'invalid syntax'
 }
 
-function validate() {
-  const model = editor.value?.getModel()
-  if (!model) return
-  const text = model.getValue()
+/** Translate the engine's line/column into a document offset. */
+function offsetOf(doc, line, column) {
+  const l = Math.min(Math.max(line, 1), doc.lines)
+  const info = doc.line(l)
+  return Math.min(info.from + Math.max(column - 1, 0), info.to)
+}
+
+// The linter runs on a debounce CodeMirror manages, and is the single place that
+// decides validity — the status bar and the Run button both read from it.
+const dlrLinter = linter((v) => {
+  const text = v.state.doc.toString()
 
   if (!text.trim()) {
     diagnostic.value = null
-    monaco.editor.setModelMarkers(model, 'dealer3', [])
     emit('validity', { ok: true, empty: true })
-    return
+    return []
   }
 
   const result = checkScript(text)
   if (result.ok) {
     diagnostic.value = null
-    monaco.editor.setModelMarkers(model, 'dealer3', [])
     emit('validity', { ok: true, empty: false })
-    return
+    return []
   }
 
   const line = result.line ?? 1
   const column = result.column ?? 1
   diagnostic.value = { line, column, summary: summarise(result.error || '') }
+  emit('validity', { ok: false, empty: false })
 
   // pest reports a point, not a span. Underline to the end of the token that
-  // starts there so the squiggle is visible rather than a zero-width tick.
-  const lineContent = model.getLineContent(Math.min(line, model.getLineCount())) || ''
-  const rest = lineContent.slice(column - 1)
+  // starts there, so the squiggle is visible rather than a zero-width tick.
+  const from = offsetOf(v.state.doc, line, column)
+  const rest = v.state.doc.sliceString(from, v.state.doc.line(Math.min(line, v.state.doc.lines)).to)
   const tokenLength = (rest.match(/^\S+/) || [''])[0].length || 1
 
-  monaco.editor.setModelMarkers(model, 'dealer3', [
+  return [
     {
-      severity: monaco.MarkerSeverity.Error,
+      from,
+      to: Math.min(from + tokenLength, v.state.doc.length),
+      severity: 'error',
       message: result.error,
-      startLineNumber: line,
-      startColumn: column,
-      endLineNumber: line,
-      endColumn: column + tokenLength,
     },
-  ])
-  emit('validity', { ok: false, empty: false })
-}
+  ]
+}, { delay: 150 })
 
-onMounted(() => {
-  if (!registered) {
-    // The vocabulary comes from the engine, so highlighting and completion
-    // cannot disagree with the parser.
-    registerDlrLanguage(monaco, languageInfo())
-    registered = true
-  }
+onMounted(async () => {
+  // The vocabulary and the diagnostics both come from the engine, so the editor
+  // cannot be built until the wasm module has initialised. Awaiting here rather
+  // than relying on the parent's ordering keeps that dependency local: this used
+  // to work only because the component happened to be lazy-loaded, and broke the
+  // moment it was imported directly.
+  await ready()
+  if (!host.value) return // unmounted while the engine was loading
 
-  editor.value = monaco.editor.create(host.value, {
-    value: props.modelValue,
-    language: LANGUAGE_ID,
-    theme: 'vs',
-    automaticLayout: true,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    fontSize: 13,
-    lineNumbers: 'on',
-    renderWhitespace: 'none',
-    tabSize: 2,
+  // The vocabulary comes from the engine, so highlighting and completion cannot
+  // disagree with the parser.
+  const info = languageInfo()
+
+  view.value = new EditorView({
+    parent: host.value,
+    state: EditorState.create({
+      doc: props.modelValue,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLine(),
+        history(),
+        bracketMatching(),
+        closeBrackets(),
+        keymap.of([...defaultKeymap, ...historyKeymap]),
+        syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+        dlrLanguage(info),
+        autocompletion({ override: [dlrCompletion(info)] }),
+        lintGutter(),
+        dlrLinter,
+        EditorView.updateListener.of((u) => {
+          if (u.docChanged) emit('update:modelValue', u.state.doc.toString())
+        }),
+        EditorView.theme({
+          '&': { height: '100%', fontSize: '13px' },
+          '.cm-scroller': { fontFamily: 'var(--mono)', overflow: 'auto' },
+          '&.cm-focused': { outline: 'none' },
+        }),
+      ],
+    }),
   })
-
-  editor.value.onDidChangeModelContent(() => {
-    const text = editor.value.getValue()
-    emit('update:modelValue', text)
-    // Parsing is fast, but not worth doing on every keypress of a long script.
-    clearTimeout(debounce)
-    debounce = setTimeout(validate, 150)
-  })
-
-  validate()
 })
 
 // External changes (picking a scenario) replace the buffer wholesale.
 watch(
   () => props.modelValue,
   (value) => {
-    const ed = editor.value
-    if (!ed || ed.getValue() === value) return
-    ed.setValue(value)
-    validate()
+    const v = view.value
+    if (!v || v.state.doc.toString() === value) return
+    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } })
   },
 )
 
-onBeforeUnmount(() => {
-  clearTimeout(debounce)
-  editor.value?.dispose()
-})
+onBeforeUnmount(() => view.value?.destroy())
 
-defineExpose({ focus: () => editor.value?.focus() })
+defineExpose({ focus: () => view.value?.focus() })
 </script>
 
 <style scoped>
 .editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.editor-host { flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.editor-host {
+  flex: 1; min-height: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 4px;
+}
 .editor-status {
-  padding: 4px 8px; font-size: 12px; color: var(--fg-muted);
-  font-family: var(--mono);
+  padding: 4px 8px; font-size: 12px; color: var(--fg-muted); font-family: var(--mono);
 }
 .editor-status.is-error { color: var(--danger); }
 </style>

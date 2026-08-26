@@ -29,12 +29,7 @@
           </button>
         </div>
 
-        <Suspense>
-          <ScriptEditor v-model="script" @validity="onValidity" />
-          <template #fallback>
-            <div class="editor-loading">Loading editor…</div>
-          </template>
-        </Suspense>
+        <ScriptEditor v-model="script" @validity="onValidity" />
       </section>
 
       <section class="col col-results">
@@ -45,13 +40,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, defineAsyncComponent } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
-
-// Monaco is by far the largest thing here — bigger than the engine. Loading it
-// lazily lets the shell, the scenario list and the engine start while the editor
-// is still arriving, rather than holding first paint behind it.
-const ScriptEditor = defineAsyncComponent(() => import('@/components/ScriptEditor.vue'))
+import ScriptEditor from '@/components/ScriptEditor.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import { ready, generate, version } from '@/lib/engine.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'

@@ -22,10 +22,10 @@ src/
 ├── lib/
 │   ├── engine.js         wasm loader and typed wrapper
 │   ├── pbsScenarios.js   PBS manifest + script access (vendored)
-│   └── dlrLanguage.js    Monaco language, built from the engine's vocabulary
+│   └── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
 └── components/
     ├── ScenarioPicker.vue  340+ PBS scenarios, grouped and searchable
-    ├── ScriptEditor.vue    Monaco, with diagnostics from the real parser
+    ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
     └── ResultsPanel.vue    deals, averages, frequency charts
 ```
 
@@ -35,7 +35,7 @@ src/
 pest parser the CLI uses, so a squiggle means the engine will reject the script,
 and the line and column are the parser's own.
 
-**Highlighting is derived, not duplicated.** The Monaco tokenizer is built at
+**Highlighting is derived, not duplicated.** The CodeMirror tokenizer is built at
 runtime from `language_info()`, which comes from `dealer_parser::vocabulary` —
 the same list checked against `grammar.pest` by two tests. Highlighting cannot
 advertise a function the parser rejects, or miss one it accepts. That is the bug
@@ -58,11 +58,28 @@ npx wrangler pages deploy
 Pages rather than GitHub Pages because it can send the COOP/COEP headers a
 threaded wasm build will need. `public/_headers` already sets them.
 
+## Editor choice
+
+CodeMirror 6, not Monaco. Monaco was tried first, on the assumption that loading
+`dlr.tmLanguage.json` directly was the way to share one definition with VS Code.
+Once the tokenizer was derived from `language_info()` instead — a stronger
+guarantee, since it comes from the parser rather than a parallel file — Monaco's
+advantage disappeared and only its size remained:
+
+| | gzipped |
+|---|---|
+| Monaco | 590 kB, plus 66 kB CSS and a 231 kB worker |
+| CodeMirror 6 | **114 kB**, no separate CSS or worker |
+
+Both drive off the same vocabulary, so the choice is presentation only.
+
 ## Tests
 
 ```bash
 npm test
 ```
 
-Covers the manifest parsing and the language derivation. The Vue components are
-not covered yet.
+24 cases covering manifest parsing and the language derivation — tokenizer
+classification, longest-first matching, case-insensitivity, and completion shape.
+The Vue components are not covered by unit tests; they are exercised by the
+browser smoke checks instead.

@@ -1,4 +1,4 @@
-// Monaco language support for dealer scripts.
+// CodeMirror language support for dealer scripts.
 //
 // The tokenizer is BUILT AT RUNTIME from the engine's own `language_info()`,
 // rather than shipping a second copy of the word lists. That export comes from
@@ -7,139 +7,139 @@
 // parser does not accept, or miss one it does — the failure mode that left 19
 // functions unhighlighted in the VS Code extension for years.
 //
-// This is why the editor does not load `dlr.tmLanguage.json` directly. That file
-// still exists and is still the source for VS Code, but both it and this are
-// generated from the same vocabulary, so they agree by construction. Deriving
-// the tokenizer here avoids shipping vscode-textmate and an Oniguruma wasm build
-// (~300 kB) to say the same thing.
+// This is also why the editor does not load `dlr.tmLanguage.json` directly. That
+// file still exists and is still what VS Code uses, but both it and this are
+// generated from the same vocabulary, so they agree by construction rather than
+// by anyone remembering to update two places.
 
-export const LANGUAGE_ID = 'dlr'
+import { StreamLanguage, LanguageSupport } from '@codemirror/language'
 
-/** Escape a word for use inside a RegExp alternation. */
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-/** Longest first, so `spades` wins over `spade` and `>=` over `>`. */
+/** Longest first, so `spades` matches before `spade`. */
 const byLengthDesc = (a, b) => b.length - a.length || a.localeCompare(b)
 
-export function registerDlrLanguage(monaco, info) {
-  monaco.languages.register({ id: LANGUAGE_ID, extensions: ['.dlr'], aliases: ['DLR', 'dlr'] })
+/** Case-insensitive lookup set — the grammar accepts any casing. */
+function lowerSet(words) {
+  return new Set(words.map((w) => w.toLowerCase()))
+}
 
-  const keywords = [...info.statement_keywords, ...info.actions].sort(byLengthDesc)
-  const constants = [
+/**
+ * A CodeMirror stream tokenizer for the dealer language.
+ *
+ * `info` is the engine's `language_info()` output.
+ */
+export function dlrStreamParser(info) {
+  const functions = lowerSet(info.functions)
+  const keywords = lowerSet([...info.statement_keywords, ...info.actions])
+  // Single-letter positions (`n`, `s`, `e`, `w`) are valid but are also common
+  // variable names; the evaluator lets a variable shadow them. Colouring every
+  // `n` would be worse than leaving them plain.
+  const constants = lowerSet([
     ...info.positions.filter((p) => p.length > 1),
     ...info.vulnerabilities,
     ...info.other_keywords,
-  ].sort(byLengthDesc)
+  ])
+  const logical = lowerSet(info.logical_words)
 
-  monaco.languages.setLanguageConfiguration(LANGUAGE_ID, {
-    comments: { lineComment: '#', blockComment: ['/*', '*/'] },
-    brackets: [['(', ')']],
-    autoClosingPairs: [
-      { open: '(', close: ')' },
-      { open: '"', close: '"' },
-    ],
-    surroundingPairs: [
-      { open: '(', close: ')' },
-      { open: '"', close: '"' },
-    ],
-  })
+  // Sorted only so the behaviour is deterministic and testable.
+  const sortedFunctions = [...info.functions].sort(byLengthDesc)
 
-  monaco.languages.setMonarchTokensProvider(LANGUAGE_ID, {
-    defaultToken: '',
-    ignoreCase: true,
-    keywords,
-    functions: [...info.functions].sort(byLengthDesc),
-    constants,
-    logical: info.logical_words,
+  return {
+    name: 'dlr',
 
-    tokenizer: {
-      root: [
-        // `# key: value` metadata headers PBS scripts carry, then plain comments.
-        [/^\s*#\s*[a-zA-Z-]+:.*$/, 'comment.doc'],
-        [/#.*$/, 'comment'],
-        [/\/\/.*$/, 'comment'],
-        [/\/\*/, 'comment', '@blockComment'],
+    startState: () => ({ inBlockComment: false }),
 
-        [/"/, 'string', '@string'],
+    token(stream, state) {
+      if (state.inBlockComment) {
+        if (stream.match(/^.*?\*\//)) state.inBlockComment = false
+        else stream.skipToEnd()
+        return 'comment'
+      }
 
-        // Shape patterns: 4333, 5xxx, %s4432. Before numbers, which would
-        // otherwise eat the leading digits.
-        [/%s?\d{4}\b/, 'number.hex'],
-        [/\b[0-9xX]{4}\b/, 'number.hex'],
+      if (stream.eatSpace()) return null
 
-        // Card and holding literals: AS, TC (hascard); SAKQ, HT62 (predeal).
-        [/\b[AKQJT2-9][SHDC]\b/, 'constant'],
-        [/\b[SHDC][AKQJT2-9]+\b/, 'constant'],
+      // `# key: value` headers PBS scripts carry, then ordinary comments.
+      if (stream.sol() && stream.match(/^\s*#\s*[a-zA-Z-]+:/)) {
+        stream.skipToEnd()
+        return 'docComment'
+      }
+      if (stream.match('#') || stream.match('//')) {
+        stream.skipToEnd()
+        return 'comment'
+      }
+      if (stream.match('/*')) {
+        state.inBlockComment = true
+        if (stream.match(/^.*?\*\//)) state.inBlockComment = false
+        else stream.skipToEnd()
+        return 'comment'
+      }
 
-        [
-          /[a-zA-Z_][a-zA-Z0-9_]*/,
-          {
-            cases: {
-              '@keywords': 'keyword',
-              '@functions': 'type.identifier',
-              '@constants': 'constant',
-              '@logical': 'keyword.operator',
-              '@default': 'identifier',
-            },
-          },
-        ],
+      if (stream.match(/^"[^"]*"?/)) return 'string'
 
-        [/\d+/, 'number'],
-        [/[=!<>]=|&&|\|\||[-+*/%<>?:!=]/, 'operator'],
-        [/[()]/, '@brackets'],
-        [/[,;]/, 'delimiter'],
-      ],
+      // Shape patterns before numbers, which would otherwise eat the digits.
+      if (stream.match(/^%s?\d{4}\b/) || stream.match(/^[0-9xX]{4}\b/)) return 'number'
 
-      blockComment: [
-        [/[^*/]+/, 'comment'],
-        [/\*\//, 'comment', '@pop'],
-        [/[*/]/, 'comment'],
-      ],
+      // Card literals (AS, TC) and predeal holdings (SAKQ, HT62).
+      if (stream.match(/^[AKQJT2-9][SHDC]\b/)) return 'atom'
+      if (stream.match(/^[SHDC][AKQJT2-9]+\b/)) return 'atom'
 
-      string: [
-        [/[^"]+/, 'string'],
-        [/"/, 'string', '@pop'],
-      ],
+      const word = stream.match(/^[a-zA-Z_][a-zA-Z0-9_]*/)
+      if (word) {
+        const w = word[0].toLowerCase()
+        if (keywords.has(w)) return 'keyword'
+        if (functions.has(w)) return 'function'
+        if (constants.has(w)) return 'atom'
+        if (logical.has(w)) return 'operatorKeyword'
+        return 'variableName'
+      }
+
+      if (stream.match(/^\d+/)) return 'number'
+      if (stream.match(/^(==|!=|>=|<=|&&|\|\||[-+*/%<>?:!=])/)) return 'operator'
+      if (stream.match(/^[()]/)) return 'paren'
+      if (stream.match(/^[,;]/)) return 'separator'
+
+      stream.next()
+      return null
     },
-  })
 
-  registerCompletion(monaco, info)
+    languageData: {
+      commentTokens: { line: '#', block: { open: '/*', close: '*/' } },
+      closeBrackets: { brackets: ['(', '"'] },
+    },
+
+    // Exposed for the completion source and for tests.
+    _vocabulary: { sortedFunctions, info },
+  }
 }
 
-function registerCompletion(monaco, info) {
-  monaco.languages.registerCompletionItemProvider(LANGUAGE_ID, {
-    provideCompletionItems(model, position) {
-      const word = model.getWordUntilPosition(position)
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn,
-      }
-      const { Function, Keyword, Constant } = monaco.languages.CompletionItemKind
-      const item = (label, kind, detail, insertText) => ({
-        label,
-        kind,
-        detail,
-        range,
-        insertText: insertText ?? label,
-        ...(insertText
-          ? { insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet }
-          : {}),
-      })
+/** Completion over the engine's vocabulary. */
+export function dlrCompletion(info) {
+  const options = [
+    // Functions all take arguments, so complete the parentheses too.
+    ...info.functions.map((label) => ({
+      label,
+      type: 'function',
+      detail: 'function',
+      apply: `${label}()`,
+    })),
+    ...info.statement_keywords.map((label) => ({ label, type: 'keyword', detail: 'statement' })),
+    ...info.actions.map((label) => ({ label, type: 'keyword', detail: 'action' })),
+    ...info.positions
+      .filter((p) => p.length > 1)
+      .map((label) => ({ label, type: 'constant', detail: 'position' })),
+    ...info.vulnerabilities.map((label) => ({ label, type: 'constant', detail: 'vulnerability' })),
+    ...info.logical_words.map((label) => ({ label, type: 'keyword', detail: 'operator' })),
+  ]
 
-      return {
-        suggestions: [
-          // Functions all take arguments, so complete the parentheses too and
-          // drop the cursor inside them.
-          ...info.functions.map((f) => item(f, Function, 'function', `${f}($0)`)),
-          ...info.statement_keywords.map((k) => item(k, Keyword, 'statement')),
-          ...info.actions.map((a) => item(a, Keyword, 'action')),
-          ...info.positions.filter((p) => p.length > 1).map((p) => item(p, Constant, 'position')),
-          ...info.vulnerabilities.map((v) => item(v, Constant, 'vulnerability')),
-          ...info.logical_words.map((w) => item(w, Keyword, 'operator')),
-        ],
-      }
-    },
-  })
+  return (context) => {
+    const word = context.matchBefore(/[a-zA-Z_][a-zA-Z0-9_]*/)
+    if (!word || (word.from === word.to && !context.explicit)) return null
+    return { from: word.from, options, validFor: /^[a-zA-Z_][a-zA-Z0-9_]*$/ }
+  }
 }
+
+/** The full language extension. */
+export function dlrLanguage(info) {
+  return new LanguageSupport(StreamLanguage.define(dlrStreamParser(info)))
+}
+
+export const LANGUAGE_ID = 'dlr'
