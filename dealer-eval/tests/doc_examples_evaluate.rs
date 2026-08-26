@@ -90,6 +90,46 @@ fn the_score_example_gives_the_number_it_claims() {
     );
 }
 
+/// The `score` entry describes an encoding — level × 10 + strain, plus 100
+/// doubled or 200 redoubled — which is the most intricate claim on the
+/// reference page and the easiest to get subtly wrong. Every part of it is
+/// checked here against scores that are a matter of record.
+#[test]
+fn the_documented_contract_encoding_is_the_real_one() {
+    let deal = reference_deal();
+    for (script, expected, what) in [
+        (
+            "condition score(0, 34, 9)\n",
+            400,
+            "3NT not vulnerable, making",
+        ),
+        ("condition score(1, 34, 9)\n", 600, "3NT vulnerable, making"),
+        (
+            "condition score(0, 43, 10)\n",
+            420,
+            "four spades not vulnerable, making",
+        ),
+        ("condition score(0, 134, 9)\n", 550, "3NT doubled, making"),
+        (
+            "condition score(0, 243, 10)\n",
+            880,
+            "four spades redoubled, making",
+        ),
+        (
+            "condition score(0, 134, 7)\n",
+            -300,
+            "3NT doubled, two down",
+        ),
+    ] {
+        assert_eq!(
+            evaluate(script, &deal).unwrap_or_else(|e| panic!("{} should evaluate: {}", what, e)),
+            expected,
+            "{}",
+            what
+        );
+    }
+}
+
 /// Likewise the claim on `quality` and `cccc` that values are multiplied by
 /// 100 — here against the numbers dealer.exe itself produces.
 ///
