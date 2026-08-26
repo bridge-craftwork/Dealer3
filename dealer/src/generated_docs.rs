@@ -47,6 +47,65 @@ fn end(section: &str) -> String {
     format!("<!-- END GENERATED: {} -->", section)
 }
 
+/// Line endings, normalised for comparison.
+///
+/// Windows checks the repository out with CRLF, `read_to_string` hands those
+/// back unchanged, and the generated text is written with `\n` — so a byte
+/// comparison could never match there. That broke the Windows CI job on every
+/// commit after these tests landed, while Linux and macOS stayed green.
+fn as_lf(text: &str) -> String {
+    text.replace("\r\n", "\n")
+}
+
+/// Whether a document is written with CRLF, so a rewrite can keep it that way
+/// rather than leaving a file with both.
+fn uses_crlf(text: &str) -> bool {
+    text.contains("\r\n")
+}
+
+/// What the file should become, or `None` when it is already correct.
+///
+/// Split out from the IO so the line-ending handling can be tested on this
+/// machine rather than only discovered on a Windows runner.
+fn plan_update(
+    current: &str,
+    open: &str,
+    close: &str,
+    generated: &str,
+) -> Result<Option<String>, String> {
+    let start = current
+        .find(open)
+        .ok_or_else(|| format!("no `{}` marker", open))?;
+    let stop = current
+        .find(close)
+        .ok_or_else(|| format!("`{}` without a matching `{}`", open, close))?;
+    if stop <= start {
+        return Err(format!("`{}` appears after `{}`", close, open));
+    }
+
+    let body_from = start + open.len();
+    let existing = &current[body_from..stop];
+    let wanted = format!("\n\n{}\n", generated.trim_end());
+
+    if as_lf(existing) == wanted {
+        return Ok(None);
+    }
+
+    // Keep the document's own line endings, so rewriting one section does not
+    // leave a file that mixes them.
+    let body = if uses_crlf(current) {
+        wanted.replace('\n', "\r\n")
+    } else {
+        wanted
+    };
+    Ok(Some(format!(
+        "{}{}{}",
+        &current[..body_from],
+        body,
+        &current[stop..]
+    )))
+}
+
 /// Verify a generated section, or rewrite it when `UPDATE_DOCS` is set.
 ///
 /// Panics with the diff-worthy detail rather than returning an error: this is
@@ -63,41 +122,19 @@ pub fn check_or_update(file: &str, section: &str, generated: &str) {
         .unwrap_or_else(|e| panic!("cannot read {}: {}", path.display(), e));
 
     let (open, close) = (begin(section), end(section));
-    let start = current.find(&open).unwrap_or_else(|| {
+    let updated = plan_update(&current, &open, &close, generated).unwrap_or_else(|e| {
         panic!(
-            "{} has no `{}` marker.\n\nAdd it, with a matching `{}`, around the place the \
-             generated table should go.",
+            "{}: {}.\n\nAdd `{}` and `{}` around the place the generated table should go.",
             path.display(),
+            e,
             open,
             close
         )
     });
-    let stop = current.find(&close).unwrap_or_else(|| {
-        panic!(
-            "{} has `{}` but no matching `{}`",
-            path.display(),
-            open,
-            close
-        )
-    });
-    assert!(
-        stop > start,
-        "{}: `{}` appears after `{}`",
-        path.display(),
-        close,
-        open
-    );
 
-    let body_from = start + open.len();
-    let existing = &current[body_from..stop];
-    let wanted = format!("\n\n{}\n", generated.trim_end());
-
-    if existing == wanted {
-        return;
-    }
+    let Some(updated) = updated else { return };
 
     if std::env::var("UPDATE_DOCS").is_ok() {
-        let updated = format!("{}{}{}", &current[..body_from], wanted, &current[stop..]);
         std::fs::write(&path, updated)
             .unwrap_or_else(|e| panic!("cannot write {}: {}", path.display(), e));
         eprintln!("updated {} [{}]", path.display(), section);
@@ -238,6 +275,60 @@ mod tests {
     #[test]
     fn not_supported_table_is_up_to_date() {
         check_or_update(LANGUAGE_DOC, "not-supported", &render_not_supported());
+    }
+
+    const OPEN: &str = "<!-- BEGIN GENERATED: x -->";
+    const CLOSE: &str = "<!-- END GENERATED: x -->";
+
+    /// The bug that broke Windows CI on every commit for two hours: the file is
+    /// checked out with CRLF, the generated text uses LF, and a byte comparison
+    /// says "out of date" forever.
+    #[test]
+    fn a_crlf_document_is_recognised_as_current() {
+        let table = "| a | b |\n|---|---|\n";
+        let lf = format!("intro\n{}\n\n{}\n{}\nrest\n", OPEN, table.trim_end(), CLOSE);
+        let crlf = lf.replace('\n', "\r\n");
+
+        assert_eq!(
+            plan_update(&lf, OPEN, CLOSE, table),
+            Ok(None),
+            "the LF form is current"
+        );
+        assert_eq!(
+            plan_update(&crlf, OPEN, CLOSE, table),
+            Ok(None),
+            "and so is the same document with Windows line endings"
+        );
+    }
+
+    #[test]
+    fn a_crlf_document_is_rewritten_with_crlf() {
+        let before = format!("intro\r\n{}\r\n{}\r\nrest\r\n", OPEN, CLOSE);
+        let updated = plan_update(&before, OPEN, CLOSE, "| new |\n")
+            .expect("markers are present")
+            .expect("the section is empty, so it needs updating");
+
+        assert!(updated.contains("| new |"));
+        assert!(
+            !updated.replace("\r\n", "").contains('\n'),
+            "a CRLF document must not come back with mixed endings: {:?}",
+            updated
+        );
+    }
+
+    #[test]
+    fn a_changed_section_is_reported_whatever_the_line_endings() {
+        let before = format!("{}\n\n| old |\n{}\n", OPEN, CLOSE);
+        assert!(plan_update(&before, OPEN, CLOSE, "| new |\n")
+            .expect("markers are present")
+            .is_some());
+    }
+
+    #[test]
+    fn a_missing_marker_is_an_error_rather_than_a_panic_in_the_splice() {
+        assert!(plan_update("no markers here", OPEN, CLOSE, "x").is_err());
+        assert!(plan_update(&format!("{} only", OPEN), OPEN, CLOSE, "x").is_err());
+        assert!(plan_update(&format!("{}{}", CLOSE, OPEN), OPEN, CLOSE, "x").is_err());
     }
 
     /// The generated tables must not contain a raw `|`, which would silently
