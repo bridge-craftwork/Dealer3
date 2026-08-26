@@ -16,12 +16,20 @@
 //! Output is byte-identical to the native binary for the same seed and script,
 //! so the Tier 2 regression hashes pin this build too.
 
-use dealer_core::FastDealGenerator;
-use dealer_eval::{eval_with_context, extract_constraint, extract_variables};
+use dealer_core::{FastDealConfig, FastDealGenerator, Position};
+use dealer_eval::{eval, eval_with_context, extract_constraint, extract_variables, EvalContext};
 use dealer_parser::vocabulary;
+use dealer_parser::{Expr, Statement};
 use dealer_pbn::{format_oneline, format_printall};
 use serde::Serialize;
+use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
+
+/// Upper bound on deals returned to the caller. A script may ask for tens of
+/// thousands of deals to build a histogram; serialising them all would blow up
+/// the JSON for no benefit, since a page cannot show them either. Statistics are
+/// still accumulated over every matching deal.
+const MAX_RETURNED_DEALS: usize = 500;
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -56,6 +64,45 @@ impl Format {
     }
 }
 
+/// One `average "label" expr` result.
+#[derive(Serialize)]
+struct AverageResult {
+    label: Option<String>,
+    /// Mean over matching deals, or 0 when nothing matched.
+    value: f64,
+    /// Deals contributing, so a caller can show "over N deals" or grey out an
+    /// average computed from too small a sample.
+    count: usize,
+}
+
+/// One bucket of a frequency histogram.
+#[derive(Serialize)]
+struct FrequencyBin {
+    value: i32,
+    count: usize,
+}
+
+/// One `frequency "label" (expr, min, max)` result.
+///
+/// Returned as data rather than the CLI's ASCII table so the page can draw a
+/// real chart. `below` and `above` correspond to the CLI's `Low` and `High`
+/// rows: values outside a declared range, which would otherwise vanish.
+#[derive(Serialize)]
+struct FrequencyResult {
+    label: Option<String>,
+    /// Declared range, if the script gave one.
+    min: Option<i32>,
+    max: Option<i32>,
+    /// Contiguous buckets across the range, zero-filled — the caller can plot
+    /// these directly without filling gaps itself.
+    bins: Vec<FrequencyBin>,
+    /// Counts falling outside a declared range.
+    below: usize,
+    above: usize,
+    /// Every observation, including `below` and `above`.
+    total: usize,
+}
+
 #[derive(Serialize)]
 struct GenerateResult {
     deals: Vec<String>,
@@ -66,6 +113,18 @@ struct GenerateResult {
     /// True if `max_generate` was reached before `produce` was satisfied, so the
     /// caller can distinguish "no more matches" from "ran out of budget".
     hit_limit: bool,
+    /// Results of the script's `average` statements, in declaration order.
+    averages: Vec<AverageResult>,
+    /// Results of the script's `frequency` statements, in declaration order.
+    frequencies: Vec<FrequencyResult>,
+    /// Wall-clock seconds spent generating, matching the CLI's "Time needed".
+    seconds: f64,
+}
+
+/// Wall-clock milliseconds. `std::time::SystemTime::now()` panics on
+/// wasm32-unknown-unknown, so read the clock through JS instead.
+fn now_ms() -> f64 {
+    js_sys::Date::now()
 }
 
 /// Generate deals matching `script`, returning JSON.
@@ -82,6 +141,7 @@ pub fn generate(
     format: &str,
 ) -> Result<String, JsError> {
     let format = Format::parse(format)?;
+    let started = now_ms();
 
     let preprocessed = dealer_parser::preprocess(script);
     let program = dealer_parser::parse_program(&preprocessed)
@@ -90,11 +150,63 @@ pub fn generate(
     let variables = extract_variables(&program);
     let constraint = extract_constraint(&program);
 
-    let mut generator = FastDealGenerator::new(seed as u64);
+    // `average` and `frequency` accumulate over matching deals only, mirroring
+    // the CLI. Collected up front so the per-deal loop stays a tight walk.
+    let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
+    let mut freqs: Vec<(Option<String>, Expr, HashMap<i32, usize>, Option<(i32, i32)>)> =
+        Vec::new();
+    for statement in &program.statements {
+        if let Statement::Action {
+            averages: avg_specs,
+            frequencies: freq_specs,
+            ..
+        } = statement
+        {
+            for a in avg_specs {
+                averages.push((a.label.clone(), a.expr.clone(), 0.0, 0));
+            }
+            for f in freq_specs {
+                freqs.push((f.label.clone(), f.expr.clone(), HashMap::new(), f.range));
+            }
+        }
+    }
+    let collecting_stats = !averages.is_empty() || !freqs.is_empty();
+
+    // Predeal fixes cards before shuffling. Missing this silently produced deals
+    // that ignored the script's `predeal` lines, which verify.mjs caught by
+    // diffing against the CLI.
+    let mut predeal_config = FastDealConfig::new();
+    let mut has_predeal = false;
+    for statement in &program.statements {
+        if let Statement::Predeal { position, cards } = statement {
+            predeal_config
+                .predeal(*position, cards)
+                .map_err(|e| JsError::new(&format!("Predeal error: {}", e)))?;
+            has_predeal = true;
+        }
+    }
+    debug_assert!(
+        !has_predeal
+            || [
+                Position::North,
+                Position::East,
+                Position::South,
+                Position::West
+            ]
+            .iter()
+            .any(|p| predeal_config.predeal_count(*p) > 0)
+    );
+
+    let mut generator = if has_predeal {
+        FastDealGenerator::with_config(seed as u64, predeal_config)
+    } else {
+        FastDealGenerator::new(seed as u64)
+    };
     let mut deals = Vec::new();
     let mut generated = 0usize;
+    let mut produced = 0usize;
 
-    while deals.len() < produce && generated < max_generate {
+    while produced < produce && generated < max_generate {
         let deal = generator.next_deal();
         generated += 1;
 
@@ -104,17 +216,89 @@ pub fn generate(
                 != 0,
             None => true,
         };
-
-        if matched {
-            deals.push(format.render(&deal, deals.len()));
+        if !matched {
+            continue;
         }
+
+        if collecting_stats {
+            let ctx = EvalContext::with_variables(&deal, &variables);
+            for (_, expr, sum, count) in averages.iter_mut() {
+                let v = eval(expr, &ctx)
+                    .map_err(|e| JsError::new(&format!("Average evaluation error: {}", e)))?;
+                *sum += v as f64;
+                *count += 1;
+            }
+            for (_, expr, histogram, _) in freqs.iter_mut() {
+                let v = eval(expr, &ctx)
+                    .map_err(|e| JsError::new(&format!("Frequency evaluation error: {}", e)))?;
+                *histogram.entry(v).or_insert(0) += 1;
+            }
+        }
+
+        // Deals are capped independently of `produced` so a large `produce` used
+        // purely to gather statistics does not have to ship every deal to JS.
+        if deals.len() < MAX_RETURNED_DEALS {
+            deals.push(format.render(&deal, produced));
+        }
+        produced += 1;
     }
 
+    let averages = averages
+        .into_iter()
+        .map(|(label, _, sum, count)| AverageResult {
+            label,
+            value: if count > 0 { sum / count as f64 } else { 0.0 },
+            count,
+        })
+        .collect();
+
+    let frequencies = freqs
+        .into_iter()
+        .map(|(label, _, histogram, range)| {
+            let total: usize = histogram.values().sum();
+            let (lo, hi) = match range {
+                Some((lo, hi)) => (lo, hi),
+                None => (
+                    histogram.keys().copied().min().unwrap_or(0),
+                    histogram.keys().copied().max().unwrap_or(0),
+                ),
+            };
+            let bins = (lo..=hi)
+                .map(|value| FrequencyBin {
+                    value,
+                    count: histogram.get(&value).copied().unwrap_or(0),
+                })
+                .collect();
+            let below = histogram
+                .iter()
+                .filter(|(&k, _)| k < lo)
+                .map(|(_, &v)| v)
+                .sum();
+            let above = histogram
+                .iter()
+                .filter(|(&k, _)| k > hi)
+                .map(|(_, &v)| v)
+                .sum();
+            FrequencyResult {
+                label,
+                min: range.map(|(lo, _)| lo),
+                max: range.map(|(_, hi)| hi),
+                bins,
+                below,
+                above,
+                total,
+            }
+        })
+        .collect();
+
     let result = GenerateResult {
-        hit_limit: deals.len() < produce && generated >= max_generate,
-        produced: deals.len(),
+        hit_limit: produced < produce && generated >= max_generate,
+        produced,
         deals,
         generated,
+        averages,
+        frequencies,
+        seconds: (now_ms() - started) / 1000.0,
     };
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
