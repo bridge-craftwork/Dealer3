@@ -221,8 +221,8 @@ See `CHANGELOG.md` for the migration note.
 - [ ] Swapping modes (`-x`) - recognised and rejected, not implemented
 
 ### Sprint 4 (Long-term - 2-3 weeks) — partly done
-- [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`, but
-      unusably slow on the legacy solver (#14)
+- [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`,
+      solved by `bridge-solver` and remembered per deal (#14)
 - [ ] Library mode - `--input-deals` covers the common case; `-l` is rejected
 - [ ] Export formats (`-Z` zrd, DL52)
 - [ ] Script parameters (`$0`-`$9`)
@@ -278,10 +278,9 @@ Priority is derived from effort and value rather than written down beside them.
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
 | 🟡 Worth it | Allow variables whose name begins with a statement keyword | Low | Medium | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |  |
-| 🟡 Worth it | Route `tricks()` through bridge-solver | Medium | High | [#14](https://github.com/bridge-craftwork/Dealer3/issues/14) | Minutes per solve on the legacy solver, which puts every double-dummy script out of reach. The fast solver is already a dependency and is never called. |
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
-| 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | Worth little until the solver behind `tricks()` is the fast one. |
+| 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
 | 🔵 Unlikely | Script parameters `$0`-`$9` | Medium | Low |  | DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping switches — so the spelling would have to differ. |
 | 🔵 Unlikely | Swapping modes | Medium | Low |  | Recognised and refused today. Not compatible with predeal in any dealer. |

@@ -110,17 +110,6 @@ pub struct WorkItem {
 pub const REMAINING: &[WorkItem] = &[
     // ---- The language, which is where the real gaps are now ---------------
     WorkItem {
-        what: "Route `tricks()` through bridge-solver",
-        done_when: None,
-        issue: Some(14),
-        effort: Effort::Medium,
-        value: Value::High,
-        note: Some(
-            "Minutes per solve on the legacy solver, which puts every double-dummy script out \
-             of reach. The fast solver is already a dependency and is never called.",
-        ),
-    },
-    WorkItem {
         what: "Allow variables whose name begins with a statement keyword",
         done_when: None,
         issue: Some(12),
@@ -199,7 +188,10 @@ pub const REMAINING: &[WorkItem] = &[
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
-        note: Some("Worth little until the solver behind `tricks()` is the fast one."),
+        note: Some(
+            "DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver \
+             behind it is in place; this is the switch and its output format.",
+        ),
     },
     WorkItem {
         what: "Script parameters `$0`-`$9`",
@@ -305,6 +297,55 @@ mod tests {
         assert!(!DoneWhen::Function("nosuchfunction").is_done());
         assert!(DoneWhen::Statement("condition").is_done());
         assert!(!DoneWhen::Statement("nosuchstatement").is_done());
+    }
+
+    /// Priority is derived rather than written down, so the derivation has to
+    /// be exercised across the whole grid — including the ratings no row
+    /// currently carries, which is otherwise the first thing to rot when the
+    /// list empties out.
+    #[test]
+    fn priority_follows_from_effort_and_value() {
+        let rank = |value, effort| {
+            priority(&WorkItem {
+                what: "",
+                done_when: None,
+                issue: None,
+                effort,
+                value,
+                note: None,
+            })
+        };
+        assert_eq!(rank(Value::High, Effort::Low).1, "🔴 Do first");
+        assert_eq!(rank(Value::High, Effort::High).1, "🟡 Worth it");
+        assert_eq!(rank(Value::Medium, Effort::Low).1, "🟡 Worth it");
+        assert_eq!(rank(Value::Medium, Effort::High).1, "🟢 Someday");
+        assert_eq!(rank(Value::Low, Effort::Low).1, "🔵 Unlikely");
+
+        // More valuable, or less work, must never sort later.
+        for effort in [Effort::Low, Effort::Medium, Effort::High] {
+            assert!(rank(Value::High, effort).0 <= rank(Value::Medium, effort).0);
+            assert!(rank(Value::Medium, effort).0 <= rank(Value::Low, effort).0);
+        }
+        for value in [Value::Low, Value::Medium, Value::High] {
+            assert!(rank(value, Effort::Low).0 <= rank(value, Effort::High).0);
+        }
+
+        // Every label the enums can print is reachable, so a new variant
+        // cannot be added without a label.
+        for (effort, label) in [
+            (Effort::Low, "Low"),
+            (Effort::Medium, "Medium"),
+            (Effort::High, "High"),
+        ] {
+            assert_eq!(effort.label(), label);
+        }
+        for (value, label) in [
+            (Value::Low, "Low"),
+            (Value::Medium, "Medium"),
+            (Value::High, "High"),
+        ] {
+            assert_eq!(value.label(), label);
+        }
     }
 
     #[test]

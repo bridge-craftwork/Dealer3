@@ -3,7 +3,7 @@ pub mod counts;
 pub use counts::{CountError, CountRow, PointCounts};
 
 use dealer_core::{Card, Deal, Position, Suit};
-use dealer_dds::{Denomination, DoubleDummySolver};
+use dealer_dds::Denomination;
 use dealer_parser::{BinaryOp, Expr, Function, Program, ShapePattern, Statement, UnaryOp};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
@@ -1118,34 +1118,21 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
                 });
             }
 
-            let position = eval_position_arg(&args[0], ctx)?;
+            let declarer = eval_position_arg(&args[0], ctx)?;
 
             // Parse denomination - can be numeric (0-4) or suit keyword
             let denomination = match &args[1] {
                 Expr::Suit(suit) => Denomination::from_suit(*suit),
-                Expr::Literal(n) => match n {
-                    0 => Denomination::Clubs,
-                    1 => Denomination::Diamonds,
-                    2 => Denomination::Hearts,
-                    3 => Denomination::Spades,
-                    4 => Denomination::NoTrump,
-                    _ => {
-                        return Err(EvalError::InvalidArgument(format!(
-                            "Invalid denomination: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
-                            n
-                        )));
-                    }
-                },
-                _ => {
-                    // Try to evaluate as an expression
-                    let n = eval(&args[1], ctx)?;
-                    match n {
-                        0 => Denomination::Clubs,
-                        1 => Denomination::Diamonds,
-                        2 => Denomination::Hearts,
-                        3 => Denomination::Spades,
-                        4 => Denomination::NoTrump,
-                        _ => {
+                // Anything else has to be a number, whether written as one or
+                // computed.
+                other => {
+                    let n = match other {
+                        Expr::Literal(n) => *n,
+                        _ => eval(other, ctx)?,
+                    };
+                    match Denomination::from_index(n) {
+                        Some(denomination) => denomination,
+                        None => {
                             return Err(EvalError::InvalidArgument(format!(
                                 "Invalid denomination: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
                                 n
@@ -1155,11 +1142,10 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
                 }
             };
 
-            // Create solver and solve
-            let solver = DoubleDummySolver::new(ctx.deal.clone());
-            let tricks = solver.solve(denomination, position);
-
-            Ok(tricks as i32)
+            // Solved by bridge-solver, and remembered for this deal: several
+            // denominations, or the same one asked for from the condition and
+            // again from a statistic, cost one search each at most.
+            Ok(dealer_dds::tricks(ctx.deal, denomination, declarer) as i32)
         }
 
         Function::Score => {
@@ -2660,7 +2646,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Slow: requires DDS solver (~1 sec per call)
     fn test_eval_tricks() {
         use dealer_parser::parse;
 
@@ -2689,17 +2674,26 @@ mod tests {
             result
         );
 
-        // Test that different positions can have different trick counts
-        // (This is just a sanity check - the actual values depend on the deal)
-        let ast_n = parse("tricks(north, 4)").unwrap();
-        let ast_s = parse("tricks(south, 4)").unwrap();
-        let _tricks_n = eval(&ast_n, &ctx).unwrap();
-        let _tricks_s = eval(&ast_s, &ctx).unwrap();
-        // Both should be valid (0-13) - we already checked above
+        // Each declarer is asked separately, and each answer must be a legal
+        // trick count in its own right.
+        for position in ["north", "east", "south", "west"] {
+            let ast = parse(&format!("tricks({}, 4)", position)).unwrap();
+            let result = eval(&ast, &ctx).unwrap();
+            assert!(
+                (0..=13).contains(&result),
+                "tricks for {} should be 0-13, got {}",
+                position,
+                result
+            );
+        }
+
+        // Asking again must give the same answer: the per-deal memo is only
+        // allowed to save work, never to change one.
+        let ast = parse("tricks(south, spades)").unwrap();
+        assert_eq!(eval(&ast, &ctx).unwrap(), result);
     }
 
     #[test]
-    #[ignore] // Slow: requires DDS solver (~1 sec per call)
     fn test_tricks_with_score() {
         use dealer_parser::parse;
 

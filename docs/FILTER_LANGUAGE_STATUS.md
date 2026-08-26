@@ -198,13 +198,10 @@ tracked by a generated table, so this section is maintained by hand.
 
 | Difference | Status |
 |---|---|
-| Singular/plural spellings (`control`, `hcps`, `jack`, `trick`, …) and `notrump` are not accepted | Rejected loudly; implementing them is [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
-| `pointcount` and `altcount` cannot re-scale the point counts | Rejected loudly; implementing them is [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
 | `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
 | Variables whose name begins with a statement keyword are rejected | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |
-| `tricks()` is unusably slow — minutes per solve | [#14](https://github.com/bridge-craftwork/Dealer3/issues/14) |
 
 ## Variables
 
@@ -219,9 +216,13 @@ condition nt_opener && weak
 ```
 
 Variables may refer to other variables. A result is cached for the duration of
-one deal, so referring to the same variable twice costs one evaluation — with
-the exception noted in [#14](https://github.com/bridge-craftwork/Dealer3/issues/14),
-where a variable holding a `tricks()` call is re-solved per reference.
+one deal, so referring to the same variable twice costs one evaluation.
+
+`tricks()` is remembered separately, and more thoroughly: a double-dummy result
+is kept per deal against the denomination and declarer it answers for, so
+writing the call out longhand in several places, or asking about several
+denominations, costs one search each however it is spelled and wherever it
+appears.
 
 ## Comments
 

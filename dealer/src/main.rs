@@ -420,6 +420,13 @@ fn main() {
         println!("dealer3 (Rust edition)");
         println!("  Rick Wilson");
         println!();
+        // `tricks()` is the one part of dealer3 whose work is done by someone
+        // else's algorithm, and bridge-solver ships in every build including
+        // the browser one, so it belongs here rather than only in a manifest.
+        println!("Double-dummy solver behind tricks()");
+        println!("  bridge-solver (MIT OR Apache-2.0), a Rust port by Rick Wilson of");
+        println!("  macroxue/bridge-solver by Hanhong Xue");
+        println!();
         println!("See documentation for full contribution details.");
         std::process::exit(0);
     }

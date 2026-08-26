@@ -4,14 +4,20 @@ version = "1.0.0"
 edition = "2021"
 license = "Unlicense"
 
+# Diagnostic switches, forwarded to the solver they belong to. They were
+# declared here with empty bodies for a long time, which quietly did nothing.
 [features]
-debug_mtdf = []
-debug_fast = []
-debug_search = []
-no_tricks_pruning = []
-no_fast_tricks = []
-no_slow_tricks = []
+debug_mtdf = ["bridge-solver/debug_mtdf"]
+debug_fast = ["bridge-solver/debug_fast"]
+debug_search = ["bridge-solver/debug_search"]
+no_tricks_pruning = ["bridge-solver/no_tricks_pruning"]
+no_fast_tricks = ["bridge-solver/no_fast_tricks"]
+no_slow_tricks = ["bridge-solver/no_slow_tricks"]
 
 [dependencies]
+bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 dealer-core = { path = "../dealer-core" }
 bridge-solver = { git = "https://github.com/bridge-craftwork/bridge-solver" }
+
+[dev-dependencies]
+dealer-pbn = { path = "../dealer-pbn" }

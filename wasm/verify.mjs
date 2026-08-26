@@ -32,6 +32,15 @@ const CASES = [
     script: 'condition hcp(north) >= 0\naction printoneline,\n  frequency "Narrow" (hcp(north), 11, 13)\n' },
   { name: 'predeal', seed: 5, produce: 4,
     script: 'predeal north SAKQ,HAK\ncondition hcp(south) >= 8\n' },
+  // Double-dummy, which is the one function whose answer comes from outside
+  // the evaluator. Two denominations and a frequency, so it also covers the
+  // per-deal memo: the browser and the CLI each have to search once per
+  // (deal, denomination, declarer) and reach the same numbers.
+  { name: 'tricks in two denominations', seed: 13, produce: 6,
+    script: 'condition hcp(north) >= 12\naction printoneline,\n'
+      + '  average "NT" tricks(north, notrump),\n'
+      + '  average "S" tricks(north, spades),\n'
+      + '  frequency "NT" (tricks(north, notrump), 0, 13)\n' },
 ]
 
 // The CLI prints "Label: value" then "Frequency Label:" tables then stats.

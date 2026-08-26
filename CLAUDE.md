@@ -9,7 +9,7 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 - **Version**: 1.0.0
 - **Last Updated**: 2026-08-26
 - **Switches**: 23 of 35 implemented across the three dealers
-- **Language**: 24 functions under 39 spellings; the remaining gaps are in issues #12, #14 and #15
+- **Language**: 24 functions under 39 spellings; the remaining gaps are in issues #12 and #13
 - **Also shipping**: a WebAssembly build and a browser app at
   https://dealer.bridge-classroom.org, with a generated language reference
 
@@ -146,10 +146,8 @@ EOF
 Compass predeal, CSV export and title metadata are all **done** — this list said
 otherwise for months, which is why the status tables are now generated.
 
-1. Implement the missing spellings and reject the unimplemented ones (#15)
-2. Route `tricks()` through `bridge-solver` (#14)
-3. BBO strict mode, `--bbo-strict` (#13, low priority)
-4. Variables named like statement keywords (#12)
+1. BBO strict mode, `--bbo-strict` (#13, low priority)
+2. Variables named like statement keywords (#12)
 
 Remaining switch gaps are the DealerV2_4-only ones (`-M`, `-Z`, `-U`, `-O`,
 `-D`) and dealer.exe's swapping modes; see the generated comparison table.
@@ -195,11 +193,11 @@ All located at `/Users/rick/Development/GitHub/`:
 Tracked on GitHub rather than listed here, so this file cannot go stale:
 `gh issue list`. The ones worth knowing before touching anything:
 
-- **#15** — words the original accepts that dealer3 does not (`control`, `hcps`,
-  `notrumps`, `pointcount`, …) are accepted *silently* and give wrong answers.
-- **#14** — `tricks()` takes **minutes per solve** and saturates every core. Never
-  put it in a casual probe; it can starve the Parallels VM until SSH looks dead.
 - **#12** — variables whose name begins with a statement keyword are rejected.
+
+`tricks()` used to take minutes per solve and saturate every core (#14). It now
+goes through `bridge-solver` and takes about ten milliseconds, remembered per
+deal — so it is safe to put in a probe. `scripts/dd-bench.sh` is the guard.
 
 ## Source Material & Reference Implementations
 

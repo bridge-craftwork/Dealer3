@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **`tricks()` now goes through `bridge-solver`.** A solve was over fifteen
+  minutes and saturated every core, which put every double-dummy script out of
+  reach; it is now about ten milliseconds. The 1000-deal, two-denomination
+  workload in issue #14 went from days to thirty seconds.
+  - Double-dummy results are remembered per deal against the denomination and
+    declarer they answer for, so writing the call out longhand several times,
+    asking about several denominations, or calling it from both a `condition`
+    and an `average` costs one search each — including across the worker
+    threads generation uses.
+  - `scripts/dd-bench.sh` is the regression benchmark, with the budgets issue
+    #14 set as its acceptance criteria.
+  - The browser build grows by about 11 KB gzipped, to ~386 KB.
+
 ### Removed
+- **The hand-rolled alpha-beta solver in `dealer-dds`.** It was correct and
+  unusably slow, and nothing reaches it any more. `DoubleDummySolver`,
+  `SolveResultWithLine` and the game-state machinery are gone; `Denomination`,
+  `DoubleDummyResult` and `TrickResult` stay, alongside the new `DealAnalysis`,
+  `tricks()` and `solve_all()`.
 - **BREAKING: legacy mode (`--legacy`) and the ported GNU `random()`.**
   `-s/--seed` no longer reproduces dealer.exe's deal sequence. Scripts port
   unchanged and filter semantics are unaffected — only the specific deals for a

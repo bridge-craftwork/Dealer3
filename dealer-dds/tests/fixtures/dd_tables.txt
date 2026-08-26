@@ -1,0 +1,54 @@
+# Double-dummy trick tables from an independent program, as an oracle for the
+# solver dealer3 calls.
+#
+# Source: a BridgeComposer 5.97 hand record for a Common Game session of
+# 2026-01-19, whose OptimumResultTable holds all twenty (declarer, strain)
+# results per board. BridgeComposer computes these itself, so agreeing with it
+# checks dealer3's whole path end to end - the deal conversion, the opening
+# leader, and the declarer-versus-North/South trick conversion - against
+# something that shares no code with it.
+#
+# One board per line: the PBN Deal tag, then twenty trick counts, declarer
+# N, E, S, W outermost and denomination C, D, H, S, NT within each.
+#
+# Five lines are marked `quick`. Those are the boards this solver gets through
+# fastest - a table costs anywhere from 20ms to 480ms optimised, and fifteen
+# times that unoptimised - and they are the ones an unoptimised `cargo test`
+# checks. The wiring under test is the same on every board, so which boards a
+# debug build spends its time on is only a question of how long it takes.
+      [Deal "N:K843.T542.J6.863 AQJ7.K.Q75.AT942 962.AJ7.KT82.J75 T5.Q9863.A943.KQ"] 2 3 3 3 2 11 10 10 10 10 2 3 3 3 2 11 10 10 10 10
+      [Deal "E:Q7.AKT9.JT3.JT96 J653.QJ8.A.AQ732 K92.654.K954.K84 AT84.732.Q8762.5"] 7 7 6 9 6 6 6 5 4 7 7 7 6 9 6 6 6 5 4 7
+      [Deal "S:T9763.985.53.963 J54.A7643.Q72.A5 AK8.2.AJT98.QJT7 Q2.KQJT.K64.K842"] 5 6 3 7 4 7 7 10 6 9 5 6 3 7 4 8 7 10 6 9
+      [Deal "W:J5.A752.Q82.AT62 7.864.AK96.KQ983 AT943.T93.J54.74 KQ862.KQJ.T73.J5"] 9 9 8 7 9 4 4 5 5 4 9 9 8 7 9 4 4 5 5 4
+quick [Deal "N:JT73.J3.A932.A85 Q8.T9872.K5.J963 AK9.65.QJT8.Q742 6542.AKQ4.764.KT"] 8 9 4 9 7 5 4 9 4 6 8 9 4 9 7 5 4 9 4 6
+      [Deal "E:AJ.T653.AKQ6.KJ2 KQ432.2.JT742.Q7 875.KQJ9874..A85 T96.A.9853.T9643"] 4 6 1 6 1 8 7 12 7 10 5 6 1 6 1 8 7 12 7 8
+quick [Deal "S:JT85.6543.T64.JT 943.72.QJ732.653 KQ.AKQJT8.K9.K97 A762.9.A85.AQ842"] 4 5 9 6 7 8 8 4 7 5 4 4 8 6 7 9 8 4 7 5
+      [Deal "W:T654.AQ6.AKJT7.K 9.J973.Q65.J8753 J8732.52.98.Q942 AKQ.KT84.432.AT6"] 6 5 7 4 6 5 7 5 9 6 6 5 7 4 6 5 8 5 9 6
+      [Deal "N:T765.AT82.32.542 AQ32.6.J65.QT763 984.KQ943.74.A98 KJ.J75.AKQT98.KJ"] 2 1 6 3 3 11 11 7 9 7 2 1 6 3 3 11 11 7 9 7
+      [Deal "E:A852.KT98.82.K97 QT76.43.K93.Q642 KJ9.6.QJ65.AT853 43.AQJ752.AT74.J"] 3 5 7 4 4 9 7 6 9 9 3 5 7 4 4 9 7 6 9 9
+      [Deal "S:8.J62.AKT764.JT4 7632.Q95.Q92.A86 AT54.K874.85.953 KQJ9.AT3.J3.KQ72"] 4 6 6 4 4 8 7 7 9 7 4 6 6 4 4 8 7 7 9 7
+      [Deal "W:KQ652.K952.K95.3 JT.J74.QJ76.AT42 A9.T63.842.KJ876 8743.AQ8.AT3.Q95"] 6 6 5 6 6 7 6 7 7 6 6 6 5 6 7 7 6 7 7 6
+      [Deal "N:QJ.86542.A632.65 KT9.A973.KQ.K832 A6432.J.JT9754.9 875.KQT.8.AQJT74"] 2 10 4 6 3 10 3 9 4 10 2 10 4 6 3 10 3 9 4 10
+      [Deal "E:A3.AK86.K54.T752 K9.Q92.Q87.KQ963 QJ752.T5.AT63.J8 T864.J743.J92.A4"] 6 5 6 5 5 6 8 6 8 8 6 5 6 5 5 6 8 6 8 8
+      [Deal "S:76.862.J532.KJ73 AKT53.AJ.T984.52 QJ.Q543.AQ76.AQT 9842.KT97.K.9864"] 7 7 6 3 5 6 6 6 10 6 7 7 6 3 5 6 6 6 10 6
+      [Deal "W:A754.KT32.Q754.8 T98.8654.J98.QT6 KQJ62.J.A6.AKJ93 3.AQ97.KT32.7542"] 1 3 4 1 1 12 10 8 12 12 1 3 4 1 1 11 10 8 12 11
+      [Deal "N:.AKQ98763.K96.K2 Q543.42.A543.J83 J9.J5.JT7.AT9764 AKT8762.T.Q82.Q5"] 10 6 12 5 5 2 6 0 8 3 10 6 12 5 5 3 6 0 8 3
+      [Deal "E:AKT6.AQ5.A7.K874 942.T97.KT643.A3 875.J8.Q985.T962 QJ3.K6432.J2.QJ5"] 4 5 7 4 4 9 8 7 9 9 3 4 6 4 3 9 8 6 9 9
+      [Deal "S:432.Q43.KJT97.73 987.KT976.Q5.AK8 KT6.A82.643.QT95 AQJ5.J5.A82.J642"] 3 4 2 2 2 10 9 11 11 11 2 4 2 2 2 10 9 11 11 11
+      [Deal "W:AQ3.AQ2.JT76.JT6 975.9843.A53.754 JT642.T76.Q9.983 K8.KJ5.K842.AKQ2"] 7 7 7 5 6 5 5 5 7 6 7 7 7 5 7 5 5 5 7 6
+      [Deal "N:54.KJT765.3.A943 Q97.842.QJ.QJ762 A863.A.AT8642.T5 KJT2.Q93.K975.K8"] 7 6 8 7 6 5 6 4 5 7 7 6 8 7 6 5 6 4 5 7
+      [Deal "E:84.AK63.A73.K872 AQ7.T74.Q85.A643 KJ2.QJ2.942.QJ95 T9653.985.KJT6.T"] 3 6 4 7 4 9 7 8 6 9 3 6 4 7 4 9 7 8 6 9
+      [Deal "S:J86.KQ98765.T7.9 K97.J3.AKQ2.JT63 AQT.A.J9865.Q542 5432.T42.43.AK87"] 5 5 10 6 5 8 7 3 6 8 5 5 10 6 5 8 7 3 6 8
+      [Deal "W:J64.KQT9.AT4.Q74 AQ87.AJ862.K5.52 K93.743.863.AJT6 T52.5.QJ972.K983"] 7 8 7 9 6 6 5 5 4 6 7 8 7 9 6 6 5 5 4 6
+      [Deal "N:Q96.KJ84.JT5.962 AK.QT97532.Q84.T J754.6.9632.AKJ4 T832.A.AK7.Q8753"] 4 5 3 5 5 8 8 10 7 7 4 5 3 5 5 8 8 10 7 7
+quick [Deal "E:84.KJT3.AK643.K7 T97.852.Q7.JT432 KQJ.Q9764.92.986 A6532.A.JT85.AQ5"] 8 5 3 8 6 5 8 10 5 7 8 5 3 8 6 5 8 10 5 7
+quick [Deal "S:J8.KQ86432.8.876 94.5.AK964.AKJT5 KQT6.T97.QJ7.942 A7532.AJ.T532.Q3"] 2 2 7 3 2 11 11 6 10 9 2 2 7 3 2 11 11 6 10 9
+      [Deal "W:K863.A753.J832.J J75.K9.A9.QT9832 AQ4.T8642.Q654.5 T92.QJ.KT7.AK764"] 9 4 4 5 8 4 9 8 8 5 9 4 4 5 8 4 9 8 8 5
+      [Deal "N:.QJ632.A4.KQ7652 QT5432.T954.86.8 AJ96.7.KJT532.J4 K87.AK8.Q97.AT93"] 9 9 7 5 8 4 4 5 8 5 9 9 8 5 8 4 4 5 8 5
+      [Deal "E:43.9543.2.AQJT84 KQ85.KQ7.953.K73 J9.JT8.KQT764.65 AT762.A62.AJ8.92"] 7 8 8 11 10 6 5 4 2 2 7 8 8 11 10 6 5 4 2 2
+      [Deal "S:J72.J5.T97643.Q3 AKT965.A74.K2.J9 83.Q32.Q5.AKT876 Q4.KT986.AJ8.542"] 6 5 2 1 2 7 8 10 11 7 6 5 2 1 2 7 8 10 11 7
+      [Deal "W:T9.J8632.AT76.T5 KQJ872.94.8543.6 A.KQT7.KJ.AQ8432 6543.A5.Q92.KJ97"] 3 4 2 7 4 9 8 11 5 7 3 4 2 7 4 9 8 11 5 7
+      [Deal "N:AJT732.K3.Q643.7 .975.AT7.Q986532 Q965.A82.985.AKJ K84.QJT64.KJ2.T4"] 5 9 6 10 10 7 4 6 2 2 5 9 5 10 10 7 4 6 2 2
+      [Deal "E:K63.T62.QT63.A97 AQ942.AK.98754.4 JT.J9743.AJ.JT85 875.Q85.K2.KQ632"] 8 8 7 10 8 5 5 6 3 5 8 8 7 10 8 5 5 6 3 5
+quick [Deal "S:T62.8743.J93.K75 743.6.KT87654.32 J95.AKJ95.AQ.A96 AKQ8.QT2.2.QJT84"] 6 5 8 5 8 7 8 5 7 5 6 5 8 5 8 7 8 5 7 5
+      [Deal "W:KT5.AK72.AQ.7543 .Q863.K874.AT962 Q98642.94.T532.8 AJ73.JT5.J96.KQJ"] 9 7 8 4 8 3 4 4 9 4 9 7 8 4 9 3 5 4 9 4

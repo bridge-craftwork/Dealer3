@@ -3,25 +3,37 @@
 //! This crate provides double-dummy analysis for bridge deals, calculating
 //! the number of tricks that can be made by each side in each denomination
 //! when all four hands are visible.
+//!
+//! The search itself lives in [`bridge_solver`] (a port of
+//! macroxue/bridge-solver): MTD(f) over a pattern-based transposition table
+//! with hierarchical bounds, move ordering and fast trick estimation. This
+//! crate is the adaptor — it converts `dealer_core` types, gets the leader and
+//! the declarer-versus-NS trick conversion right, and remembers results per
+//! deal, so however many times a script names `tricks()` it is searched once
+//! for each (deal, denomination, declarer).
 
-use dealer_core::{Card, Deal, Position, Suit};
+mod memo;
 
-/// New solver implementation (port of macroxue/bridge-solver)
-/// Re-exported from bridge-solver crate
-pub use bridge_solver as solver2;
-use std::collections::HashMap;
+pub use memo::tricks;
 
-/// Helper function to get the next position in clockwise order
-fn next_position(pos: Position) -> Position {
-    match pos {
-        Position::North => Position::East,
-        Position::East => Position::South,
-        Position::South => Position::West,
-        Position::West => Position::North,
-    }
-}
+use dealer_core::{Deal, Position, Suit};
+
+/// The double-dummy engine, re-exported for callers that want it directly.
+///
+/// This used to be called `solver2`, from when there was also a solver in this
+/// crate to be second to. There is not any more.
+pub use bridge_solver;
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use bridge_solver::{direction_to_seat, CutoffCache, Hands, PatternCache, Solver};
+use bridge_solver::{CLUB, DIAMOND, HEART, NOTRUMP, SPADE};
 
 /// Denomination for double-dummy analysis
+///
+/// The discriminants are dealer's own denomination numbering — `0=C` through
+/// `4=NT` — which is also `bridge_types::Strain`'s order, so `as usize`
+/// indexes both tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Denomination {
     Clubs,
@@ -51,6 +63,18 @@ impl Denomination {
         }
     }
 
+    /// Convert from dealer's denomination number, `0=C` through `4=NT`
+    pub fn from_index(index: i32) -> Option<Self> {
+        match index {
+            0 => Some(Denomination::Clubs),
+            1 => Some(Denomination::Diamonds),
+            2 => Some(Denomination::Hearts),
+            3 => Some(Denomination::Spades),
+            4 => Some(Denomination::NoTrump),
+            _ => None,
+        }
+    }
+
     /// Convert to Suit (NoTrump returns None)
     pub fn to_suit(&self) -> Option<Suit> {
         match self {
@@ -70,6 +94,17 @@ impl Denomination {
             Denomination::Hearts => 'H',
             Denomination::Spades => 'S',
             Denomination::NoTrump => 'N',
+        }
+    }
+
+    /// The solver's trump index for this denomination
+    fn trump(&self) -> usize {
+        match self {
+            Denomination::Clubs => CLUB,
+            Denomination::Diamonds => DIAMOND,
+            Denomination::Hearts => HEART,
+            Denomination::Spades => SPADE,
+            Denomination::NoTrump => NOTRUMP,
         }
     }
 }
@@ -134,469 +169,172 @@ impl Default for DoubleDummyResult {
     }
 }
 
-/// Game state for a single trick in progress
-#[derive(Clone, Debug)]
-struct TrickState {
-    cards_played: Vec<(Position, Card)>,
-    leader: Position,
-    trump: Option<Suit>,
+/// How many searches have run, for tests that care that a result was
+/// remembered rather than worked out again.
+static SEARCHES: AtomicUsize = AtomicUsize::new(0);
+
+/// How many double-dummy searches this process has run.
+///
+/// Every answer either comes from a search or from something already
+/// remembered, so a test can bracket a piece of work with this and see how
+/// much of it the memo absorbed. Counts every thread.
+pub fn searches() -> usize {
+    SEARCHES.load(Ordering::Relaxed)
 }
 
-impl TrickState {
-    fn new(leader: Position, trump: Option<Suit>) -> Self {
-        Self {
-            cards_played: Vec::with_capacity(4),
-            leader,
-            trump,
-        }
-    }
+/// Whatever is known about one deal so far, indexed `[denomination][declarer]`
+/// in the same order [`Denomination::ALL`] and [`Position::ALL`] give.
+pub type KnownTricks = [[Option<u8>; 4]; 5];
 
-    /// Get the suit led (if any cards played)
-    fn suit_led(&self) -> Option<Suit> {
-        self.cards_played.first().map(|(_, card)| card.suit)
-    }
+/// How wide the solver's cutoff and pattern caches are, in bits.
+///
+/// The same size `bridge_solver::solve_dd_table` uses. Narrowing them is not
+/// worth the memory it saves: measured over 200 deals, 14 bits costs about 8%
+/// and 12 bits about 27%.
+const CACHE_BITS: usize = 16;
 
-    /// Determine the winner of the current trick
-    fn winner(&self) -> Option<Position> {
-        if self.cards_played.len() < 4 {
-            return None;
-        }
-
-        let suit_led = self.suit_led().unwrap();
-        let mut winning_card = self.cards_played[0].1;
-        let mut winning_pos = self.cards_played[0].0;
-
-        for &(pos, card) in &self.cards_played[1..] {
-            if self.beats(card, winning_card, suit_led) {
-                winning_card = card;
-                winning_pos = pos;
-            }
-        }
-
-        Some(winning_pos)
-    }
-
-    /// Check if card1 beats card2
-    fn beats(&self, card1: Card, card2: Card, suit_led: Suit) -> bool {
-        // Trump beats non-trump
-        if let Some(trump) = self.trump {
-            if card1.suit == trump && card2.suit != trump {
-                return true;
-            }
-            if card2.suit == trump && card1.suit != trump {
-                return false;
-            }
-        }
-
-        // Must follow suit
-        if card1.suit == suit_led && card2.suit != suit_led {
-            return true;
-        }
-        if card2.suit == suit_led && card1.suit != suit_led {
-            return false;
-        }
-
-        // Same suit - compare ranks
-        if card1.suit == card2.suit {
-            return card1.rank > card2.rank;
-        }
-
-        false
-    }
+/// Double-dummy analysis of one deal, solved on demand and remembered.
+///
+/// Build one per deal and ask it for as many (denomination, declarer) pairs as
+/// the script wants: each pair is searched once, and consecutive questions
+/// about the same denomination share the solver's cutoff and pattern caches,
+/// which is where most of the saving is. A script asking about a single
+/// denomination never pays for the other four.
+pub struct DealAnalysis {
+    hands: Hands,
+    /// Tricks available in total — 13 for a complete deal.
+    total: u8,
+    /// Answers already known, indexed `[denomination][declarer]`.
+    known: KnownTricks,
+    /// The caches, and the denomination they belong to. They are only valid
+    /// within one denomination, so a change of denomination replaces them.
+    caches: Option<(Denomination, Box<Caches>)>,
 }
 
-/// Complete game state for double-dummy solving
-#[derive(Clone)]
-struct GameState {
-    /// Cards remaining in each hand (by position)
-    hands: [Vec<Card>; 4],
-    /// Current trick in progress
-    current_trick: TrickState,
-    /// Tricks won by declarer's side
-    declarer_tricks: u8,
-    /// Declarer position
-    declarer: Position,
-    /// Total tricks played so far
-    tricks_played: u8,
-    /// Total number of tricks in this game
-    num_tricks: u8,
-    /// Play history for debugging - fixed size array (position in high 2 bits, card index in low 6 bits)
-    play_history: [u8; 52],
-    /// Number of cards played (index into play_history)
-    plays_count: u8,
+/// The solver's two per-denomination caches, boxed together because they run
+/// to several megabytes between them.
+struct Caches {
+    cutoff: CutoffCache,
+    pattern: PatternCache,
 }
 
-impl GameState {
-    fn new(deal: &Deal, declarer: Position, trump: Option<Suit>) -> Self {
-        let mut hands = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-        for position in Position::ALL {
-            hands[position as usize] = deal.hand(position).cards().to_vec();
-        }
-
-        // Opening lead comes from player to the LEFT of declarer
-        let opening_leader = next_position(declarer);
-        let num_tricks = hands[0].len() as u8;
-
+impl DealAnalysis {
+    /// Begin analysing a deal. No search runs until a result is asked for.
+    pub fn new(deal: &Deal) -> Self {
+        let bt_deal: bridge_types::Deal = deal.into();
+        let hands = Hands::from_deal(&bt_deal);
+        let total = hands.num_tricks() as u8;
         Self {
             hands,
-            current_trick: TrickState::new(opening_leader, trump),
-            declarer_tricks: 0,
-            declarer,
-            tricks_played: 0,
-            num_tricks,
-            play_history: [0; 52],
-            plays_count: 0,
+            total,
+            known: [[None; 4]; 5],
+            caches: None,
         }
     }
 
-    /// Get the next player to act
-    fn next_player(&self) -> Position {
-        let cards_played = self.current_trick.cards_played.len();
-        if cards_played == 0 {
-            self.current_trick.leader
-        } else {
-            let last_player = self.current_trick.cards_played[cards_played - 1].0;
-            next_position(last_player)
-        }
+    /// Everything searched, or handed to [`preload`], so far.
+    ///
+    /// [`preload`]: DealAnalysis::preload
+    pub fn known(&self) -> KnownTricks {
+        self.known
     }
 
-    /// Check if declarer's side is on lead
-    fn declarer_side_on_lead(&self) -> bool {
-        let next = self.next_player();
-        next == self.declarer || next == self.declarer.partner()
-    }
-
-    /// Get legal moves for the current player
-    fn legal_moves(&self) -> Vec<Card> {
-        let player = self.next_player();
-        let hand = &self.hands[player as usize];
-
-        if let Some(suit_led) = self.current_trick.suit_led() {
-            // Must follow suit if possible
-            let following: Vec<Card> = hand
-                .iter()
-                .filter(|c| c.suit == suit_led)
-                .copied()
-                .collect();
-            if !following.is_empty() {
-                return following;
+    /// Take on answers worked out elsewhere for the same deal.
+    ///
+    /// Anything already known here is kept; a double-dummy result is a
+    /// property of the deal, so the two can only agree.
+    pub fn preload(&mut self, known: KnownTricks) {
+        for (mine, theirs) in self.known.iter_mut().zip(known) {
+            for (mine, theirs) in mine.iter_mut().zip(theirs) {
+                if mine.is_none() {
+                    *mine = theirs;
+                }
             }
         }
-
-        // Can play any card
-        hand.clone()
     }
 
-    /// Play a card and update state
-    fn play_card(&mut self, card: Card) -> bool {
-        let player = self.next_player();
-        let hand = &mut self.hands[player as usize];
-
-        // Remove card from hand
-        if let Some(pos) = hand.iter().position(|&c| c == card) {
-            hand.remove(pos);
-        } else {
-            return false; // Invalid move
+    /// Tricks `declarer` can take in `denomination`, searching only if this
+    /// pair has not been asked for before.
+    pub fn tricks(&mut self, denomination: Denomination, declarer: Position) -> u8 {
+        let denom_idx = denomination as usize;
+        let decl_idx = declarer as usize;
+        if let Some(tricks) = self.known[denom_idx][decl_idx] {
+            return tricks;
         }
-
-        // Record play: high 2 bits = position, low 6 bits = card index
-        let encoded = ((player as u8) << 6) | card.to_index();
-        self.play_history[self.plays_count as usize] = encoded;
-        self.plays_count += 1;
-
-        self.current_trick.cards_played.push((player, card));
-
-        // Check if trick is complete
-        if self.current_trick.cards_played.len() == 4 {
-            let winner = self.current_trick.winner().unwrap();
-
-            // Award trick
-            if winner == self.declarer || winner == self.declarer.partner() {
-                self.declarer_tricks += 1;
-            }
-
-            self.tricks_played += 1;
-
-            // Start new trick with winner leading
-            self.current_trick = TrickState::new(winner, self.current_trick.trump);
-        }
-
-        true
+        let tricks = self.search(denomination, declarer);
+        self.known[denom_idx][decl_idx] = Some(tricks);
+        tricks
     }
 
-    /// Check if game is over
-    fn is_terminal(&self) -> bool {
-        self.tricks_played >= self.num_tricks
-    }
-
-    /// Check if we're at a trick boundary (no cards in current trick)
-    fn at_trick_boundary(&self) -> bool {
-        self.current_trick.cards_played.is_empty()
-    }
-
-    /// Get the final score (tricks for declarer)
-    fn score(&self) -> u8 {
-        self.declarer_tricks
-    }
-
-    /// Get the play history as a Vec of (Position, Card)
-    fn get_play_history(&self) -> Vec<(Position, Card)> {
-        (0..self.plays_count as usize)
-            .map(|i| {
-                let encoded = self.play_history[i];
-                let pos_idx = (encoded >> 6) as usize;
-                let card_idx = encoded & 0x3F;
-                let position = Position::ALL[pos_idx];
-                let card = Card::from_index(card_idx).expect("valid card index");
-                (position, card)
-            })
-            .collect()
-    }
-
-    /// Hash the game state for TT lookup
-    /// Only valid at trick boundaries (no cards in current trick)
-    fn hash(&self) -> u64 {
-        let mut hash = 0u64;
-
-        // Hash each hand's cards using bit rotation
-        for (pos_idx, hand) in self.hands.iter().enumerate() {
-            for card in hand {
-                let card_bit = 1u64 << (card.to_index() as u64 % 52);
-                hash ^= card_bit.rotate_left((pos_idx * 13) as u32);
-            }
-        }
-
-        // Include leader and tricks won for uniqueness
-        hash ^= (self.current_trick.leader as u64) << 56;
-        hash ^= (self.declarer_tricks as u64) << 52;
-
-        hash
-    }
-}
-
-/// TT entry with proper bounds handling
-#[derive(Clone, Copy, Debug)]
-enum TTEntry {
-    /// Exact value - can be returned directly
-    Exact(u8),
-    /// Lower bound (from beta cutoff) - actual value >= stored
-    LowerBound(u8),
-    /// Upper bound (from alpha cutoff) - actual value <= stored
-    UpperBound(u8),
-}
-
-/// Transposition table for caching results
-type TranspositionTable = HashMap<u64, TTEntry>;
-
-/// Result with play sequence for debugging
-#[derive(Debug, Clone)]
-pub struct SolveResultWithLine {
-    /// Number of tricks declarer can make
-    pub tricks: u8,
-    /// Play sequence that achieves this result: (position, card)
-    pub play_line: Vec<(Position, Card)>,
-}
-
-/// Solver for double-dummy analysis
-pub struct DoubleDummySolver {
-    deal: Deal,
-}
-
-impl DoubleDummySolver {
-    /// Create a new solver for the given deal
-    pub fn new(deal: Deal) -> Self {
-        Self { deal }
-    }
-
-    /// Solve for all denominations and all declarers
-    pub fn solve_all(&self) -> DoubleDummyResult {
+    /// Every denomination and declarer, filling in whatever is still unknown.
+    pub fn table(&mut self) -> DoubleDummyResult {
         let mut result = DoubleDummyResult::new();
-
+        // Denomination outermost, so all four declarers share one pair of caches.
         for denomination in Denomination::ALL {
             for declarer in Position::ALL {
-                let tricks = self.solve(denomination, declarer);
-                result.set_tricks(denomination, declarer, tricks);
+                result.set_tricks(denomination, declarer, self.tricks(denomination, declarer));
             }
         }
-
         result
     }
 
-    /// Solve for a specific denomination and declarer
-    pub fn solve(&self, denomination: Denomination, declarer: Position) -> u8 {
-        let trump = denomination.to_suit();
-        let state = GameState::new(&self.deal, declarer, trump);
-        let mut tt = HashMap::new();
-
-        self.alpha_beta(&state, 0, state.num_tricks, &mut tt)
-    }
-
-    /// Solve and return a play line that achieves the result (for debugging)
-    pub fn solve_with_line(
-        &self,
-        denomination: Denomination,
-        declarer: Position,
-    ) -> SolveResultWithLine {
-        let trump = denomination.to_suit();
-        let state = GameState::new(&self.deal, declarer, trump);
-        let mut tt = HashMap::new();
-
-        // First pass: find the optimal score
-        let tricks = self.alpha_beta(&state, 0, state.num_tricks, &mut tt);
-
-        // Second pass: find a line that achieves this score
-        let play_line = self.find_line(&state, tricks, &mut tt);
-
-        SolveResultWithLine { tricks, play_line }
-    }
-
-    /// Find a concrete play line that achieves the target score
-    fn find_line(
-        &self,
-        state: &GameState,
-        target: u8,
-        tt: &mut TranspositionTable,
-    ) -> Vec<(Position, Card)> {
-        if let Some(terminal) = self.find_line_recursive(state, target, 0, state.num_tricks, tt) {
-            terminal.get_play_history()
-        } else {
-            Vec::new()
+    /// Run the search for one (denomination, declarer) pair.
+    ///
+    /// `Solver::new` takes the *leader*, not the declarer, and returns tricks
+    /// for *North/South*, not for the declarer. Both conversions happen here;
+    /// getting either wrong yields plausible but wrong numbers.
+    fn search(&mut self, denomination: Denomination, declarer: Position) -> u8 {
+        SEARCHES.fetch_add(1, Ordering::Relaxed);
+        let seat = direction_to_seat(declarer);
+        let leader = (seat + 1) % 4;
+        let solver = Solver::new(self.hands, denomination.trump(), leader);
+        let caches = self.caches_for(denomination);
+        let ns = solver.solve_with_caches(&mut caches.cutoff, &mut caches.pattern);
+        match declarer {
+            Position::North | Position::South => ns,
+            Position::East | Position::West => self.total - ns,
         }
     }
 
-    fn find_line_recursive(
-        &self,
-        state: &GameState,
-        target: u8,
-        alpha: u8,
-        beta: u8,
-        tt: &mut TranspositionTable,
-    ) -> Option<GameState> {
-        if state.is_terminal() {
-            if state.score() == target {
-                return Some(state.clone());
-            }
-            return None;
+    /// The caches for `denomination`, allocating them if the last search was
+    /// in a different denomination. Cache entries are keyed by position alone,
+    /// so they must not be carried across a change of trump suit.
+    fn caches_for(&mut self, denomination: Denomination) -> &mut Caches {
+        let reusable = matches!(&self.caches, Some((denom, _)) if *denom == denomination);
+        if !reusable {
+            self.caches = Some((
+                denomination,
+                Box::new(Caches {
+                    cutoff: CutoffCache::new(CACHE_BITS),
+                    pattern: PatternCache::new(CACHE_BITS),
+                }),
+            ));
         }
-
-        let maximizing = state.declarer_side_on_lead();
-        let moves = state.legal_moves();
-
-        for card in moves {
-            let mut new_state = state.clone();
-            new_state.play_card(card);
-
-            // Check if this move can lead to target
-            let score = self.alpha_beta(&new_state, alpha, beta, tt);
-
-            let dominated = if maximizing {
-                score >= target
-            } else {
-                score <= target
-            };
-
-            if dominated {
-                if let Some(terminal) =
-                    self.find_line_recursive(&new_state, target, alpha, beta, tt)
-                {
-                    return Some(terminal);
-                }
-            }
+        match &mut self.caches {
+            Some((_, caches)) => caches,
+            // Unreachable: the branch above assigns `Some` whenever it is `None`.
+            None => unreachable!("caches were just assigned"),
         }
-
-        None
     }
+}
 
-    /// Alpha-beta minimax search with transposition table
-    fn alpha_beta(
-        &self,
-        state: &GameState,
-        mut alpha: u8,
-        mut beta: u8,
-        tt: &mut TranspositionTable,
-    ) -> u8 {
-        // Terminal node
-        if state.is_terminal() {
-            return state.score();
-        }
+/// Tricks `declarer` can take in `denomination` on `deal`, as a one-shot.
+///
+/// Use [`DealAnalysis`] instead when more than one question will be asked
+/// about the same deal.
+pub fn solve(deal: &Deal, denomination: Denomination, declarer: Position) -> u8 {
+    DealAnalysis::new(deal).tricks(denomination, declarer)
+}
 
-        // TT lookup - only at trick boundaries for correctness
-        let hash = if state.at_trick_boundary() {
-            let h = state.hash();
-            if let Some(&entry) = tt.get(&h) {
-                match entry {
-                    TTEntry::Exact(v) => return v,
-                    TTEntry::LowerBound(v) => {
-                        if v >= beta {
-                            return v;
-                        }
-                        alpha = alpha.max(v);
-                    }
-                    TTEntry::UpperBound(v) => {
-                        if v <= alpha {
-                            return v;
-                        }
-                        beta = beta.min(v);
-                    }
-                }
-            }
-            Some(h)
-        } else {
-            None
-        };
-
-        let maximizing = state.declarer_side_on_lead();
-        let moves = state.legal_moves();
-        let orig_alpha = alpha;
-
-        let value = if maximizing {
-            let mut value = 0u8;
-            for card in moves {
-                let mut new_state = state.clone();
-                new_state.play_card(card);
-                let score = self.alpha_beta(&new_state, alpha, beta, tt);
-                value = value.max(score);
-                alpha = alpha.max(value);
-                if alpha >= beta {
-                    break; // Beta cutoff
-                }
-            }
-            value
-        } else {
-            let mut value = state.num_tricks;
-            for card in moves {
-                let mut new_state = state.clone();
-                new_state.play_card(card);
-                let score = self.alpha_beta(&new_state, alpha, beta, tt);
-                value = value.min(score);
-                beta = beta.min(value);
-                if alpha >= beta {
-                    break; // Alpha cutoff
-                }
-            }
-            value
-        };
-
-        // TT store - only at trick boundaries
-        if let Some(h) = hash {
-            let entry = if value <= orig_alpha {
-                TTEntry::UpperBound(value)
-            } else if value >= beta {
-                TTEntry::LowerBound(value)
-            } else {
-                TTEntry::Exact(value)
-            };
-            tt.insert(h, entry);
-        }
-
-        value
-    }
+/// The full 5x4 table for a deal.
+pub fn solve_all(deal: &Deal) -> DoubleDummyResult {
+    DealAnalysis::new(deal).table()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dealer_core::Rank;
+    use dealer_core::{Card, Rank};
 
     #[test]
     fn test_denomination_conversion() {
@@ -616,6 +354,16 @@ mod tests {
         assert_eq!(Denomination::Diamonds.to_char(), 'D');
         assert_eq!(Denomination::Clubs.to_char(), 'C');
         assert_eq!(Denomination::NoTrump.to_char(), 'N');
+    }
+
+    #[test]
+    fn denomination_index_matches_dealers_numbering() {
+        for (index, denomination) in Denomination::ALL.iter().enumerate() {
+            assert_eq!(Denomination::from_index(index as i32), Some(*denomination));
+            assert_eq!(*denomination as usize, index);
+        }
+        assert_eq!(Denomination::from_index(5), None);
+        assert_eq!(Denomination::from_index(-1), None);
     }
 
     #[test]
@@ -663,49 +411,43 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Slow: runs DDS solver 20 times
     fn test_solver_creation() {
-        let deal = create_simple_deal();
-        let solver = DoubleDummySolver::new(deal);
-        let result = solver.solve_all();
+        let result = solve_all(&create_simple_deal());
         assert_eq!(result.all_results().len(), 20); // 5 denominations × 4 positions
     }
 
     #[test]
-    #[ignore] // Slow: runs DDS solver
     fn test_solver_basic() {
         // Test with a simple deal (one suit per hand)
         let deal = create_simple_deal();
-        let solver = DoubleDummySolver::new(deal);
 
         // In NT with N declarer, E leads hearts, E/W win all tricks
-        let tricks = solver.solve(Denomination::NoTrump, Position::North);
-        assert_eq!(tricks, 0);
+        assert_eq!(solve(&deal, Denomination::NoTrump, Position::North), 0);
 
         // With Spades trump, N/S win all tricks (N has all spades)
-        let tricks_spades = solver.solve(Denomination::Spades, Position::North);
-        assert_eq!(tricks_spades, 13);
+        assert_eq!(solve(&deal, Denomination::Spades, Position::North), 13);
     }
 
     #[test]
-    fn test_trick_winner() {
-        let mut trick = TrickState::new(Position::North, Some(Suit::Spades));
-
-        // Play a complete trick (Spades are trump)
-        trick
-            .cards_played
-            .push((Position::North, Card::new(Suit::Hearts, Rank::Ace)));
-        trick
-            .cards_played
-            .push((Position::East, Card::new(Suit::Spades, Rank::Two))); // Trump
-        trick
-            .cards_played
-            .push((Position::South, Card::new(Suit::Hearts, Rank::King)));
-        trick
-            .cards_played
-            .push((Position::West, Card::new(Suit::Hearts, Rank::Queen)));
-
-        // East should win with the trump
-        assert_eq!(trick.winner(), Some(Position::East));
+    fn memo_answers_match_a_fresh_solve() {
+        let deal = create_simple_deal();
+        let table = solve_all(&deal);
+        let mut analysis = DealAnalysis::new(&deal);
+        for denomination in Denomination::ALL {
+            for declarer in Position::ALL {
+                assert_eq!(
+                    analysis.tricks(denomination, declarer),
+                    table.get_tricks(denomination, declarer),
+                    "{:?} by {:?}",
+                    denomination,
+                    declarer
+                );
+                // Asking twice must give the same answer from the memo.
+                assert_eq!(
+                    analysis.tricks(denomination, declarer),
+                    table.get_tricks(denomination, declarer)
+                );
+            }
+        }
     }
 }

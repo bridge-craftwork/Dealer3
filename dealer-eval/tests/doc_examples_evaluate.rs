@@ -30,23 +30,10 @@ fn evaluate(script: &str, deal: &Deal) -> Result<i32, EvalError> {
     eval_program(&program, deal)
 }
 
-/// `tricks` calls the double-dummy solver, and on the legacy solver a single
-/// deal takes minutes rather than milliseconds — see issue #14. Its example is
-/// parsed by `dealer-parser`, and its argument handling is covered by that
-/// crate's own tests; running it here would make `cargo test` unusable.
-fn uses_the_solver(example: &str) -> bool {
-    // `trick`, not `tricks`: the singular alias shipped later and this filter
-    // missed it, which turned a millisecond test into a several-minute one.
-    example.contains("trick")
-}
-
 #[test]
 fn every_function_example_evaluates() {
     let deal = reference_deal();
     for doc in FUNCTION_DOCS {
-        if uses_the_solver(doc.example) {
-            continue;
-        }
         if let Err(e) = evaluate(&format!("condition {}\n", doc.example), &deal) {
             panic!(
                 "the example for `{}` does not evaluate: {:?}\n{}",
@@ -60,9 +47,6 @@ fn every_function_example_evaluates() {
 fn every_operator_example_evaluates() {
     let deal = reference_deal();
     for doc in OPERATOR_DOCS {
-        if uses_the_solver(doc.example) {
-            continue;
-        }
         // Assignment is a statement, so it needs a condition after it before
         // there is anything to evaluate.
         let script = if doc.symbol == "=" {

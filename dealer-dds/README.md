@@ -1,177 +1,87 @@
 # dealer-dds
 
-Double-dummy solver for bridge using alpha-beta minimax search.
+Double-dummy analysis for dealer3: how many tricks each declarer can take in
+each denomination with all four hands visible.
 
-## Overview
+The search is not here. It is in
+[bridge-solver](https://github.com/bridge-craftwork/bridge-solver), a port of
+[macroxue/bridge-solver](https://github.com/macroxue/bridge-solver): MTD(f) over
+a pattern-based transposition table with hierarchical bounds, move ordering and
+fast trick estimation. This crate is the adaptor between that and dealer3, and
+the memory that keeps a deal from being searched twice.
 
-This crate provides double-dummy analysis for bridge deals, calculating the maximum number of tricks that can be made by each side in each denomination when all four hands are visible. The solver uses alpha-beta pruning with transposition tables to efficiently search the game tree.
+## What the adaptor has to get right
 
-## Features
+Three conversions sit between a `dealer_core::Deal` and an answer, and each is
+silent when it is wrong:
 
-### Core Algorithm
-- **Alpha-beta minimax search** - Optimal play calculation with pruning
-- **Transposition table** - Position caching to avoid redundant calculations
-- **Complete game simulation** - Proper trick-taking rules including:
-  - Follow suit requirements
-  - Trump handling
-  - Trick winner determination
-- **All denominations** - Supports all 5 denominations (Clubs, Diamonds, Hearts, Spades, NoTrump)
+- `dealer_core::Deal` to `bridge_types::Deal` (which `dealer-core` provides).
+- The opening leader. `bridge_solver::Solver::new` takes the seat *on lead*,
+  which is the declarer's left-hand opponent, not the declarer.
+- The side. `Solver::solve` returns North/South's tricks; `tricks()` wants the
+  declarer's, so East and West are `total - ns`.
 
-### API
+`tests/dd_tables_match_an_independent_solver.rs` checks all three against
+BridgeComposer's own tables for 36 real boards — 720 values that share no code
+with this crate.
+
+## The memory
+
+A double-dummy search is milliseconds where the rest of the language is
+microseconds, so what matters is how few of them run. Results are remembered per
+deal, against the denomination and declarer they answer for:
+
+- Writing `tricks(south, spades)` out longhand in four places is one search.
+- Asking about several denominations is one search each, not a full table.
+- A `condition` that calls `tricks()` and an `average` that calls it again —
+  which the generator evaluates on different threads, a batch apart — is still
+  one search.
+
+Within a denomination the solver's cutoff and pattern caches are shared across
+the four declarers, which is most of what a full table would save; the caches
+run to several megabytes, so they live only as long as the deal in hand.
+
+## API
 
 ```rust
-use dealer_core::{DealGenerator, Position};
-use dealer_dds::{DoubleDummySolver, Denomination};
+use dealer_dds::{tricks, solve_all, DealAnalysis, Denomination};
+use dealer_core::Position;
 
-// Generate a deal
-let mut gen = DealGenerator::new(42);
-let deal = gen.generate();
+// One question, remembered for whatever asks next.
+let n = tricks(&deal, Denomination::Spades, Position::North);
 
-// Create solver
-let solver = DoubleDummySolver::new(deal);
+// Several questions about one deal, without going through the memo.
+let mut analysis = DealAnalysis::new(&deal);
+let nt = analysis.tricks(Denomination::NoTrump, Position::South);
 
-// Solve for a specific denomination and declarer
-let tricks = solver.solve(Denomination::Spades, Position::North);
-println!("North can make {} tricks in spades", tricks);
-
-// Solve for all 20 combinations (5 denominations × 4 positions)
-let result = solver.solve_all();
-println!("North spades: {}", result.get_tricks(Denomination::Spades, Position::North));
+// All twenty.
+let table = solve_all(&deal);
 ```
 
-### Types
+`dealer_dds::searches()` reports how many searches the process has run, for
+tests that care that an answer was remembered rather than worked out again.
 
-- **`Denomination`** - Enum for the 5 denominations
-- **`DoubleDummyResult`** - Complete analysis for all 20 denomination/declarer combinations
-- **`TrickResult`** - Single result (denomination, declarer, tricks)
-- **`DoubleDummySolver`** - Main solver API
+## Speed
 
-## Performance
+Release build, M-series Mac, whole 20-entry tables for 36 tournament boards:
+20 ms for the quickest, 480 ms for the slowest, around 60 ms in the middle. A
+single question about one denomination is roughly 10 ms.
 
-Current performance (Release mode, measured with seed 42):
-
-- **Single solve**: ~75ms
-- **Full solve_all** (20 combinations): ~654ms
-- **Per deal**: ~730ms
-- **Throughput**: **1.37 deals/second**
-
-### Benchmark
-
-```bash
-cargo run --release --example benchmark -p dealer-dds
-```
-
-## Implementation Details
-
-### Algorithm
-The solver implements a standard alpha-beta minimax search:
-
-1. **Game tree search** - Explores all legal moves from current position
-2. **Minimax evaluation** - Maximizes tricks for declarer's side, minimizes for opponents
-3. **Alpha-beta pruning** - Cuts off branches that can't affect the result
-4. **Transposition table** - Caches positions to avoid re-computation
-
-### State Representation
-- **GameState** - Complete deal state (4 hands, current trick, tricks won)
-- **TrickState** - Current trick in progress (cards played, leader, trump)
-- State cloning on each move (main performance bottleneck)
-
-### Hash Function
-Simple XOR-based hashing of:
-- Card positions in each hand
-- Current trick leader
-- Tricks won by declarer
-
-## Comparison to Professional Implementations
-
-Bo Haglund's DDS (industry standard): ~5 deals/second
-
-This implementation: ~1.37 deals/second (**3.6x slower**)
-
-### Why the Difference?
-
-1. **State cloning** - We clone the entire game state for each move explored (expensive)
-2. **No move ordering** - Don't try high-value cards first
-3. **Simple hashing** - Basic XOR instead of Zobrist hashing
-4. **No endgame optimization** - Could use simpler logic for last few tricks
-
-## TODO: Performance Optimizations
-
-### High Impact (2-3x speedup expected)
-
-- [ ] **Make/unmake move pattern**
-  - Replace state cloning with in-place make/unmake
-  - Store undo information for efficient state restoration
-  - Requires careful implementation to avoid bugs
-  - Expected: 2-3x speedup → ~3-4 deals/sec
-
-### Medium Impact (20-50% speedup)
-
-- [ ] **Zobrist hashing**
-  - Pre-compute random values for each card/position
-  - Incremental hash updates on make/unmake
-  - Faster than current XOR approach
-  - Expected: 20-30% speedup
-
-- [ ] **Move ordering heuristics**
-  - Try high cards first (Aces, Kings, Queens)
-  - Try trump cards before side suits
-  - Better alpha-beta cutoffs
-  - Note: Naive sorting made it slower; needs smarter approach
-  - Expected: 10-20% speedup
-
-- [ ] **Improved transposition table**
-  - Store exact scores vs. bounds
-  - Better replacement strategy
-  - Track depth for more accurate lookups
-  - Expected: 20-30% speedup
-
-### Lower Impact (5-15% speedup)
-
-- [ ] **Endgame tables**
-  - Special handling for 1-2 cards remaining
-  - Direct calculation instead of search
-  - Expected: 5-10% speedup
-
-- [ ] **Parallel solving**
-  - Solve different denominations in parallel
-  - Rayon-based parallelization
-  - Expected: Near-linear speedup for solve_all (4-5x on 4+ cores)
-
-- [ ] **Hand representation optimization**
-  - Use bitboards instead of Vec<Card>
-  - Faster legal move generation
-  - Expected: 10-15% speedup
+`scripts/dd-bench.sh` is the regression benchmark; its budgets are the
+acceptance criteria from issue #14.
 
 ## Testing
 
 ```bash
-# Run all tests
-cargo test -p dealer-dds
-
-# Run specific test
-cargo test -p dealer-dds --lib test_solver_basic
-
-# Run with output
-cargo test -p dealer-dds --lib -- --nocapture
+cargo test -p dealer-dds              # a few oracle boards
+cargo test -p dealer-dds --release    # all 36
 ```
 
-### Test Coverage
-
-- Denomination conversions
-- Trick winner logic (trump handling)
-- Solver correctness (returns 0-13 tricks)
-- Result storage and retrieval
-- Complete solve_all (20 combinations)
+An unoptimised build of the solver is some fifteen times slower than an
+optimised one, which is why the fixture is only fully checked in release.
 
 ## License
 
-This project is released into the **public domain** under [The Unlicense](../LICENSE).
-
-## Credits
-
-Algorithm: Standard alpha-beta minimax with transposition tables
-
-Inspiration: Bo Haglund's DDS library (industry standard for bridge double-dummy solving)
-
-Implementation: Rick Wilson (Unlicense)
+This project is released into the **public domain** under
+[The Unlicense](../LICENSE). `bridge-solver`, which does the searching, is MIT
+OR Apache-2.0 and is credited by `dealer --credits`.

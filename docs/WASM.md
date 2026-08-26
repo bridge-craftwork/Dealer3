@@ -15,8 +15,9 @@ cd wasm
 Requires [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) and the
 `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`).
 
-Current size: **~1015 KB raw, ~351 KB gzipped**, including the double-dummy
-solver pulled in transitively via `dealer-dds`.
+Current size: **~1102 KB raw, ~386 KB gzipped**, including `bridge-solver`,
+which `tricks()` reaches through `dealer-dds`. The solver is about 11 KB
+gzipped of that.
 
 ## Why it works cleanly
 

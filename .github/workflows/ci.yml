@@ -62,6 +62,12 @@ jobs:
     - name: Build release
       run: cargo build --workspace --release --verbose
 
+    # The double-dummy oracle is the one test whose coverage depends on the
+    # profile: a debug build checks a few boards, an optimised build checks the
+    # whole fixture. This is where the whole fixture gets checked.
+    - name: Check the double-dummy tables against the full fixture
+      run: cargo test -p dealer-dds --release
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
