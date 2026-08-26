@@ -7,6 +7,8 @@ mod fast_parallel;
 #[cfg(test)]
 mod generated_docs;
 #[cfg(test)]
+mod roadmap;
+#[cfg(test)]
 mod switches;
 
 use clap::Parser;

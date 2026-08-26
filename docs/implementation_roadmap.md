@@ -8,11 +8,13 @@ generated from clap so it cannot drift. This block used to list `-m`, `-q` and
 `-v` still meant vulnerability a release after that changed.
 
 What remains of this document is the *plan* — effort, value and ordering — which
-is a judgement no program can generate.
+is a judgement no program can generate. The phase sections below are the
+original design record, kept because the reasoning is still useful; their
+headings say which are delivered. **"What is left" is the section to read.**
 
 ---
 
-## Phase 1: Essential Missing Features (High Priority)
+## Phase 1: Essential switches — ✅ delivered
 
 ### 1.1 Version Information
 **Switch**: `--version` (or `-V`)
@@ -60,7 +62,7 @@ if args.version {
 
 ---
 
-## Phase 2: Command-Line Predeal (Medium Priority)
+## Phase 2: Command-line predeal — ✅ delivered
 
 ### 2.1 Compass Predeal Switches
 **Switches**: `-N`, `-E`, `-S`, `-W` with card list
@@ -93,7 +95,7 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 
 ---
 
-## Phase 3: Export and Reporting (Medium Priority)
+## Phase 3: Export and reporting — ✅ delivered
 
 ### 3.1 CSV Export
 **Switch**: `-C/--csv FILENAME`
@@ -116,7 +118,7 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 
 ---
 
-## Phase 4: Performance Features (Medium-Low Priority)
+## Phase 4: Performance — partly delivered
 
 ### 4.1 Multi-threading
 **Switch**: `-R/--threads N` (1-9 threads)
@@ -140,7 +142,7 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 
 ---
 
-## Phase 5: Advanced Features (Low Priority)
+## Phase 5: Advanced features — partly delivered
 
 ### 5.1 Double-Dummy Analysis (DDS Integration)
 **Switches**: `-M MODE`, `-R THREADS`
@@ -265,22 +267,40 @@ WebAssembly build and browser app, which predate none of these phases.
 
 ---
 
-## Priority Matrix
+## What is left
 
-| Feature | Effort | Value | Priority | Order |
-|---------|--------|-------|----------|-------|
-| Version flag | Low | High | 🔴 Critical | 1 |
-| Progress meter | Medium | High | 🔴 Critical | 2 |
-| Verbose toggle | Low | Medium | 🟡 High | 3 |
-| Quiet mode | Low | Medium | 🟡 High | 4 |
-| Compass predeal | Medium | High | 🟡 High | 5 |
-| CSV export | Medium | Medium | 🟢 Medium | 6 |
-| Title metadata | Low | Low | 🟢 Medium | 7 |
-| Multi-threading | High | Medium | 🔵 Low | 8 |
-| Swapping modes | Medium | Low | 🔵 Low | 9 |
-| DDS integration | Very High | Medium | ⚪ Future | 10 |
-| Library mode | High | Low | ⚪ Future | 11 |
-| Export formats | Medium | Low | ⚪ Future | 12 |
+<!-- BEGIN GENERATED: priority-matrix -->
+
+Only what is **left**. A finished item is deleted rather than ticked, and anything that delivers a switch is checked against the argument parser, so this table cannot quietly describe work that has already happened.
+
+Priority is derived from effort and value rather than written down beside them.
+
+| Priority | What | Effort | Value | Issue | Notes |
+|---|---|---|---|---|---|
+| 🔴 Do first | Accept the singular and plural spellings, and `notrump` | Low | High | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) | `control`, `hcps`, `ten`, `jack`, `queen`, `king`, `ace`, `trick`, `imp`. They are rejected loudly now, so nothing gives a wrong answer, but a script written for dealer.exe still will not run. |
+| 🟡 Worth it | Allow variables whose name begins with a statement keyword | Low | Medium | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |  |
+| 🟡 Worth it | Route `tricks()` through bridge-solver | Medium | High | [#14](https://github.com/bridge-craftwork/Dealer3/issues/14) | Minutes per solve on the legacy solver, which puts every double-dummy script out of reach. The fast solver is already a dependency and is never called. |
+| 🟢 Someday | `pointcount` and `altcount`, to re-scale the point counts | Medium | Medium | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) | Rejected loudly today. Needs a scale in the evaluation context. |
+| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
+| 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
+| 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | Worth little until the solver behind `tricks()` is the fast one. |
+| 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
+| 🔵 Unlikely | Script parameters `$0`-`$9` | Medium | Low |  | DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping switches — so the spelling would have to differ. |
+| 🔵 Unlikely | Swapping modes | Medium | Low |  | Recognised and refused today. Not compatible with predeal in any dealer. |
+| 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | Rejected loudly today; the same thing can be written in the condition. |
+| 🔵 Unlikely | Two-dimensional `frequency` | Medium | Low |  | The original takes a second expression and range and prints marginals. |
+| 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
+| 🔵 Unlikely | Exhaust mode | High | Low |  | Never finished in the original either; the code is compiled out. |
+| 🔵 Unlikely | Library mode: replay deals by index | High | Low |  | `--input-deals` already covers the common case in dealer3's own way. |
+<!-- END GENERATED: priority-matrix -->
+
+The twelve-row matrix that used to sit here had no status column, and nine of
+its rows were finished — so it read as a plan for work that had already
+happened. It also listed only command-line switches, by which point the switches
+were the part that was nearly done and the language was the part that was not.
+
+For what *has* been delivered, read `command_line_comparison.md` and
+`FILTER_LANGUAGE_STATUS.md`, both generated from the code.
 
 ---
 

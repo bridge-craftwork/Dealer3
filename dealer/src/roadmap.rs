@@ -1,0 +1,309 @@
+//! What is left to do, and the table of it in the roadmap.
+//!
+//! The priority matrix in `docs/implementation_roadmap.md` used to list twelve
+//! features with no status column at all. Nine of them were finished, so the
+//! table read as a plan for work that had already happened — and its priorities
+//! were all command-line switches, by which time the switches were the part
+//! that was nearly done and the language was the part that was not.
+//!
+//! So this lists only what remains. A finished item is not ticked; it is
+//! deleted, and for anything that delivers a switch the test below notices when
+//! that has happened and says so.
+//!
+//! Effort and value are judgements, which is why they are written down here
+//! rather than derived. Priority is not: it falls out of the two, so it cannot
+//! disagree with them.
+
+use crate::switches::{support, Support};
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Effort {
+    Low,
+    Medium,
+    High,
+}
+
+impl Effort {
+    fn label(self) -> &'static str {
+        match self {
+            Effort::Low => "Low",
+            Effort::Medium => "Medium",
+            Effort::High => "High",
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Value {
+    Low,
+    Medium,
+    High,
+}
+
+impl Value {
+    fn label(self) -> &'static str {
+        match self {
+            Value::Low => "Low",
+            Value::Medium => "Medium",
+            Value::High => "High",
+        }
+    }
+}
+
+/// Derived from effort and value, so the three columns cannot contradict each
+/// other the way a hand-written priority column eventually does.
+fn priority(item: &WorkItem) -> (u8, &'static str) {
+    match (item.value, item.effort) {
+        (Value::High, Effort::Low) => (0, "🔴 Do first"),
+        (Value::High, _) => (1, "🟡 Worth it"),
+        (Value::Medium, Effort::Low) => (1, "🟡 Worth it"),
+        (Value::Medium, _) => (2, "🟢 Someday"),
+        (Value::Low, _) => (3, "🔵 Unlikely"),
+    }
+}
+
+pub struct WorkItem {
+    pub what: &'static str,
+    /// The switch this would deliver, where it is one. Used to notice that the
+    /// item is finished.
+    pub switch: Option<&'static str>,
+    /// GitHub issue, where there is one.
+    pub issue: Option<u32>,
+    pub effort: Effort,
+    pub value: Value,
+    pub note: Option<&'static str>,
+}
+
+/// Everything still outstanding, in no particular order — the table sorts it.
+pub const REMAINING: &[WorkItem] = &[
+    // ---- The language, which is where the real gaps are now ---------------
+    WorkItem {
+        what: "Accept the singular and plural spellings, and `notrump`",
+        switch: None,
+        issue: Some(15),
+        effort: Effort::Low,
+        value: Value::High,
+        note: Some(
+            "`control`, `hcps`, `ten`, `jack`, `queen`, `king`, `ace`, `trick`, `imp`. They are \
+             rejected loudly now, so nothing gives a wrong answer, but a script written for \
+             dealer.exe still will not run.",
+        ),
+    },
+    WorkItem {
+        what: "Route `tricks()` through bridge-solver",
+        switch: None,
+        issue: Some(14),
+        effort: Effort::Medium,
+        value: Value::High,
+        note: Some(
+            "Minutes per solve on the legacy solver, which puts every double-dummy script out \
+             of reach. The fast solver is already a dependency and is never called.",
+        ),
+    },
+    WorkItem {
+        what: "Allow variables whose name begins with a statement keyword",
+        switch: None,
+        issue: Some(12),
+        effort: Effort::Low,
+        value: Value::Medium,
+        note: None,
+    },
+    WorkItem {
+        what: "`pointcount` and `altcount`, to re-scale the point counts",
+        switch: None,
+        issue: Some(15),
+        effort: Effort::Medium,
+        value: Value::Medium,
+        note: Some("Rejected loudly today. Needs a scale in the evaluation context."),
+    },
+    WorkItem {
+        what: "Two-dimensional `frequency`",
+        switch: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("The original takes a second expression and range and prints marginals."),
+    },
+    WorkItem {
+        what: "Contract tokens in `score()`, e.g. `3N` for the code 34",
+        switch: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: None,
+    },
+    WorkItem {
+        what: "The length-bias form of `predeal`, `spades(north) == 5`",
+        switch: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("Rejected loudly today; the same thing can be written in the condition."),
+    },
+    WorkItem {
+        what: "`--bbo-strict`: warn when a script will behave differently on BBO",
+        switch: None,
+        issue: Some(13),
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("Rick judged it unlikely to bite."),
+    },
+    // ---- Switches ---------------------------------------------------------
+    WorkItem {
+        what: "Swapping modes",
+        switch: Some("-2"),
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("Recognised and refused today. Not compatible with predeal in any dealer."),
+    },
+    WorkItem {
+        what: "Library mode: replay deals by index",
+        switch: Some("-l"),
+        issue: None,
+        effort: Effort::High,
+        value: Value::Low,
+        note: Some("`--input-deals` already covers the common case in dealer3's own way."),
+    },
+    WorkItem {
+        what: "Upper-case the honour cards in output",
+        switch: Some("-u"),
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some("Cosmetic."),
+    },
+    WorkItem {
+        what: "Export in RP zrd format",
+        switch: Some("-Z"),
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: None,
+    },
+    WorkItem {
+        what: "Double-dummy solver mode",
+        switch: Some("-M"),
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("Worth little until the solver behind `tricks()` is the fast one."),
+    },
+    WorkItem {
+        what: "Script parameters `$0`-`$9`",
+        switch: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some(
+            "DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping \
+             switches — so the spelling would have to differ.",
+        ),
+    },
+    WorkItem {
+        what: "Exhaust mode",
+        switch: Some("-e"),
+        issue: None,
+        effort: Effort::High,
+        value: Value::Low,
+        note: Some("Never finished in the original either; the code is compiled out."),
+    },
+];
+
+/// The priority matrix, as markdown.
+pub fn render_matrix() -> String {
+    let mut items: Vec<&WorkItem> = REMAINING.iter().collect();
+    items.sort_by_key(|item| (priority(item).0, item.effort, item.what));
+
+    let mut out = String::from(
+        "Only what is **left**. A finished item is deleted rather than ticked, and anything \
+         that delivers a switch is checked against the argument parser, so this table cannot \
+         quietly describe work that has already happened.\n\n\
+         Priority is derived from effort and value rather than written down beside them.\n\n\
+         | Priority | What | Effort | Value | Issue | Notes |\n|---|---|---|---|---|---|\n",
+    );
+    for item in items {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} | {} |\n",
+            priority(item).1,
+            item.what,
+            item.effort.label(),
+            item.value.label(),
+            item.issue
+                .map(|n| format!(
+                    "[#{}](https://github.com/bridge-craftwork/Dealer3/issues/{})",
+                    n, n
+                ))
+                .unwrap_or_default(),
+            item.note.unwrap_or("")
+        ));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An item that delivers a switch the parser now accepts is an item that is
+    /// finished, and a finished item does not belong in a list of what is left.
+    #[test]
+    fn nothing_in_the_list_is_already_done() {
+        for item in REMAINING {
+            let Some(switch) = item.switch else { continue };
+            assert_ne!(
+                support(switch, ""),
+                Support::Yes,
+                "\"{}\" is still listed as outstanding, but `{}` is implemented — delete the \
+                 row rather than ticking it",
+                item.what,
+                switch
+            );
+        }
+    }
+
+    /// A switch named here must be one the comparison table knows about, or the
+    /// check above silently passes for a switch that does not exist.
+    #[test]
+    fn every_named_switch_exists_in_the_comparison_table() {
+        for item in REMAINING {
+            let Some(switch) = item.switch else { continue };
+            assert!(
+                crate::switches::SWITCH_ROWS
+                    .iter()
+                    .any(|row| row.short == switch || row.long == switch),
+                "\"{}\" names `{}`, which is not in SWITCH_ROWS",
+                item.what,
+                switch
+            );
+        }
+    }
+
+    /// The guard above is only worth anything if `support` can actually say
+    /// "yes" — a helper that always returned `No` would let every finished item
+    /// sit in the list forever while the test passed.
+    #[test]
+    fn the_done_check_can_actually_detect_a_finished_switch() {
+        assert_eq!(support("-p", "--produce"), Support::Yes);
+        assert_eq!(support("-M", ""), Support::No);
+    }
+
+    #[test]
+    fn rows_are_filled_in() {
+        for item in REMAINING {
+            assert!(
+                !item.what.trim().is_empty(),
+                "a work item has no description"
+            );
+        }
+    }
+
+    #[test]
+    fn docs_are_up_to_date() {
+        crate::generated_docs::check_or_update(
+            "implementation_roadmap.md",
+            "priority-matrix",
+            &render_matrix(),
+        );
+    }
+}
