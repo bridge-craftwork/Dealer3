@@ -31,7 +31,14 @@
             <button class="reseed" title="New random seed" @click="seed = randomSeed()">⟳</button>
           </label>
           <label>Produce <input v-model.number="produce" type="number" min="1" /></label>
-          <label>Max generate <input v-model.number="maxGenerate" type="number" min="1" step="1000" /></label>
+          <label>
+            Max generate
+            <!-- `min` must be a multiple of `step`, or the browser snaps to the
+                 sequence min + n*step. With min=1 step=1000 the only valid
+                 values were 1, 1001, 2001…, so 500000 stepped up to 500001 and
+                 down to 499001. A zero is rejected at run time instead. -->
+            <input v-model.number="maxGenerate" type="number" min="0" step="1000" />
+          </label>
           <label>
             Format
             <select v-model="format">
@@ -209,6 +216,26 @@ function onPrint() {
 }
 
 async function run() {
+  // The fields are free text, so they can hold 0, a negative, or nothing at all
+  // if someone clears one. Catch that here rather than asking the engine to
+  // generate zero deals and reporting an empty result as if it meant something.
+  const limits = [
+    ['Produce', produce.value],
+    ['Max generate', maxGenerate.value],
+  ]
+  for (const [name, value] of limits) {
+    if (!Number.isFinite(value) || value < 1) {
+      error.value = `${name} must be at least 1.`
+      result.value = null
+      return
+    }
+  }
+  if (!Number.isFinite(seed.value) || seed.value < 0) {
+    error.value = 'Seed must be a whole number of 0 or more.'
+    result.value = null
+    return
+  }
+
   running.value = true
   error.value = ''
   try {
