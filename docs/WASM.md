@@ -56,13 +56,56 @@ cover this build too: it is the same generator.
 ### `generate`
 
 ```json
-{ "deals": ["n AKQ..."], "generated": 156, "produced": 20, "hit_limit": false }
+{
+  "deals": ["n AKQ..."],
+  "generated": 78,
+  "produced": 3,
+  "seconds": 0.011,
+  "hit_limit": false,
+  "averages": [ { "label": "Avg  ", "value": 33.333333333333336, "count": 3 } ],
+  "frequencies": [
+    {
+      "label": "HCP South ",
+      "min": 14, "max": 18,
+      "bins": [ {"value":14,"count":0}, {"value":15,"count":1} ],
+      "below": 0, "above": 0, "total": 3
+    }
+  ]
+}
 ```
+
+`generated`, `produced` and `seconds` correspond to the CLI's trailing stats
+block. Scripts also declare `average` and `frequency` statements, and those
+results come back as **data, not the CLI's ASCII table**, so a page can render a
+real chart:
+
+```
+Frequency HCP South :        ->   bins: [{value:14,count:0},{value:15,count:1},…]
+   14           0
+   15           1
+```
+
+`below` and `above` are the CLI's `Low` and `High` rows — observations outside a
+declared range. **Show them.** They are easy to omit when drawing a chart from
+`bins` alone, and a script whose range is too narrow otherwise looks like it
+simply produced fewer deals.
+
+`bins` is contiguous and zero-filled across the range, so it can be plotted
+directly without filling gaps.
+
+Averages are returned at full `f64` precision rather than the CLI's `%g`
+rounding, so the page chooses its own formatting. `count` is the number of deals
+contributing, for showing "over N deals" or greying out a small sample.
 
 `max_generate` bounds the work. A browser tab has no Ctrl-C, so a selective
 filter must not be able to hang it. **Surface `hit_limit`** rather than silently
 showing a short result — it distinguishes "no more matches exist" from "ran out
 of budget".
+
+At most `MAX_RETURNED_DEALS` (500) deals are returned, since a script may ask for
+tens of thousands to build a histogram and a page cannot show them all.
+Statistics still accumulate over every matching deal, so `produced` can exceed
+`deals.length`.
 
 ### `check_script`
 
@@ -117,6 +160,21 @@ Deal generation is stateless per seed, so a threaded build produces *identical*
 output — only faster. Any threaded build should feature-detect
 `SharedArrayBuffer` and fall back to single-threaded rather than failing, so the
 page still works where the headers are absent.
+
+## Verifying against the CLI
+
+The bindings re-implement the CLI's generate loop — filter, predeal, averages,
+frequencies — so they can drift from it. `wasm/verify.mjs` runs both over the
+same scripts and seeds and diffs deals and statistics:
+
+```bash
+cd wasm && ./build.sh nodejs && node verify.mjs
+```
+
+This is not theoretical: it caught predeal being silently ignored in the wasm
+path, which produced plausible-looking deals that simply did not honour the
+script's `predeal` lines. Run it after changing either the bindings or the CLI's
+generation loop.
 
 ## Known gaps
 
