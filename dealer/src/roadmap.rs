@@ -113,8 +113,17 @@ pub const REMAINING: &[WorkItem] = &[
         switch: None,
         issue: Some(15),
         effort: Effort::Medium,
-        value: Value::Medium,
-        note: Some("Rejected loudly today. Needs a scale in the evaluation context."),
+        value: Value::High,
+        note: Some(
+            "Rejected loudly today. `altcount` is what makes `pt0`-`pt9` ten counts a script \
+             can define rather than ten fixed ones, which is the case for rating this above \
+             its zero usage in the 1,076-script corpus. The statements are small; the cost is \
+             that dealer3 computes these counts from hardcoded matches across 22 methods in \
+             `dealer-core`, and `Card::hcp()` belongs to the shared `bridge-types` crate — so \
+             the counts have to read a table carried on `EvalContext` instead. Note that \
+             `altcount N` sets `pt(N-2)`, and `altcount 0` overwrites `hcp`: verified against \
+             dealer.exe, and contrary to the manual.",
+        ),
     },
     WorkItem {
         what: "Two-dimensional `frequency`",
