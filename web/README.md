@@ -115,6 +115,22 @@ matches what was shown.
 
 PBN output carries the script's `dealer` and `vulnerable` settings in its tags.
 
+## Session persistence
+
+The script in the editor and the parameters beside it are kept in
+`localStorage`, so a return visit picks up where the last one left off. The
+starter script only appears on a genuinely first visit.
+
+Deliberately **one** session, not a library: a history would need naming,
+listing and deleting — a feature in its own right — and the common case is
+simply coming back to what you had open. Results are not stored: they can run to
+megabytes, they regenerate from the script and seed in milliseconds, and a
+stored result could silently disagree with the script shown beside it.
+
+Every access is guarded. `localStorage` throws outright in some privacy modes
+rather than returning null, and a corrupt value means "start fresh" rather than
+a page that fails to load.
+
 ## Editor appearance
 
 The editor is dark (One Dark) on an otherwise light page. Syntax palettes are

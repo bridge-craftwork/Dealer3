@@ -45,10 +45,14 @@
   .p-note { font-weight: 400; font-size: 9pt; color: #555; }
 
   /* --- script ------------------------------------------------------------ */
-  /* Kept whole where it fits: a script split mid-line is hard to read back,
-     and harder to copy correctly. */
-  .p-script { break-inside: avoid-page; }
+  /* Deliberately NOT `break-inside: avoid`. A script longer than the space left
+     on the page cannot be honoured, and the browser responds by pushing the
+     whole block to the next page — leaving page one almost empty. Real scripts
+     run to hundreds of lines, so the block has to flow. `orphans`/`widows` stop
+     it breaking one or two lines off the end. */
   .p-script pre {
+    orphans: 3;
+    widows: 3;
     margin: 0; padding: 6pt 8pt;
     background: #f6f7f9; border: 0.5pt solid #d5d8dd; border-radius: 2pt;
     font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5pt;

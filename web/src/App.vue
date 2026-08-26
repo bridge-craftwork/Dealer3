@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, watch, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
 import ScriptEditor from '@/components/ScriptEditor.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
@@ -74,6 +74,7 @@ import PrintView from '@/components/PrintView.vue'
 import { ready, generate, version } from '@/lib/engine.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
+import { loadSession, saveSession } from '@/lib/session.js'
 
 const STARTER = `# Write a dealer script, or pick a scenario on the left.
 condition hcp(north) >= 15 && shape(north, any 4333 + any 4432 + any 5332)
@@ -83,11 +84,16 @@ action printoneline,
   frequency "N HCP" (hcp(north), 15, 22)
 `
 
-const script = ref(STARTER)
-const seed = ref(1)
-const produce = ref(20)
-const maxGenerate = ref(500000)
-const format = ref('oneline')
+// Pick up where the last visit left off. The starter script is only for a
+// genuinely first visit — replacing someone's work with it would be worse than
+// showing nothing.
+const restored = loadSession()
+
+const script = ref(restored?.script || STARTER)
+const seed = ref(restored?.seed ?? 1)
+const produce = ref(restored?.produce ?? 20)
+const maxGenerate = ref(restored?.maxGenerate ?? 500000)
+const format = ref(restored?.format || 'oneline')
 
 const engineReady = ref(false)
 const engineVersion = ref('')
@@ -95,7 +101,7 @@ const running = ref(false)
 const result = ref(null)
 const error = ref('')
 const scriptValid = ref(true)
-const selectedFile = ref('')
+const selectedFile = ref(restored?.scenario || '')
 const loadingFile = ref('')
 const downloading = ref(false)
 
@@ -104,6 +110,28 @@ onMounted(async () => {
   engineReady.value = true
   engineVersion.value = version()
 })
+
+// Persist the editor's contents and the parameters beside them. Debounced
+// because this fires on every keystroke, and writing to localStorage is
+// synchronous — it would otherwise sit on the typing path.
+let saveTimer = null
+watch(
+  [script, seed, produce, maxGenerate, format, selectedFile],
+  () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveSession({
+        script: script.value,
+        seed: seed.value,
+        produce: produce.value,
+        maxGenerate: maxGenerate.value,
+        format: format.value,
+        scenario: selectedFile.value,
+      })
+    }, 400)
+  },
+  { deep: false },
+)
 
 function onValidity({ ok, empty }) {
   scriptValid.value = ok && !empty

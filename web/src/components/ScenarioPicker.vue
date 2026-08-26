@@ -110,15 +110,20 @@ function toggle(label) {
   openSections.value = next
 }
 
-// Keep the section holding the current selection open when a search is cleared,
-// so the selected scenario does not vanish.
+// Open the section holding the current selection, so it does not vanish when a
+// search is cleared — and so a session restored from a previous visit shows
+// which scenario is loaded rather than an all-collapsed tree.
+//
+// Watches `sections` too: on a restore the selection is set before the manifest
+// has been fetched, so there is nothing to find on the first run.
 watch(
-  () => props.selected,
-  (file) => {
+  [() => props.selected, sections],
+  ([file]) => {
     if (!file) return
     const owner = sections.value.find((s) => s.items.some((i) => i.file === file))
     if (owner) openSections.value = new Set(openSections.value).add(owner.label)
   },
+  { immediate: true },
 )
 </script>
 
