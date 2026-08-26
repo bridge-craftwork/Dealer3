@@ -39,6 +39,17 @@
           </button>
         </div>
       </div>
+
+      <!-- Inside the scrolling tree, after the last scenario, so it reads as
+           the end of the list rather than as chrome pinned to the panel. -->
+      <p class="picker-credit">
+        Scenarios courtesy of
+        <a
+          href="https://github.com/ADavidBailey/Practice-Bidding-Scenarios"
+          target="_blank"
+          rel="noopener noreferrer"
+        >David Bailey</a>
+      </p>
     </div>
   </div>
 </template>
@@ -164,4 +175,10 @@ watch(
   display: block; font-size: 11px; color: var(--fg-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.picker-credit {
+  margin: 4px 0 0; padding: 10px 8px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 11px; line-height: 1.5; color: var(--fg-muted);
+}
+.picker-credit a { color: var(--accent); }
 </style>
