@@ -79,6 +79,10 @@
               Save PBN
             </button>
             <button class="dl" @click="$emit('download', 'text')">Save text</button>
+            <!-- The browser's own print pipeline: a PDF with selectable text and
+                 a live link back, which is the point — the script is meant to be
+                 copied out of it. -->
+            <button class="dl" @click="$emit('print')">Save PDF</button>
           </div>
         </div>
 
@@ -113,7 +117,7 @@ const props = defineProps({
   requested: { type: Number, default: 0 },
   downloading: { type: Boolean, default: false },
 })
-defineEmits(['download'])
+defineEmits(['download', 'print'])
 
 // Hands read far more easily than one-line strings, so that is the default.
 const view = ref('grid')

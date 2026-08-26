@@ -1,0 +1,124 @@
+/* Print styles.
+ *
+ * Screen and paper want genuinely different documents, so PrintView.vue renders
+ * a second one that is hidden on screen and swapped in here. These rules do two
+ * things: hide the running app, and lay out that document.
+ *
+ * No PDF library is involved. The browser's own print pipeline produces a PDF
+ * with selectable text and live links — which matters, because the point is for
+ * someone to copy the script out of it. A canvas-based exporter would render the
+ * script as an image and defeat that.
+ */
+
+.print-only { display: none; }
+
+@media print {
+  /* The app disappears; the document takes over. */
+  .app { display: none !important; }
+  .print-only { display: block; }
+
+  @page {
+    size: letter portrait;
+    margin: 14mm 14mm 16mm;
+  }
+
+  html, body, #app { height: auto; background: #fff; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: #111; font-size: 10pt; }
+
+  .print-doc { max-width: 100%; }
+
+  /* --- header ------------------------------------------------------------ */
+  .p-head { border-bottom: 1.5pt solid #111; padding-bottom: 6pt; margin-bottom: 12pt; }
+  .p-head h1 { font-size: 15pt; margin: 0 0 5pt; }
+  .p-params { display: flex; flex-wrap: wrap; gap: 0 18pt; margin: 0; font-size: 9pt; }
+  .p-params div { display: flex; gap: 4pt; }
+  .p-params dt { color: #555; margin: 0; }
+  .p-params dd { margin: 0; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+
+  .p-block { margin-bottom: 12pt; }
+  /* A heading stranded at the foot of a page reads as a mistake. */
+  .p-block h2 {
+    font-size: 11pt; margin: 0 0 5pt; padding-bottom: 2pt;
+    border-bottom: 0.5pt solid #bbb; break-after: avoid;
+  }
+  .p-block h3 { font-size: 9.5pt; margin: 8pt 0 3pt; break-after: avoid; }
+  .p-note { font-weight: 400; font-size: 9pt; color: #555; }
+
+  /* --- script ------------------------------------------------------------ */
+  /* Kept whole where it fits: a script split mid-line is hard to read back,
+     and harder to copy correctly. */
+  .p-script { break-inside: avoid-page; }
+  .p-script pre {
+    margin: 0; padding: 6pt 8pt;
+    background: #f6f7f9; border: 0.5pt solid #d5d8dd; border-radius: 2pt;
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5pt;
+    line-height: 1.45; white-space: pre-wrap; word-break: break-word;
+    /* Without this the background and every token colour are dropped: browsers
+       strip backgrounds when printing unless told not to. */
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
+
+  /* Token colours, tuned for ink on white rather than the editor's dark theme,
+     whose pale blues and yellows are close to invisible on paper. */
+  .tk-keyword        { color: #7b1fa2; font-weight: 700; }
+  .tk-function       { color: #0b5394; font-weight: 700; }
+  .tk-atom           { color: #0f6f4c; }
+  .tk-operatorKeyword{ color: #7b1fa2; }
+  .tk-operator       { color: #444; }
+  .tk-number         { color: #a34700; }
+  .tk-string         { color: #0f6f4c; }
+  .tk-comment        { color: #6a737d; font-style: italic; }
+  .tk-docComment     { color: #6a737d; font-style: italic; }
+  .tk-variableName   { color: #111; }
+
+  /* --- statistics -------------------------------------------------------- */
+  .p-stats { margin: 0 0 6pt; font-size: 9.5pt; }
+  .p-table { border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
+  .p-table th {
+    text-align: left; font-weight: 400; padding: 1pt 10pt 1pt 0;
+    white-space: pre; font-family: ui-monospace, Menlo, monospace;
+  }
+  .p-table td { padding: 1pt 10pt 1pt 0; font-family: ui-monospace, Menlo, monospace; }
+  .p-outside { font-size: 8.5pt; color: #8a6300; margin: 0 0 3pt; }
+
+  .p-freq { width: 62%; }
+  .p-freq th { width: 3em; text-align: right; }
+  .p-bar-cell { width: 100%; padding-right: 6pt; }
+  .p-bar {
+    display: block; height: 7pt; background: #2f6fb2; border-radius: 1pt;
+    print-color-adjust: exact; -webkit-print-color-adjust: exact;
+  }
+  .p-count { text-align: right; width: 3em; }
+
+  /* --- deals ------------------------------------------------------------- */
+  .p-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6pt; }
+  .p-board {
+    border: 0.5pt solid #c8ccd2; border-radius: 2pt; padding: 4pt 5pt;
+    break-inside: avoid;
+  }
+  .p-board-no { font-size: 8pt; color: #555; font-weight: 700; margin-bottom: 2pt; }
+  .p-compass {
+    display: grid; grid-template-columns: 1fr 1fr;
+    grid-template-areas: 'n n' 'w e' 's s'; gap: 2pt 5pt;
+  }
+  .p-n { grid-area: n; justify-self: center; }
+  .p-w { grid-area: w; }
+  .p-e { grid-area: e; }
+  .p-s { grid-area: s; justify-self: center; }
+  .p-hand-head { font-size: 7pt; color: #555; font-weight: 700; }
+  .p-suit {
+    display: flex; gap: 3pt; font-family: ui-monospace, Menlo, monospace;
+    font-size: 8pt; line-height: 1.25;
+  }
+  .p-sym { width: 0.85em; }
+  .p-suit.is-red .p-sym { color: #c0392b; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+
+  /* --- footer ------------------------------------------------------------ */
+  .p-foot {
+    margin-top: 12pt; padding-top: 5pt; border-top: 0.5pt solid #bbb;
+    font-size: 8.5pt; color: #444;
+  }
+  /* Left as a real anchor: browsers keep it clickable in print-to-PDF, so the
+     reader can get back to the site from the document. */
+  .p-foot a { color: #0b5394; }
+}

@@ -137,6 +137,55 @@ export function dlrCompletion(info) {
   }
 }
 
+/**
+ * Run the stream tokenizer over one line, returning `[token, text]` pairs.
+ *
+ * CodeMirror drives the tokenizer itself through its own stream; this is a
+ * minimal stand-in so the same tokens can be produced outside an editor — the
+ * print view needs them to colour the script on paper, where CodeMirror's
+ * generated class names (`ͼ1`, `ͼ2`…) are not stable enough to target.
+ */
+export function tokenizeLine(parser, line, state = parser.startState()) {
+  const out = []
+  const stream = {
+    pos: 0,
+    string: line,
+    sol() { return this.pos === 0 },
+    peek() { return this.string[this.pos] },
+    next() { return this.string[this.pos++] },
+    eatSpace() {
+      const start = this.pos
+      while (/\s/.test(this.string[this.pos])) this.pos++
+      return this.pos > start
+    },
+    skipToEnd() { this.pos = this.string.length },
+    match(pattern, consume = true) {
+      if (typeof pattern === 'string') {
+        if (this.string.startsWith(pattern, this.pos)) {
+          if (consume) this.pos += pattern.length
+          return true
+        }
+        return false
+      }
+      const m = this.string.slice(this.pos).match(pattern)
+      if (m && m.index === 0) {
+        if (consume) this.pos += m[0].length
+        return m
+      }
+      return null
+    },
+  }
+
+  let guard = 0
+  while (stream.pos < line.length && guard++ < 2000) {
+    const from = stream.pos
+    const token = parser.token(stream, state)
+    if (stream.pos === from) stream.pos++ // never stall on an unmatched char
+    out.push([token, line.slice(from, stream.pos)])
+  }
+  return out
+}
+
 /** The full language extension. */
 export function dlrLanguage(info) {
   return new LanguageSupport(StreamLanguage.define(dlrStreamParser(info)))

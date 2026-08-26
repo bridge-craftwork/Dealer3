@@ -48,10 +48,21 @@
           :requested="produce"
           :downloading="downloading"
           @download="onDownload"
+          @print="onPrint"
         />
       </section>
     </main>
   </div>
+
+  <!-- A SIBLING of .app, not a child: the print stylesheet hides .app wholesale,
+       which would take a nested print view down with it. -->
+  <PrintView
+    :script="script"
+    :result="result"
+    :scenario="selectedFile"
+    :engine-ready="engineReady"
+    :params="{ seed, produce, maxGenerate, format }"
+  />
 </template>
 
 <script setup>
@@ -59,6 +70,7 @@ import { ref, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
 import ScriptEditor from '@/components/ScriptEditor.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
+import PrintView from '@/components/PrintView.vue'
 import { ready, generate, version } from '@/lib/engine.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
@@ -147,6 +159,13 @@ async function onDownload(kind) {
   } finally {
     downloading.value = false
   }
+}
+
+// The browser's print dialog, from which the user picks "Save as PDF". No PDF
+// library: this keeps the text selectable and the footer link live, and adds
+// nothing to the bundle.
+function onPrint() {
+  window.print()
 }
 
 async function run() {

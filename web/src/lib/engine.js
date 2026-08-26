@@ -12,11 +12,32 @@ import init, {
 } from '@/wasm/dealer3_wasm.js'
 
 let loading = null
+let loaded = false
 
 /** Load the engine once. Safe to call repeatedly; later calls await the first. */
 export function ready() {
-  if (!loading) loading = init()
+  if (!loading) loading = init().then((v) => { loaded = true; return v })
   return loading
+}
+
+/** Whether the wasm module has finished initialising. */
+export function isReady() {
+  return loaded
+}
+
+/**
+ * Calling into the module before `ready()` resolves fails deep inside the
+ * generated bindings with "Cannot read properties of undefined (reading
+ * '__wbindgen_free')", which says nothing about the actual mistake. This has
+ * caught two components already, so name it.
+ */
+function assertReady(fn) {
+  if (!loaded) {
+    throw new Error(
+      `dealer3 engine used before it finished loading (${fn}). ` +
+        'Await ready() first, or gate the component on it.',
+    )
+  }
 }
 
 /**
@@ -30,6 +51,7 @@ export function ready() {
  * Throws with the engine's message on a parse or evaluation error.
  */
 export function generate(script, { seed = 1, produce = 20, maxGenerate = 500000, format = 'oneline' } = {}) {
+  assertReady('generate')
   const raw = JSON.parse(wasmGenerate(script, seed, produce, maxGenerate, format))
   return {
     deals: raw.deals,
@@ -54,11 +76,13 @@ export function generate(script, { seed = 1, produce = 20, maxGenerate = 500000,
  * rather than approximating it.
  */
 export function checkScript(script) {
+  assertReady('checkScript')
   return JSON.parse(wasmCheck(script))
 }
 
 /** The language's vocabulary, for highlighting and completion. */
 export function languageInfo() {
+  assertReady('languageInfo')
   return JSON.parse(wasmLanguageInfo())
 }
 

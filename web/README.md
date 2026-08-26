@@ -91,6 +91,21 @@ filling its own row. A negative average gets no bar rather than a misleading
 one — these are arbitrary script expressions and `100 * (x - y)` can legitimately
 go below zero — but the number is always shown.
 
+**Save PDF** opens the browser's print dialog, from which "Save as PDF" produces
+a document with the script in colour, the statistics, the first 12 boards and a
+link back to the site.
+
+No PDF library is involved, and none should be: the browser's own print pipeline
+keeps the text **selectable** and the link **live**, which is the whole point —
+the script is meant to be copied out of the PDF and pasted back in. The usual
+HTML-to-PDF libraries rasterise via canvas, which would render the script as an
+image and defeat that, at a cost of 100 kB+ gzipped. This costs ~2 kB.
+
+`src/print.css` hides the app and reveals `PrintView.vue`, a second document
+built for paper. It is a separate component rather than print rules over the
+live UI because what belongs on paper is genuinely different: no picker, no
+controls, the script as a static listing, and only the first few boards.
+
 **Save PBN** and **Save text** download the results. Selecting text out of the
 page is clumsy (a select-all takes the whole document), and a long run is
 thousands of lines. Saving re-runs the generator rather than reformatting what is
