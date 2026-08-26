@@ -105,6 +105,15 @@ jobs:
           echo "The token needs Account -> Cloudflare Pages -> Edit on this account." >&2
           exit 1
 
+      # What the credential can actually see. A deploy failure is otherwise
+      # reported as a bare "Authentication error", which is indistinguishable
+      # between a wrong account, a missing permission, and a token scoped to
+      # some other project.
+      - name: Show what the credential can reach
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        continue-on-error: true
+        run: npx --yes wrangler@4 pages project list
+
       # `--commit-dirty` because the checkout carries the generated wasm module,
       # which wrangler would otherwise refuse to deploy from as an unclean tree.
       - name: Deploy to Cloudflare Pages
