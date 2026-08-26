@@ -4,6 +4,14 @@
       <h1>dealer3</h1>
       <span class="bar-sub">bridge hand generator — runs entirely in your browser</span>
       <span class="bar-spacer"></span>
+      <!-- Feedback needs somewhere durable to land. Without this the only route
+           is email, and a report with no script attached is hard to act on. -->
+      <a
+        class="bar-link"
+        href="https://github.com/bridge-craftwork/Dealer3/issues"
+        target="_blank"
+        rel="noopener noreferrer"
+      >Feedback &amp; issues</a>
       <span v-if="engineVersion" class="bar-version">engine {{ engineVersion }}</span>
     </header>
 
@@ -203,6 +211,8 @@ body {
 .bar h1 { font-size: 15px; margin: 0; }
 .bar-sub { font-size: 12px; color: var(--fg-muted); }
 .bar-spacer { flex: 1; }
+.bar-link { font-size: 12px; color: var(--accent); text-decoration: none; }
+.bar-link:hover { text-decoration: underline; }
 .bar-version { font-size: 11px; color: var(--fg-muted); font-family: var(--mono); }
 
 .cols { display: grid; grid-template-columns: 260px 1fr 1fr; flex: 1; min-height: 0; }
