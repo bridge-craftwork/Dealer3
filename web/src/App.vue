@@ -37,7 +37,7 @@
                  sequence min + n*step. With min=1 step=1000 the only valid
                  values were 1, 1001, 2001…, so 500000 stepped up to 500001 and
                  down to 499001. A zero is rejected at run time instead. -->
-            <input v-model.number="maxGenerate" type="number" min="0" step="1000" />
+            <input v-model.number="maxGenerate" type="number" min="0" :step="generateStep" />
           </label>
           <label>
             Format
@@ -80,7 +80,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
 import ScriptEditor from '@/components/ScriptEditor.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
@@ -111,7 +111,11 @@ const script = ref(restored?.script || STARTER)
 // session keeps its seed, so reloading reproduces what was on screen.
 const seed = ref(restored?.seed ?? randomSeed())
 const produce = ref(restored?.produce ?? 20)
-const maxGenerate = ref(restored?.maxGenerate ?? 500000)
+// Generation is the cheap half — ~1.3s for a million deals on a current
+// machine — while a selective filter can easily need hundreds of thousands.
+// 500,000 stopped short on real scripts (Lebensohl produced 17 of 20), and a
+// truncated run is a worse outcome than a second of waiting.
+const maxGenerate = ref(restored?.maxGenerate ?? 1000000)
 const format = ref(restored?.format || 'oneline')
 
 const engineReady = ref(false)
@@ -151,6 +155,18 @@ watch(
   },
   { deep: false },
 )
+
+// The arrows move the leading digit, not the last one. This field spans single
+// digits to millions, and a fixed step is wrong at one end or the other: 1000
+// is a fifth of a percent at 500,000, and larger than the whole value at 100.
+const generateStep = computed(() => {
+  const v = Math.floor(Math.abs(maxGenerate.value || 0))
+  if (v < 10) return 1
+  const magnitude = 10 ** (String(v).length - 1)
+  // Exactly on a power of ten, a full-magnitude step down lands on zero. Drop a
+  // decade so 100,000 goes to 90,000 rather than nothing.
+  return v === magnitude ? magnitude / 10 : magnitude
+})
 
 function onValidity({ ok, empty }) {
   scriptValid.value = ok && !empty

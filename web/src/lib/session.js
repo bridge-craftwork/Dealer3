@@ -38,7 +38,7 @@ export function loadSession() {
       script: typeof v.script === 'string' ? v.script : '',
       seed: Number.isFinite(v.seed) ? v.seed : 1,
       produce: Number.isFinite(v.produce) ? v.produce : 20,
-      maxGenerate: Number.isFinite(v.maxGenerate) ? v.maxGenerate : 500000,
+      maxGenerate: Number.isFinite(v.maxGenerate) ? v.maxGenerate : 1000000,
       format: typeof v.format === 'string' ? v.format : 'oneline',
       scenario: typeof v.scenario === 'string' ? v.scenario : '',
     }

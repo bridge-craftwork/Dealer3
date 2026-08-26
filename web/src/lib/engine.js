@@ -50,7 +50,7 @@ function assertReady(fn) {
  *
  * Throws with the engine's message on a parse or evaluation error.
  */
-export function generate(script, { seed = 1, produce = 20, maxGenerate = 500000, format = 'oneline' } = {}) {
+export function generate(script, { seed = 1, produce = 20, maxGenerate = 1000000, format = 'oneline' } = {}) {
   assertReady('generate')
   const raw = JSON.parse(wasmGenerate(script, seed, produce, maxGenerate, format))
   return {

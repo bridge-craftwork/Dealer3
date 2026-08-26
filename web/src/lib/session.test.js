@@ -54,6 +54,7 @@ describe('resilience', () => {
     expect(s.script).toBe('x')
     expect(s.seed).toBe(1)
     expect(s.produce).toBe(20)
+    expect(s.maxGenerate).toBe(1000000)
     expect(s.format).toBe('oneline')
   })
 
