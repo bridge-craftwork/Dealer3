@@ -199,3 +199,50 @@ fn well_formed_statements_still_parse() {
         );
     }
 }
+
+/// The words dealer3 does not implement must be reserved in the grammar, so
+/// they fail loudly rather than being read as variables.
+///
+/// This is the pairing that makes `NOT_SUPPORTED` more than a note: the list
+/// the language reference prints and the rule the parser enforces are the same
+/// list. Implementing one of these words means taking it out of both.
+#[test]
+fn not_supported_words_are_reserved_in_the_grammar() {
+    compare(
+        "NOT_SUPPORTED",
+        literals(&rule_body("reserved_unsupported")),
+        dealer_parser::vocabulary::NOT_SUPPORTED
+            .iter()
+            .map(|e| e.name.to_string())
+            .collect(),
+    );
+}
+
+/// `reserved_unsupported` is an ordered choice followed by a word boundary, and
+/// PEG does not retry the choice once one branch has matched. So a word that is
+/// a prefix of a later word would shadow it: `notrump` ahead of `notrumps` would
+/// match seven letters of `notrumps`, then fail the boundary, then give up.
+#[test]
+fn reserved_words_are_ordered_longest_first() {
+    let body = rule_body("reserved_unsupported");
+    let order: Vec<&str> = body
+        .match_indices('"')
+        .filter(|(i, _)| body[..*i].ends_with('^'))
+        .map(|(i, _)| {
+            let rest = &body[i + 1..];
+            &rest[..rest.find('"').expect("unterminated literal")]
+        })
+        .collect();
+
+    for (i, word) in order.iter().enumerate() {
+        for later in &order[i + 1..] {
+            assert!(
+                !later.starts_with(word),
+                "`{}` is listed before `{}`, which it is a prefix of — the shorter one wins and \
+                 the longer becomes unreachable",
+                word,
+                later
+            );
+        }
+    }
+}

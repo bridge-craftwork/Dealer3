@@ -174,9 +174,9 @@
       <section v-if="notSupported.length" id="unsupported">
         <h2>Not supported</h2>
         <p class="section-note">
-          Words the original dealer accepts that dealer3 does not. They matter because they fail
-          quietly rather than loudly: an unrecognised word is read as a variable, an unset variable
-          is zero, and zero is a perfectly good expression.
+          Words the original dealer accepts that dealer3 does not. Each is reserved, so using one
+          is a syntax error the editor will underline rather than something that quietly changes
+          what your script means.
         </p>
         <dl class="entries">
           <template v-for="entry in notSupported" :key="entry.name">

@@ -79,7 +79,7 @@ vulnerability = @{
 assignment = { assign_ident ~ "=" ~ expr }
 
 // Identifier for left side of assignment (allows single letters that would otherwise match positions)
-assign_ident = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+assign_ident = @{ !reserved_unsupported ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // Top-level constraint expression (for backward compatibility)
 constraint = { SOI ~ expr ~ EOI }
@@ -152,9 +152,12 @@ mul_op = { "*" | "/" | "%" }
 
 // Positions at the bridge table
 // Use word boundary: must not be followed by alphanumeric or underscore
+// The trailing `!call_open` catches the same trap as `ident`: without it
+// `north(x) >= 1` parses as the position `north` and then a second statement.
 position = @{
-    (^"north" | ^"south" | ^"east" | ^"west") ~ !(ASCII_ALPHANUMERIC | "_")
-    | (^"n" | ^"s" | ^"e" | ^"w") ~ !(ASCII_ALPHANUMERIC | "_")
+    ((^"north" | ^"south" | ^"east" | ^"west") ~ !(ASCII_ALPHANUMERIC | "_")
+    | (^"n" | ^"s" | ^"e" | ^"w") ~ !(ASCII_ALPHANUMERIC | "_"))
+    ~ !call_open
 }
 
 // Suit names (for functions like losers(north, spades))
@@ -200,10 +203,39 @@ statement_keyword = @{
     ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
+// Words the original dealer accepts that dealer3 does not implement.
+//
+// Kept out of identifier position so they fail loudly. Without this they are
+// read as variables, and a variable is an ordinary expression, so a whole
+// statement quietly turns into something else: `condition control(north) >= 5`
+// became the bare expression `control` followed by `(north) >= 5`, the last of
+// which is the one that runs. It produced no deals, no error and exit 0.
+//
+// Longest first: PEG commits to the first alternative that matches, so
+// `^"notrump"` ahead of `^"notrumps"` would match the first seven letters of
+// `notrumps` and then fail the word boundary without retrying.
+//
+// Held to `vocabulary::NOT_SUPPORTED` by tests/vocabulary_matches_grammar.rs.
+reserved_unsupported = @{
+    (^"notrumps" | ^"notrump" | ^"printes" | ^"pointcount" | ^"altcount"
+     | ^"control" | ^"hcps" | ^"print" | ^"trick" | ^"queen" | ^"king"
+     | ^"jack" | ^"ace" | ^"ten" | ^"imp" | ^"rnd")
+    ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+// An identifier immediately followed by "(" is a call to something that is not
+// a function, since `function_call` is tried first and failed. Rejecting it here
+// is what turns `control(north)` from two statements into a syntax error.
+call_open = _{ (" " | "\t")* ~ "(" }
+
 // Identifiers (for variables)
 // Allow any alphanumeric identifier - the parser will try more specific rules first
 // Variables like "spadeFit" or "heartCount" must be allowed even though they start with keywords
-ident = @{ !statement_keyword ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")* }
+ident = @{
+    !statement_keyword ~ !reserved_unsupported
+    ~ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_")*
+    ~ !call_open
+}
 
 // Shape patterns: any 4333 + 54xx - any 0xxx
 // Spaces can act as implicit "+" (addition) between shape specs

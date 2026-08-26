@@ -484,11 +484,12 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         example: "tricks(south, spades) >= 10",
         alias_of: None,
         note: Some(
-            "Notrump has to be written as the number 4: the original dealer's `notrumps` \
-             keyword is not part of dealer3's grammar, and would be read as a variable — \
-             which is worth knowing, because an unset variable is 0, and 0 means clubs. \
-             Solving a deal is far slower than any other function here, so a script using \
-             `tricks` wants a tight `condition` ahead of it.",
+            "Notrump has to be written as the number 4. The original dealer's `notrumps` \
+             keyword is not part of dealer3's grammar and is rejected outright — it used to \
+             be read as a variable, and since an unset variable is 0 and 0 means clubs, the \
+             script quietly asked about the wrong strain. Solving a deal is far slower than \
+             any other function here, so a script using `tricks` wants a tight `condition` \
+             ahead of it.",
         ),
     },
     FunctionDoc {
@@ -860,12 +861,18 @@ pub struct NotSupported {
 
 /// Words from the original dealer's input language that dealer3 does not accept.
 ///
-/// Worth listing because they fail quietly rather than loudly: an unrecognised
-/// word is a variable, an unset variable is 0, and `0` is a perfectly good
-/// expression — so `tricks(north, notrumps)` silently asks about clubs.
+/// Each is **reserved in the grammar** so that using one is a syntax error. That
+/// is the point of the list: before it, an unrecognised word was read as a
+/// variable, a variable is an ordinary expression, and a statement therefore
+/// turned quietly into a different statement — `tricks(north, notrumps)` asked
+/// about clubs, and `pointcount 6 4 2 1` was thrown away while the script ran on
+/// the scale it was trying to replace. No error, no output, exit 0.
 ///
-/// Held to the vocabulary by `tests/vocabulary_docs.rs`: if one of these is ever
-/// implemented, the test fails until it is taken off this list.
+/// Two tests hold this list in place. `tests/vocabulary_docs.rs` fails if one of
+/// these is implemented but still listed here, and
+/// `tests/vocabulary_matches_grammar.rs` fails if the list and the grammar's
+/// `reserved_unsupported` rule disagree — so implementing one means taking it
+/// out of both, and the language reference stops mentioning it automatically.
 pub const NOT_SUPPORTED: &[NotSupported] = &[
     NotSupported {
         name: "notrump",

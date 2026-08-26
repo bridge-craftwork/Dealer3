@@ -103,7 +103,7 @@ for the same predealt deal.
 | Function | What it computes | Example |
 |---|---|---|
 | `tricks(compass, strain)` | Tricks that compass takes as declarer in that strain with every hand seen — the double-dummy result. Strain is a suit name, or a number: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. | `tricks(south, spades) >= 10` |
-| | Notrump has to be written as the number 4: the original dealer's `notrumps` keyword is not part of dealer3's grammar, and would be read as a variable — which is worth knowing, because an unset variable is 0, and 0 means clubs. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
+| | Notrump has to be written as the number 4. The original dealer's `notrumps` keyword is not part of dealer3's grammar and is rejected outright — it used to be read as a variable, and since an unset variable is 0 and 0 means clubs, the script quietly asked about the wrong strain. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
 | `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
 | | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
 | `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
@@ -168,7 +168,9 @@ Tightest binding first. Operators sharing a level are applied left to right.
 
 ## Not supported
 
-Words the original dealer accepts that dealer3 does not.
+Words the original dealer accepts that dealer3 does not. Each is **reserved in
+the grammar**, so using one is a syntax error rather than something that quietly
+changes what a script means — see the note on #15 below.
 
 <!-- BEGIN GENERATED: not-supported -->
 
@@ -199,8 +201,8 @@ tracked by a generated table, so this section is maintained by hand.
 
 | Difference | Status |
 |---|---|
-| Singular/plural spellings (`control`, `hcps`, `jack`, `trick`, …) and `notrump` are not accepted | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
-| `pointcount` and `altcount` cannot re-scale the point counts | [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
+| Singular/plural spellings (`control`, `hcps`, `jack`, `trick`, …) and `notrump` are not accepted | Rejected loudly; implementing them is [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
+| `pointcount` and `altcount` cannot re-scale the point counts | Rejected loudly; implementing them is [#15](https://github.com/bridge-craftwork/Dealer3/issues/15) |
 | `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
