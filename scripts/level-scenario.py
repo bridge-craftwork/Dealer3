@@ -32,6 +32,12 @@ survives being read quickly. `levelTheDeal = noLeveling` cannot be misread.
 It also means the stock file runs and can be measured exactly as it stands,
 which is what step one does. `keepTheDeal` is accepted as the verdict's name
 too, for anyone who prefers the predicate reading.
+
+Anywhere in the stock file — the player-facing `@chat` block is the point of it
+— `{{level-mix:hcp22_24}}` is replaced by that type's share of the result, and a
+bare `{{level-mix}}` by all of them. The text then cannot drift from the keeps,
+which is what happened to NT_Ladder: it advertised 23% for a band delivering
+19.3%.
 """
 
 import argparse
@@ -56,6 +62,35 @@ ROLL_RE = re.compile(
     re.M,
 )
 ROLL_ASSIGNED_RE = re.compile(r"^\s*roll\s*=.*$", re.M)
+
+# `{{level-mix:hcp22_24}}` for one type's share, `{{level-mix}}` for all of them.
+# The player-facing text is written by hand and drifts from what the script does
+# — NT_Ladder claimed 23% for a band that delivered 19.3% — so the shares can be
+# filled in from the same numbers the keeps come from.
+MIX_MARKER_RE = re.compile(r"\{\{level-mix(?::([A-Za-z_][A-Za-z0-9_]*))?\}\}")
+
+
+def fill_mix_markers(text, types, mix, path):
+    def share(name):
+        value = 100 * mix[name]
+        return f"{value:.0f}%" if abs(value - round(value)) < 0.05 else f"{value:.1f}%"
+
+    unknown = sorted(
+        {m.group(1) for m in MIX_MARKER_RE.finditer(text) if m.group(1) and m.group(1) not in mix}
+    )
+    if unknown:
+        raise Problem(
+            f"{path}: `{{{{level-mix:...}}}}` names {', '.join(unknown)}, which "
+            f"`# level-types:` does not list. Known: {', '.join(types)}"
+        )
+
+    def replace(match):
+        if match.group(1):
+            return share(match.group(1))
+        width = max(len(t) for t in types)
+        return "\n".join(f"{t:<{width}}  {share(t)}" for t in types)
+
+    return MIX_MARKER_RE.sub(replace, text)
 
 
 def canonical_roll(scale):
@@ -419,23 +454,22 @@ def main():
         raise Problem("no --output given; use --dry-run to see the numbers without writing")
 
     source_hash = hashlib.sha256(stock_text.encode()).hexdigest()[:16]
-    args.output.write_text(
-        render(
-            stock_text,
-            types,
-            keeps,
-            p,
-            mix,
-            lam,
-            acceptance,
-            base_rate,
-            stats,
-            source_hash,
-            scale,
-            verdict,
-            roll_scale is not None,
-        )
+    generated = render(
+        stock_text,
+        types,
+        keeps,
+        p,
+        mix,
+        lam,
+        acceptance,
+        base_rate,
+        stats,
+        source_hash,
+        scale,
+        verdict,
+        roll_scale is not None,
     )
+    args.output.write_text(fill_mix_markers(generated, types, mix, args.stock))
     print(f"\nwrote {args.output}")
     return 0
 

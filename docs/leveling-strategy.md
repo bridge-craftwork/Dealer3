@@ -283,6 +283,38 @@ measured over 100,000 deals of 599,930 dealt
 `--dry-run` reports the numbers without writing. `--budget` overrides the
 header. `--deals` sets how many to measure over.
 
+### Keeping the player-facing text honest
+
+The `@chat` block a student reads is written by hand, and drifts. NT_Ladder
+advertised `15-17 HCP (~23%)` for a band that delivered 19.3%, and
+`20-21 HCP (~19%)` for one delivering 22.0% — near enough swapped, because the
+text was written once and the keeps were tuned afterwards.
+
+So the shares can come from the same numbers as the keeps. In the stock file:
+
+```
+Five HCP ranges, leveled to:
+• 12-14 HCP ({{level-mix:hcp12_14}}) - Open 1 of a suit, then rebid 1NT
+• 15-17 HCP ({{level-mix:hcp15_17}}) - Standard 1NT opening
+```
+
+and in the generated one:
+
+```
+Five HCP ranges, leveled to:
+• 12-14 HCP (20%) - Open 1 of a suit, then rebid 1NT
+• 15-17 HCP (20%) - Standard 1NT opening
+```
+
+A bare `{{level-mix}}` writes every type and its share instead, for a scenario
+that wants a block rather than prose. Either way the figure follows the budget:
+generate the same file at `--budget 40` and it reads `43.4%`, `25.6%` and so on,
+because that is what it now delivers.
+
+A marker naming a type `# level-types:` does not list is an error, so a typo
+surfaces rather than silently leaving `{{level-mix:hcp22_25}}` in the text a
+student reads.
+
 ### What it refuses to do
 
 Each of these is a way the method goes quietly wrong, so each is an error rather
