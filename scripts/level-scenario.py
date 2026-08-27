@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Level a dealer scenario: measure its natural mix, then compute the keeps.
+
+A scenario usually wants its hand types in some deliberate mix while nature
+supplies them in another. Levelling discards some of the common types until the
+mix comes out as intended. `docs/leveling-strategy.md` explains the method; this
+carries it out.
+
+Two files per scenario. The *stock* one is written by hand, declares its types
+in a header, and has a placeholder where the levelling goes. The *levelled* one
+is generated from it and should never be edited.
+
+    scripts/level-scenario.py stock.dlr -o leveled.dlr
+
+The stock file needs three things:
+
+    # level-types: hcp12_14, hcp15_17, hcp18_19, hcp20_21, hcp22_24
+    # level-target: even                 (or: 30, 30, 20, 10, 10)
+    # level-budget: 150                  (deals dealt per deal kept; optional)
+
+    ### BEGIN GENERATED LEVELING ###
+    levelTheDeal = 1
+    ### END GENERATED LEVELING ###
+
+    condition ... and levelTheDeal
+
+`levelTheDeal = 1` means "no levelling", so the stock file runs and can be
+measured exactly as it stands — which is what step one does.
+"""
+
+import argparse
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+BEGIN = "### BEGIN GENERATED LEVELING ###"
+END = "### END GENERATED LEVELING ###"
+
+# Measured rates are divided by, so a type seen only a handful of times turns a
+# sampling wobble into a visibly wrong mix. This is the one way the method goes
+# quietly wrong, so it is an error rather than a warning.
+MIN_COUNT_PER_TYPE = 500
+
+
+class Problem(Exception):
+    """Something the caller has to fix, reported without a traceback."""
+
+
+def header_value(text, key):
+    """Read a `# key: value` line, the convention the corpus already uses."""
+    match = re.search(rf"^#\s*{re.escape(key)}\s*:\s*(.+?)\s*$", text, re.M)
+    return match.group(1) if match else None
+
+
+def parse_stock(path):
+    text = path.read_text()
+    types = header_value(text, "level-types")
+    if not types:
+        raise Problem(f"{path}: no `# level-types:` header, so there is nothing to level")
+    types = [t.strip() for t in types.split(",") if t.strip()]
+    if len(types) < 2:
+        raise Problem(f"{path}: `# level-types:` needs at least two types, got {types}")
+
+    target = header_value(text, "level-target") or "even"
+    if target.lower() == "even":
+        weights = [1.0] * len(types)
+    else:
+        weights = [float(w) for w in target.split(",")]
+        if len(weights) != len(types):
+            raise Problem(
+                f"{path}: `# level-target:` has {len(weights)} weights for {len(types)} types"
+            )
+        if min(weights) < 0:
+            raise Problem(f"{path}: `# level-target:` weights cannot be negative")
+    total = sum(weights)
+    if total <= 0:
+        raise Problem(f"{path}: `# level-target:` weights sum to zero")
+    target = [w / total for w in weights]
+
+    budget = header_value(text, "level-budget")
+    budget = float(budget) if budget else None
+
+    if BEGIN not in text or END not in text:
+        raise Problem(
+            f"{path}: needs a placeholder for the generated levelling:\n"
+            f"    {BEGIN}\n    levelTheDeal = 1\n    {END}"
+        )
+    if "levelTheDeal" not in text.split(END, 1)[1]:
+        raise Problem(f"{path}: nothing uses `levelTheDeal` after the generated block")
+
+    return text, types, target, budget
+
+
+def measure(dealer, stock_text, types, deals, seed):
+    """Run the stock scenario and report how often each type comes up.
+
+    The measuring averages are appended rather than replacing the scenario's own
+    `action`, since dealer accumulates them — so nothing has to parse the
+    script's action block to take it apart.
+    """
+    labels = {t: f"__level__{i}" for i, t in enumerate(types)}
+    probe = stock_text + "\n\naction " + ",\n       ".join(
+        f'average "{labels[t]}" {t}' for t in types
+    ) + "\n"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "measure.dlr"
+        path.write_text(probe)
+        result = subprocess.run(
+            [dealer, "-q", "--stats-json", "-p", str(deals), "-s", str(seed), str(path)],
+            capture_output=True,
+            text=True,
+        )
+    if result.returncode != 0:
+        raise Problem(f"dealer failed while measuring:\n{result.stderr.strip()}")
+    try:
+        stats = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise Problem(f"dealer did not return JSON: {e}\n{result.stdout[:400]}") from e
+
+    by_label = {a["label"]: a for a in stats["averages"]}
+    rates, counts = {}, {}
+    for t in types:
+        entry = by_label.get(labels[t])
+        if entry is None:
+            raise Problem(f"`{t}` produced no average; is it a variable in the scenario?")
+        rates[t] = entry["value"]
+        counts[t] = round(entry["value"] * entry["count"])
+
+    if stats["produced"] == 0:
+        raise Problem("the scenario produced no deals, so there is nothing to measure")
+    thin = [f"{t} seen {counts[t]} times" for t in types if counts[t] < MIN_COUNT_PER_TYPE]
+    if thin:
+        raise Problem(
+            "measured on too few deals to divide by: "
+            + "; ".join(thin)
+            + f"\n       Raise --deals above {deals}, or widen the rare types."
+        )
+    covered = sum(rates.values())
+    if covered < 0.99:
+        raise Problem(
+            f"the types cover only {100 * covered:.1f}% of produced deals. They have to "
+            "partition them, or the keeps will not add up."
+        )
+    if covered > 1.01:
+        raise Problem(
+            f"the types cover {100 * covered:.1f}% of produced deals, so they overlap. "
+            "At most one may match any deal."
+        )
+    return rates, counts, stats
+
+
+def relax(p, target, budget_acceptance):
+    """How much levelling the budget affords, and the mix that results.
+
+    Moving each type a fraction L of the way from its natural rate toward the
+    target costs exactly
+
+        acceptance(L) = 1 / (1 + L * (r_max - 1)),  r_max = max(target_j / p_j)
+
+    because the worst ratio is affine in L. So the fraction affordable within a
+    budget has a closed form, and there is nothing to search for.
+
+    Relaxing this way pulls every type back toward nature together, rather than
+    singling out the rarest — which is the one whose representation the whole
+    exercise is usually trying to raise.
+    """
+    r_max = max(t / p[k] for k, t in target.items())
+    if r_max <= 1:
+        return 1.0, dict(target), 1.0
+    if budget_acceptance is None:
+        return 1.0, dict(target), 1 / r_max
+    lam = (1 / budget_acceptance - 1) / (r_max - 1)
+    lam = max(0.0, min(1.0, lam))
+    mix = {k: (1 - lam) * p[k] + lam * target[k] for k in p}
+    return lam, mix, 1 / (1 + lam * (r_max - 1))
+
+
+def thresholds(p, mix, scale=1000):
+    """Keep rates as integer thresholds out of `scale`, largest pinned at 1."""
+    ratios = {k: mix[k] / p[k] for k in p}
+    top = max(ratios.values())
+    return {k: min(scale, max(1, round(scale * r / top))) for k, r in ratios.items()}
+
+
+def render(stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, source_hash, scale):
+    width = max(len(t) for t in types)
+    lines = [
+        BEGIN,
+        "# Generated by scripts/level-scenario.py. Do not edit; edit the stock",
+        "# scenario and regenerate, or the two will disagree without saying so.",
+        "#",
+        f"# stock sha256   {source_hash}",
+        f"# measured over  {stats['produced']:,} deals, seed {stats['seed']}",
+        "#",
+        f"# {'type':<{width}}  {'natural':>9} {'target':>9} {'keep':>8}",
+    ]
+    for t in types:
+        lines.append(
+            f"# {t:<{width}}  {p[t]:>9.5f} {mix[t]:>9.5f} {keeps[t] / scale:>8.4f}"
+        )
+    lines += [
+        "#",
+        f"# exactness      {lam:.3f}"
+        + ("  (full)" if lam >= 0.999 else "  (relaxed to fit the budget)"),
+        f"# acceptance     {acceptance:.4f} of qualifying deals",
+        f"# cost           about {1 / (base_rate * acceptance):,.0f} deals dealt per deal kept",
+        "",
+        f"roll = (rnd({scale}) % {scale} + {scale}) % {scale}",
+        "",
+    ]
+    for t in types:
+        keep = keeps[t]
+        if keep >= scale:
+            lines.append(f"level_{t} = {t}")
+        else:
+            lines.append(f"level_{t} = {t} and roll < {keep}")
+    lines.append("levelTheDeal = " + " or ".join(f"level_{t}" for t in types))
+    lines.append(END)
+
+    head, rest = stock_text.split(BEGIN, 1)
+    _, tail = rest.split(END, 1)
+    return head + "\n".join(lines) + tail
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("stock", type=Path, help="the hand-written scenario")
+    ap.add_argument("-o", "--output", type=Path, help="where to write the levelled scenario")
+    ap.add_argument("--dealer", default="dealer", help="the dealer binary to measure with")
+    ap.add_argument("--deals", type=int, default=100000, help="deals to measure over")
+    ap.add_argument("--seed", type=int, default=1, help="seed for the measuring run")
+    ap.add_argument("--budget", type=float, help="deals dealt per deal kept; overrides the header")
+    ap.add_argument("--scale", type=int, default=1000, help="threshold denominator")
+    ap.add_argument("--dry-run", action="store_true", help="report the numbers, write nothing")
+    args = ap.parse_args()
+
+    stock_text, types, target_list, header_budget = parse_stock(args.stock)
+    target = dict(zip(types, target_list))
+    budget = args.budget if args.budget is not None else header_budget
+
+    p, counts, stats = measure(args.dealer, stock_text, types, args.deals, args.seed)
+    base_rate = stats["produced"] / stats["generated"]
+
+    # A budget in deals-dealt-per-deal-kept has to become an acceptance rate
+    # among the deals that already pass the scenario's own condition.
+    budget_acceptance = None
+    if budget:
+        budget_acceptance = min(1.0, (1 / budget) / base_rate)
+    lam, mix, acceptance = relax(p, target, budget_acceptance)
+    keeps = thresholds(p, mix, args.scale)
+    cost = 1 / (base_rate * acceptance)
+
+    width = max(len(t) for t in types)
+    print(f"measured over {stats['produced']:,} deals of {stats['generated']:,} dealt")
+    print(f"  base condition accepts {100 * base_rate:.3f}% of deals\n")
+    print(f"  {'type':<{width}}  {'natural':>9} {'target':>9} {'mix':>9} {'keep':>8} {'seen':>9}")
+    for t in types:
+        print(
+            f"  {t:<{width}}  {p[t]:>9.5f} {target[t]:>9.5f} {mix[t]:>9.5f} "
+            f"{keeps[t] / args.scale:>8.4f} {counts[t]:>9,}"
+        )
+    print(f"\n  exactness {lam:.3f}" + ("" if lam >= 0.999 else "  (relaxed to fit the budget)"))
+    print(f"  acceptance {acceptance:.4f} of qualifying deals")
+    print(f"  about {cost:,.0f} deals dealt per deal kept")
+    if budget and lam < 0.999:
+        print(f"  a fully level mix would have cost {1 / (base_rate / max(target[t] / p[t] for t in types)):,.0f}")
+
+    if args.dry_run:
+        return 0
+    if not args.output:
+        raise Problem("no --output given; use --dry-run to see the numbers without writing")
+
+    source_hash = hashlib.sha256(stock_text.encode()).hexdigest()[:16]
+    args.output.write_text(
+        render(stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, source_hash, args.scale)
+    )
+    print(f"\nwrote {args.output}")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Problem as e:
+        print(f"error: {e}", file=sys.stderr)
+        sys.exit(1)

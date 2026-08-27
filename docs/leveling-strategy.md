@@ -199,23 +199,101 @@ rise to 26.7% each, landing exactly on the budget. Which is a better answer than
 "it is slow, try again": it says what mix is affordable and which type is the
 bottleneck.
 
+## Relaxing exactness when the budget will not stretch
+
+A budget can be too tight for a fully level mix. The lever is not to single out
+the rarest type — it is usually the one the whole exercise exists to promote —
+but to level *less*, moving every type the same fraction of the way from nature
+toward the target:
+
+> **qⱼ(λ) = (1 − λ)·pⱼ + λ·tⱼ**
+
+λ = 1 is the target exactly, λ = 0 is no levelling at all. The cost has a closed
+form, because the worst ratio is affine in λ:
+
+> **acceptance(λ) = 1 / (1 + λ·(r_max − 1))**, where r_max = max(tⱼ / pⱼ)
+
+so the exactness a budget affords needs no search:
+
+> **λ = (1/A − 1) / (r_max − 1)**
+
+For the NT ladder, whose 22-24 band asks to be stretched 15.6× from natural:
+
+| budget (deals per kept) | λ | resulting mix (%) | spread |
+|---|---|---|---|
+| 93 | 1.000 | 20.0  20.0  20.0  20.0  20.0 | 0.0 |
+| 80 | 0.847 | 25.9  21.4  18.2  17.4  17.1 | 8.7 |
+| 60 | 0.618 | 34.7  23.5  15.4  13.6  12.9 | 21.8 |
+| 40 | 0.389 | 43.4  25.6  12.7   9.7   8.6 | 34.9 |
+| none | 0.000 | 58.4  29.2   8.0   3.2   1.3 | 57.1 |
+
+Every band gives ground together, so the rare types keep as much representation
+as the budget allows.
+
 ## Generating levelled scripts
 
-The two steps are mechanical, so they can be a build step: declare the target
-mix and the budget in the scenario, measure, calculate, and write the roll
-thresholds into a generated copy. Two things are worth building in.
+`scripts/level-scenario.py` does all of it. Two files per scenario: a *stock*
+one written by hand, and a *levelled* one generated from it that should never be
+edited.
 
-**Stamp what the keeps were measured against.** They are only valid for the base
-condition in force at the time. Record the source script's hash, the measured
-`p`, the target `q`, the achieved acceptance and the sample size in the
-generated file, so a stale copy is detectable rather than merely wrong.
+The stock file declares its types in the header the corpus already uses, and
+leaves a placeholder where the levelling goes:
 
-**Require a minimum count per type, not just a total.** At 200,000 qualifying
-deals the slam bucket held about 8,000 hands, so its rate is good to about 1%. A
-type occurring a tenth as often, measured in the same run, would be good to only
-3% — and that error goes straight into the keep and out into the mix. This is
-the one way the method goes quietly wrong, and `--stats-json` reports the count
-per average so a tool can refuse rather than divide by a thin bucket.
+```
+# level-types: hcp12_14, hcp15_17, hcp18_19, hcp20_21, hcp22_24
+# level-target: even            # or a weighting: 30, 30, 20, 10, 10
+# level-budget: 150             # deals dealt per deal kept; optional
+
+### BEGIN GENERATED LEVELING ###
+levelTheDeal = 1
+### END GENERATED LEVELING ###
+
+condition ... and levelTheDeal
+```
+
+`levelTheDeal = 1` means "no levelling", so the stock file runs and can be
+measured exactly as it stands — which is what the tool does first.
+
+```
+$ scripts/level-scenario.py stock.dlr -o leveled.dlr
+measured over 100,000 deals of 599,930 dealt
+  base condition accepts 16.669% of deals
+
+  type        natural    target       mix     keep      seen
+  hcp12_14    0.58367   0.20000   0.20000   0.0220    58,367
+  hcp15_17    0.29189   0.20000   0.20000   0.0440    29,189
+  hcp18_19    0.08006   0.20000   0.20000   0.1610     8,006
+  hcp20_21    0.03153   0.20000   0.20000   0.4080     3,153
+  hcp22_24    0.01285   0.20000   0.20000   1.0000     1,285
+
+  exactness 1.000
+  acceptance 0.0643 of qualifying deals
+  about 93 deals dealt per deal kept
+```
+
+`--dry-run` reports the numbers without writing. `--budget` overrides the
+header. `--deals` sets how many to measure over.
+
+### What it refuses to do
+
+Each of these is a way the method goes quietly wrong, so each is an error rather
+than a warning.
+
+- **Types measured on too few deals.** A rate that is divided by has to be worth
+  dividing by; fewer than 500 sightings of a type is refused, naming the type
+  and suggesting a larger measuring run.
+- **Types that overlap**, or that **leave a gap**. They have to partition the
+  produced deals or the keeps will not add up, and the tool checks that the
+  measured rates sum to 1.
+- **A missing placeholder or an unused `levelTheDeal`**, either of which would
+  produce a file that looks levelled and is not.
+
+### What it stamps into the generated file
+
+The source's hash, the measured natural rates, the target, the keeps, the
+exactness, the acceptance and the cost. The keeps are only valid for the base
+condition that was in force when they were measured, so a stale generated file
+is detectable rather than merely wrong — check the hash in the build.
 
 ## A note on where scripts run
 
