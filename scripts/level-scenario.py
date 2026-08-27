@@ -19,19 +19,19 @@ The stock file needs three things:
     # level-budget: 150                  (deals dealt per deal kept; optional)
 
     ### BEGIN GENERATED LEVELING ###
-    # Stock scenario: nothing is discarded yet.
-    keepTheDeal = 1
+    noLeveling = 1
+    levelTheDeal = noLeveling
     ### END GENERATED LEVELING ###
 
-    condition ... and keepTheDeal
+    condition ... and levelTheDeal
 
-`keepTheDeal` is a predicate — "is this deal kept?" — so the stock file's `= 1`
-reads as "keep every one", which is what no levelling means. It also means the
-stock file runs and can be measured exactly as it stands, which is what step one
-does.
+The stock file says what it means in words rather than in a number: `= 1` on its
+own reads as "yes, level this deal" when it means the opposite, and no comment
+survives being read quickly. `levelTheDeal = noLeveling` cannot be misread.
 
-`levelTheDeal` is accepted as well, since the scenarios being converted already
-use that name.
+It also means the stock file runs and can be measured exactly as it stands,
+which is what step one does. `keepTheDeal` is accepted as the verdict's name
+too, for anyone who prefers the predicate reading.
 """
 
 import argparse
@@ -93,18 +93,16 @@ def parse_stock(path):
     if BEGIN not in text or END not in text:
         raise Problem(
             f"{path}: needs a placeholder for the generated levelling:\n"
-            f"    {BEGIN}\n    # Stock scenario: nothing is discarded yet."
-            f"\n    keepTheDeal = 1\n    {END}"
+            f"    {BEGIN}\n    noLeveling = 1\n    levelTheDeal = noLeveling\n    {END}"
         )
     after = text.split(END, 1)[1]
-    # `keepTheDeal` is the name to use, because it is a predicate and so the
-    # stock file's `= 1` reads as "keep every deal". `levelTheDeal` is the name
-    # the scenarios being converted already carry, so it is accepted too rather
-    # than forcing a rename in every one of them.
-    verdict = next((n for n in ("keepTheDeal", "levelTheDeal") if n in after), None)
+    # The name the scenarios already carry, and the predicate reading for anyone
+    # who prefers it. Whichever the stock file uses is what the generated block
+    # defines.
+    verdict = next((n for n in ("levelTheDeal", "keepTheDeal") if n in after), None)
     if verdict is None:
         raise Problem(
-            f"{path}: nothing after the generated block uses `keepTheDeal`, so the "
+            f"{path}: nothing after the generated block uses `levelTheDeal`, so the "
             "levelling would have no effect. Add it to the condition."
         )
 

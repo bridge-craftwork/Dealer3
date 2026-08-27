@@ -245,26 +245,23 @@ leaves a placeholder where the levelling goes:
 # level-budget: 150             # deals dealt per deal kept; optional
 
 ### BEGIN GENERATED LEVELING ###
-# Stock scenario: nothing is discarded yet.
-keepTheDeal = 1
+noLeveling = 1
+levelTheDeal = noLeveling
 ### END GENERATED LEVELING ###
 
-condition ... and keepTheDeal
+condition ... and levelTheDeal
 ```
 
-**`keepTheDeal` is a predicate**, not an instruction: it answers "is this deal
-kept?". So the stock file's `= 1` reads as "keep every one", which is what no
-levelling means, and the generated file's `keepTheDeal = level_a or level_b …`
-reads as "kept if one of the levels says so".
+The stock file says what it means in words rather than in a number. An earlier
+draft wrote `levelTheDeal = 1`, which reads as "yes, level this deal" when it
+means precisely the opposite — and a comment saying so is read past.
+`levelTheDeal = noLeveling` cannot be taken the wrong way round, and the
+generated file replaces the whole block, so `noLeveling` exists only where it is
+true.
 
-The name matters more than it looks. An earlier draft called it `levelTheDeal`,
-which reads as an instruction — and `levelTheDeal = 1` then looks like "yes,
-level this deal" when it means exactly the opposite. `levelTheDeal` is still
-accepted, since the scenarios being converted already carry it, but new stock
-files should use `keepTheDeal`.
-
-Either way the stock file runs and can be measured exactly as it stands, which
-is what the tool does first.
+That also means the stock file runs and can be measured exactly as it stands,
+which is what the tool does first. (`keepTheDeal` is accepted as the verdict's
+name too, for anyone who prefers the predicate reading.)
 
 ```
 $ scripts/level-scenario.py stock.dlr -o leveled.dlr
@@ -297,7 +294,7 @@ than a warning.
 - **Types that overlap**, or that **leave a gap**. They have to partition the
   produced deals or the keeps will not add up, and the tool checks that the
   measured rates sum to 1.
-- **A missing placeholder, or a `keepTheDeal` nothing uses**, either of which
+- **A missing placeholder, or a `levelTheDeal` nothing uses**, either of which
   would produce a file that looks levelled and is not.
 
 ### What it stamps into the generated file
