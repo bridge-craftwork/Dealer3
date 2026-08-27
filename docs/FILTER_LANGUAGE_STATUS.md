@@ -116,7 +116,7 @@ for the same predealt deal.
 | | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
 | `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
 | `rnd(bound)` | A random whole number from zero up to, but not including, the bound. | `rnd(10) == 3` |
-| | Drawn from a stream of its own, seeded from the deal, so the same seed gives the same answers however many threads are running. The original draws from the generator it shuffles with, which means calling it there changes the deals; that is an artefact of having one generator, not something to reproduce. `--rnd-seed` shifts the stream. | |
+| | Every mention draws again, including through a variable: `r = rnd(4)` used twice is two draws, as in the original. Drawn from a stream of its own, seeded from the deal, so the same seed gives the same answers however many threads are running; the original shares the generator it shuffles with, so calling it there changes the deals. `--rnd-seed` shifts the stream. Beware locally built dealer binaries: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it actually calls, so a build without `STD_RAND` returns values far outside the bound, or negative ones. BBO's own build is correct. | |
 <!-- END GENERATED: functions -->
 
 ## Operators
@@ -207,6 +207,7 @@ tracked by a generated table, so this section is maintained by hand.
 | `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
+| `rnd()` is broken on locally built dealer binaries | Not ours: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it calls. A build without `STD_RAND` returns values far outside the bound (Windows: `rnd(10)` averages 322,000) or negative ones (macOS: 43% below zero). BBO's build is correct, and dealer3 agrees with it. |
 | `rnd()` does not disturb the deal sequence | Deliberate. The original shares one generator between `rnd()` and the shuffle, so calling it changes which deals come out. dealer3 gives `rnd()` a stream of its own, seeded from the deal, so output does not depend on how many threads are running. `--rnd-seed` shifts it. |
 | `print` is not in the browser build | A paginated hand record with form feeds has nowhere to go on a page, so a script using it is refused there rather than quietly running without it. `printes` output appears at the top of the Text view. |
 
@@ -224,6 +225,13 @@ condition nt_opener && weak
 
 Variables may refer to other variables. A result is cached for the duration of
 one deal, so referring to the same variable twice costs one evaluation.
+
+**Except where `rnd()` is involved.** Caching is invisible for every other
+expression in the language, since each is a pure function of the deal; `rnd()`
+is not, and a variable that can reach one — directly or through another
+variable — is worked out afresh at every mention. So `r = rnd(4)` mentioned
+twice is two draws, which is what the original does with every variable, and
+what BBO reports for the same script.
 
 `tricks()` is remembered separately, and more thoroughly: a double-dummy result
 is kept per deal against the denomination and declarer it answers for, so

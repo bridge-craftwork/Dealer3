@@ -610,11 +610,14 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         example: "rnd(10) == 3",
         alias_of: None,
         note: Some(
-            "Drawn from a stream of its own, seeded from the deal, so the same seed gives the \
-             same answers however many threads are running. The original draws from the \
-             generator it shuffles with, which means calling it there changes the deals; that \
-             is an artefact of having one generator, not something to reproduce. `--rnd-seed` \
-             shifts the stream.",
+            "Every mention draws again, including through a variable: `r = rnd(4)` used twice \
+             is two draws, as in the original. Drawn from a stream of its own, seeded from the \
+             deal, so the same seed gives the same answers however many threads are running; \
+             the original shares the generator it shuffles with, so calling it there changes \
+             the deals. `--rnd-seed` shifts the stream. Beware locally built dealer binaries: \
+             `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator \
+             it actually calls, so a build without `STD_RAND` returns values far outside the \
+             bound, or negative ones. BBO's own build is correct.",
         ),
     },
 ];

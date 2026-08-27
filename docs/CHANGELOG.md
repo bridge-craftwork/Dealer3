@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   compatible with.
 
 ### Fixed
+- **A variable holding `rnd()` is no longer cached for the deal.** Every mention
+  draws again, including through another variable, which is what the original
+  does and what BBO reports for the same script. The per-deal variable cache
+  arrived as a pure optimisation, back when every expression in the language was
+  a function of the deal alone; `rnd()` was the first that was not, and made the
+  cache observable. Only variables that can reach `rnd()` are affected —
+  everything else stays cached, and a 109-variable script from the
+  Practice-Bidding-Scenarios corpus shows no measurable change.
 - **A variable may be named after a keyword** — `conditionMet`, `actionList`,
   `printewFoo`, `produce5`, `dealerN` and the rest (#12). Every statement rule
   now checks that its keyword ends where it appears to, rather than matching the
