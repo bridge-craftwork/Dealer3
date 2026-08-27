@@ -245,14 +245,26 @@ leaves a placeholder where the levelling goes:
 # level-budget: 150             # deals dealt per deal kept; optional
 
 ### BEGIN GENERATED LEVELING ###
-levelTheDeal = 1
+# Stock scenario: nothing is discarded yet.
+keepTheDeal = 1
 ### END GENERATED LEVELING ###
 
-condition ... and levelTheDeal
+condition ... and keepTheDeal
 ```
 
-`levelTheDeal = 1` means "no levelling", so the stock file runs and can be
-measured exactly as it stands — which is what the tool does first.
+**`keepTheDeal` is a predicate**, not an instruction: it answers "is this deal
+kept?". So the stock file's `= 1` reads as "keep every one", which is what no
+levelling means, and the generated file's `keepTheDeal = level_a or level_b …`
+reads as "kept if one of the levels says so".
+
+The name matters more than it looks. An earlier draft called it `levelTheDeal`,
+which reads as an instruction — and `levelTheDeal = 1` then looks like "yes,
+level this deal" when it means exactly the opposite. `levelTheDeal` is still
+accepted, since the scenarios being converted already carry it, but new stock
+files should use `keepTheDeal`.
+
+Either way the stock file runs and can be measured exactly as it stands, which
+is what the tool does first.
 
 ```
 $ scripts/level-scenario.py stock.dlr -o leveled.dlr
@@ -285,8 +297,8 @@ than a warning.
 - **Types that overlap**, or that **leave a gap**. They have to partition the
   produced deals or the keeps will not add up, and the tool checks that the
   measured rates sum to 1.
-- **A missing placeholder or an unused `levelTheDeal`**, either of which would
-  produce a file that looks levelled and is not.
+- **A missing placeholder, or a `keepTheDeal` nothing uses**, either of which
+  would produce a file that looks levelled and is not.
 
 ### What it stamps into the generated file
 

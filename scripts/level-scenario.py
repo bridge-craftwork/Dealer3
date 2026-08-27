@@ -19,13 +19,19 @@ The stock file needs three things:
     # level-budget: 150                  (deals dealt per deal kept; optional)
 
     ### BEGIN GENERATED LEVELING ###
-    levelTheDeal = 1
+    # Stock scenario: nothing is discarded yet.
+    keepTheDeal = 1
     ### END GENERATED LEVELING ###
 
-    condition ... and levelTheDeal
+    condition ... and keepTheDeal
 
-`levelTheDeal = 1` means "no levelling", so the stock file runs and can be
-measured exactly as it stands — which is what step one does.
+`keepTheDeal` is a predicate — "is this deal kept?" — so the stock file's `= 1`
+reads as "keep every one", which is what no levelling means. It also means the
+stock file runs and can be measured exactly as it stands, which is what step one
+does.
+
+`levelTheDeal` is accepted as well, since the scenarios being converted already
+use that name.
 """
 
 import argparse
@@ -87,12 +93,22 @@ def parse_stock(path):
     if BEGIN not in text or END not in text:
         raise Problem(
             f"{path}: needs a placeholder for the generated levelling:\n"
-            f"    {BEGIN}\n    levelTheDeal = 1\n    {END}"
+            f"    {BEGIN}\n    # Stock scenario: nothing is discarded yet."
+            f"\n    keepTheDeal = 1\n    {END}"
         )
-    if "levelTheDeal" not in text.split(END, 1)[1]:
-        raise Problem(f"{path}: nothing uses `levelTheDeal` after the generated block")
+    after = text.split(END, 1)[1]
+    # `keepTheDeal` is the name to use, because it is a predicate and so the
+    # stock file's `= 1` reads as "keep every deal". `levelTheDeal` is the name
+    # the scenarios being converted already carry, so it is accepted too rather
+    # than forcing a rename in every one of them.
+    verdict = next((n for n in ("keepTheDeal", "levelTheDeal") if n in after), None)
+    if verdict is None:
+        raise Problem(
+            f"{path}: nothing after the generated block uses `keepTheDeal`, so the "
+            "levelling would have no effect. Add it to the condition."
+        )
 
-    return text, types, target, budget
+    return text, types, target, budget, verdict
 
 
 def measure(dealer, stock_text, types, deals, seed):
@@ -187,7 +203,9 @@ def thresholds(p, mix, scale=1000):
     return {k: min(scale, max(1, round(scale * r / top))) for k, r in ratios.items()}
 
 
-def render(stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, source_hash, scale):
+def render(
+    stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, source_hash, scale, verdict
+):
     width = max(len(t) for t in types)
     lines = [
         BEGIN,
@@ -219,7 +237,7 @@ def render(stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, 
             lines.append(f"level_{t} = {t}")
         else:
             lines.append(f"level_{t} = {t} and roll < {keep}")
-    lines.append("levelTheDeal = " + " or ".join(f"level_{t}" for t in types))
+    lines.append(f"{verdict} = " + " or ".join(f"level_{t}" for t in types))
     lines.append(END)
 
     head, rest = stock_text.split(BEGIN, 1)
@@ -239,7 +257,7 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="report the numbers, write nothing")
     args = ap.parse_args()
 
-    stock_text, types, target_list, header_budget = parse_stock(args.stock)
+    stock_text, types, target_list, header_budget, verdict = parse_stock(args.stock)
     target = dict(zip(types, target_list))
     budget = args.budget if args.budget is not None else header_budget
 
@@ -277,7 +295,20 @@ def main():
 
     source_hash = hashlib.sha256(stock_text.encode()).hexdigest()[:16]
     args.output.write_text(
-        render(stock_text, types, keeps, p, mix, lam, acceptance, base_rate, stats, source_hash, args.scale)
+        render(
+            stock_text,
+            types,
+            keeps,
+            p,
+            mix,
+            lam,
+            acceptance,
+            base_rate,
+            stats,
+            source_hash,
+            args.scale,
+            verdict,
+        )
     )
     print(f"\nwrote {args.output}")
     return 0
