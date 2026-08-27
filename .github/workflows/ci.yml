@@ -68,6 +68,16 @@ jobs:
     - name: Check the double-dummy tables against the full fixture
       run: cargo test -p dealer-dds --release
 
+    # `examples/NT_Ladder.leveled.dlr` is generated from the stock file beside
+    # it. The measuring run is seeded, so regenerating reproduces it byte for
+    # byte — unless the tool or the generator has changed, which is the point.
+    - name: Check the generated example is still what the tool produces
+      if: runner.os == 'Linux'
+      run: |
+        python3 scripts/level-scenario.py examples/NT_Ladder.stock.dlr \
+          --dealer target/release/dealer -o /tmp/regenerated.dlr
+        diff -u examples/NT_Ladder.leveled.dlr /tmp/regenerated.dlr
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

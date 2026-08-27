@@ -24,6 +24,7 @@ to-do while its own summary said they worked.
 |---|---|
 | Which switches work, and how they compare to dealer.exe and DealerV2_4 | `docs/command_line_comparison.md` (generated from clap) |
 | Which functions, operators and statements the language accepts | `docs/FILTER_LANGUAGE_STATUS.md` (generated from `vocabulary.rs`) |
+| How to level a scenario's hand types, and what it costs | `docs/leveling-strategy.md`, with a worked pair in `examples/` |
 | What is still missing, with the reasons | the "Where dealer3 still differs" table in that same file |
 
 ```bash

@@ -283,6 +283,11 @@ measured over 100,000 deals of 599,930 dealt
 `--dry-run` reports the numbers without writing. `--budget` overrides the
 header. `--deals` sets how many to measure over.
 
+`examples/NT_Ladder.stock.dlr` and `examples/NT_Ladder.leveled.dlr` are a real
+scenario and its generated pair, if you would rather read one than a
+description. CI regenerates the second from the first and diffs, so they cannot
+drift from the tool.
+
 ### Keeping the player-facing text honest
 
 The `@chat` block a student reads is written by hand, and drifts. NT_Ladder
