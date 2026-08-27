@@ -407,6 +407,82 @@ hand:
 The same line goes into the generated file, so a scenario carries the precision
 it was built to.
 
+### What a short practice set actually delivers
+
+Levelling sets the long-run mix. It does not promise that twelve boards show all
+five types, and this is where the point of the exercise lives.
+
+For NT_Ladder, the chance a band appears **at least once** in a 12-board set:
+
+| band | natural | levelled |
+|---|---|---|
+| 12-14 | 100.0% | 93.1% |
+| 15-17 | 98.4% | 93.1% |
+| 18-19 | 63.3% | 93.1% |
+| 20-21 | 31.9% | 93.1% |
+| **22-24** | **14.4%** | **93.1%** |
+
+That last row is the whole argument. Unlevelled, a student practising twelve
+boards meets the 22-24 hand about one session in seven. Levelled, six sessions
+in seven.
+
+Whether *all five* turn up is a stiffer test, and worth knowing before promising
+it:
+
+| boards | all five, natural | all five, levelled |
+|---|---|---|
+| 12 | 2.4% | 67.8% |
+| 20 | 8.2% | 94.3% |
+| 24 | 11.8% | 97.6% |
+| 40 | 27.8% | 99.9% |
+
+So a levelled twelve-board set shows the complete range about two thirds of the
+time. Twenty-four gets it to 98%. Nothing gets it to certainty, because twelve
+draws from an even distribution are lumpy however even the distribution is.
+
+### Three ways a scenario reaches a student, and how much levelling each needs
+
+**Randomly, in order, with no way to skip** — a BBO practice table. Levelling is
+what makes the rare types appear at all, and the table above is the reason to do
+it. Level fully.
+
+**An instructor redealing to skip past repeats.** Coverage of the pool matters
+more than the exact mix, so exactness can be traded for generation cost:
+
+| λ | cost per kept | rarest share | all five in 12 | in 24 | in 40 |
+|---|---|---|---|---|---|
+| 1.00 | 93 | 20.0% | 67.8% | 97.6% | 99.9% |
+| 0.85 | 80 | 17.2% | 65.0% | 96.7% | 99.9% |
+| 0.70 | 67 | 14.4% | 57.8% | 94.0% | 99.6% |
+| 0.50 | 50 | 10.6% | 43.2% | 85.7% | 97.9% |
+
+At λ = 0.7 the generation cost falls by a third and a 24-board pool still holds
+all five types 94% of the time. If somebody is choosing which board to play,
+that is enough.
+
+**Software asking for one variation at a time.** Then do not level at all —
+narrow the condition instead:
+
+```
+condition balanced and hcp(south) >= 12 and hcp(south) <= 24 and hcp22_24
+```
+
+which deals that type and nothing else, on demand, with no roll and no
+thresholds to keep up to date.
+
+It is worth being clear about what this saves, because it is not generation.
+A rare hand costs the same either way:
+
+| | dealt per rare hand |
+|---|---|
+| levelled stream, taking the one deal in five | 465 |
+| asking for it directly | 467 |
+
+The same number, because it is the same rarity underneath. **Levelling does not
+make a rare hand cheaper. It makes it arrive on schedule instead of at random,
+and selecting makes it arrive on demand.** Which of the three you want is a
+question about who is choosing the next board, not about cost.
+
 ### Before chasing a tighter number
 
 Tightening from ±1 point to ±0.2 costs 25 times the deals — a quarter of a
