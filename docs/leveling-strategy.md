@@ -315,6 +315,65 @@ exactness, the acceptance and the cost. The keeps are only valid for the base
 condition that was in force when they were measured, so a stale generated file
 is detectable rather than merely wrong — check the hash in the build.
 
+## How many deals to check the result on
+
+The keeps are exact. What wobbles is the *sample you measure them with*, and
+that wobble is ordinary sampling error:
+
+> **SD of a band = √(q(1−q) / n)**
+
+where `q` is the band's target share and `n` is the number of deals produced.
+
+The useful part is what is **not** in that formula. Not the natural rarity of the
+band, not the size of its keep, not the base condition's acceptance rate.
+Levelling changes how long it takes to produce `n` deals; it does not change how
+much `n` deals wobble. Measured over 20 seeds on two scenarios with nothing in
+common — a five-band ladder whose rarest type is 1.3% natural, and a four-band
+1NT scenario whose rarest is 4% — the observed spread tracks the formula:
+
+| scenario | n | observed SD | predicted |
+|---|---|---|---|
+| 5 bands at 20% | 100 | 3.945 | 4.000 |
+| 5 bands at 20% | 1,000 | 1.215 | 1.265 |
+| 5 bands at 20% | 10,000 | 0.384 | 0.400 |
+| 4 bands at 25% | 1,000 | 1.282 | 1.369 |
+| 4 bands at 25% | 4,000 | 0.588 | 0.685 |
+
+**So one number does serve every script with the same number of bands.** It
+changes only with the band count, and slowly:
+
+| bands | target | ±2.0 pts | ±1.0 pts | ±0.5 pts | ±0.2 pts |
+|---|---|---|---|---|---|
+| 3 | 33.3% | 3,200 | 12,700 | 51,000 | 318,000 |
+| 4 | 25.0% | 2,900 | 11,700 | 46,800 | 292,000 |
+| 5 | 20.0% | 2,700 | 10,600 | 42,500 | 265,000 |
+| 8 | 12.5% | 2,000 | 8,200 | 32,700 | 204,000 |
+| 10 | 10.0% | 1,800 | 7,100 | 28,400 | 177,000 |
+
+Read as: produce this many, and 95% of the time *every* band lands within the
+tolerance. (The band count widens the interval as well as shrinking `q`, since
+all of them have to hold at once.)
+
+**10,000 is a good default.** It buys about ±1 point for anything from three
+bands to ten, and costs a second or two.
+
+### Before chasing a tighter number
+
+Tightening from ±1 point to ±0.2 costs 25 times the deals — a quarter of a
+million produced, which at 93 dealt per kept is 25 million dealt. Ask what the
+tolerance is for first, because there are two different questions hiding here:
+
+- **Is the levelling right?** ±1 point answers that. A keep that is wrong is
+  wrong by much more than a point; sampling noise never accumulates into a
+  systematic tilt.
+- **Will a lesson look even?** Nothing can promise that. A 24-board set drawn
+  from a perfectly level distribution has an SD of **8 points** per band, so a
+  band at 12% or 28% is unremarkable. That lumpiness is in the sample the
+  students actually see, and no amount of verification precision removes it.
+
+Which is to say: measuring to ±0.2 points is measuring something nobody will
+ever experience. Verify at 10,000, and spend the patience elsewhere.
+
 ## A note on where scripts run
 
 `rnd()` is in the original dealer's lexer, grammar and implementation, and it is
