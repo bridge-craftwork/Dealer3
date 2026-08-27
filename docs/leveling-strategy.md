@@ -219,11 +219,44 @@ per average so a tool can refuse rather than divide by a thin bucket.
 
 ## A note on where scripts run
 
-`rnd()` is in the original dealer's lexer, grammar and implementation, and it
-works correctly on BBO. It is absent from BBO's own language manual, which is
-probably why it went unused for so long. It is *broken* on locally built dealer
-binaries, in the two different ways described above — which is what the roll
-variable's modulo is there to absorb.
+`rnd()` is in the original dealer's lexer, grammar and implementation, and it is
+absent from BBO's own language manual — which is probably why it went unused for
+so long. It is *broken* on locally built dealer binaries, in the two different
+ways described above, and that is what the roll variable's modulo absorbs.
+
+It works correctly on BBO. Verified on both paths that matter: the public script
+tester at <https://www.bridgebase.com/tools/dealer/dealer.php>, and a live
+practice table fed by the PBS BBO extension.
 
 The levelling itself is engine-independent: the same thresholds produce the same
 mix on dealer3 and on BBO, because both draw uniformly within the bound.
+
+### Checking a new deployment
+
+A practice table shows hands, not text, so the check has to be visible in a
+hand. This makes the South hand — always visible, unlike North before the
+auction ends — hold `AKQ` in one suit or the other, on a coin flip:
+
+```
+produce 20
+condition (rnd(2) == 0 and hascard(south, AS) and hascard(south, KS) and hascard(south, QS))
+       or (rnd(2) != 0 and hascard(south, AH) and hascard(south, KH) and hascard(south, QH))
+```
+
+| what the boards show | what it means |
+|---|---|
+| some ♠AKQ, some ♥AKQ | `rnd()` works |
+| every board ♥AKQ, never ♠AKQ | broken the way a Windows build is |
+| about a third ♠AKQ | broken the way a macOS build is |
+| a board with neither | the script never reached the engine |
+
+**One ♠AKQ board is the whole test.** A broken engine produces none at all, so
+this is a question of presence, not proportion — with a working `rnd()`, seeing
+zero in twenty boards has a probability of about one in a million.
+
+The two branches have to be equally rare, which is why it is `AKQ` in two suits
+rather than something simpler. South holds `♠AKQ` about 1.3% of the time and
+holds no top spade honour about 41% of the time, so pairing those two would
+produce a 3%/97% split whatever `rnd()` did — indistinguishable from broken.
+Spades against hearts is 1.29% against 1.296%, so the coin is the only thing
+separating them.
