@@ -223,7 +223,10 @@ async function onDownload(kind) {
         maxGenerate: maxGenerate.value,
         format: format.value === 'pbn' ? 'oneline' : format.value,
       })
-      const body = text.deals.join('\n') + '\n' + statisticsText(text)
+      // `printes` first, as it appears on screen: leaving it out would drop
+      // what the script printed from the file the user saves.
+      const printed = text.printes ? text.printes + '\n' : ''
+      const body = printed + text.deals.join('\n') + '\n' + statisticsText(text)
       downloadText(resultFilename(name, seed.value, 'txt'), body)
     }
   } catch (e) {

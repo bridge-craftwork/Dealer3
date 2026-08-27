@@ -208,7 +208,7 @@ tracked by a generated table, so this section is maintained by hand.
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
 | `rnd()` does not disturb the deal sequence | Deliberate. The original shares one generator between `rnd()` and the shuffle, so calling it changes which deals come out. dealer3 gives `rnd()` a stream of its own, seeded from the deal, so output does not depend on how many threads are running. `--rnd-seed` shifts it. |
-| `printes` and `print` are not in the browser build | Both write to a terminal. A script using either is refused there rather than quietly running without it. |
+| `print` is not in the browser build | A paginated hand record with form feeds has nowhere to go on a page, so a script using it is refused there rather than quietly running without it. `printes` output appears at the top of the Text view. |
 
 ## Variables
 

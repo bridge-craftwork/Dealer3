@@ -22,7 +22,7 @@ use dealer_eval::{
     extract_variables, EvalContext,
 };
 use dealer_parser::vocabulary;
-use dealer_parser::{Expr, Statement, VulnerabilityType};
+use dealer_parser::{EsTerm, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{format_oneline, format_printall, format_printpbn, Vulnerability};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -136,6 +136,9 @@ struct GenerateResult {
     frequencies: Vec<FrequencyResult>,
     /// Wall-clock seconds spent generating, matching the CLI's "Time needed".
     seconds: f64,
+    /// Everything the script's `printes` statements wrote, exactly as the CLI
+    /// would have written it to a terminal. Empty when the script has none.
+    printes: String,
 }
 
 /// Script settings that affect output but not generation.
@@ -180,8 +183,13 @@ pub fn generate(
     // `average` and `frequency` accumulate over matching deals only, mirroring
     // the CLI. Collected up front so the per-deal loop stays a tight walk.
     let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
-    let mut freqs: Vec<(Option<String>, Expr, HashMap<i32, usize>, Option<(i32, i32)>)> =
-        Vec::new();
+    let mut freqs: Vec<(
+        Option<String>,
+        Expr,
+        HashMap<i32, usize>,
+        Option<(i32, i32)>,
+    )> = Vec::new();
+    let mut printes_specs: Vec<Vec<EsTerm>> = Vec::new();
     for statement in &program.statements {
         if let Statement::Action {
             averages: avg_specs,
@@ -191,16 +199,11 @@ pub fn generate(
             ..
         } = statement
         {
-            // These two write straight to a terminal — `printes` a line per
-            // deal, `print` a paginated hand record with form feeds. There is
-            // nowhere for either to go here, and quietly dropping them would
-            // leave a script looking as though it had run.
-            if !printes.is_empty() {
-                return Err(JsError::new(
-                    "printes(...) is a terminal action and is not available in the browser; \
-                     use the deal output or an average instead",
-                ));
-            }
+            printes_specs.extend(printes.iter().cloned());
+            // `print` is a paginated hand record with form feeds, written for a
+            // line printer. There is nowhere for that to go on a page, and
+            // quietly dropping it would leave a script looking as though it had
+            // run.
             if !print_hands.is_empty() {
                 return Err(JsError::new(
                     "print(...) writes a paginated hand record for a printer and is not \
@@ -270,6 +273,7 @@ pub fn generate(
         FastDealGenerator::new(seed as u64)
     };
     let mut deals = Vec::new();
+    let mut printes_output = String::new();
     let mut generated = 0usize;
     let mut produced = 0usize;
 
@@ -278,9 +282,11 @@ pub fn generate(
         generated += 1;
 
         let matched = match constraint {
-            Some(expr) => eval_with_context_and_counts(expr, &variables, &deal, point_counts)
-                .map_err(|e| JsError::new(&format!("Evaluation error: {}", e)))?
-                != 0,
+            Some(expr) => {
+                eval_with_context_and_counts(expr, &variables, &deal, point_counts)
+                    .map_err(|e| JsError::new(&format!("Evaluation error: {}", e)))?
+                    != 0
+            }
             None => true,
         };
         if !matched {
@@ -299,6 +305,27 @@ pub fn generate(
                 let v = eval(expr, &ctx)
                     .map_err(|e| JsError::new(&format!("Frequency evaluation error: {}", e)))?;
                 *histogram.entry(v).or_insert(0) += 1;
+            }
+        }
+
+        // `printes` writes to a terminal in the CLI; here it is collected and
+        // handed back for the page to show. Capped alongside the deals for the
+        // same reason, and by the same count, so the two stay in step.
+        if !printes_specs.is_empty() && deals.len() < MAX_RETURNED_DEALS {
+            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
+            for terms in &printes_specs {
+                for term in terms {
+                    match term {
+                        EsTerm::String(text) => printes_output.push_str(text),
+                        EsTerm::Newline => printes_output.push('\n'),
+                        EsTerm::Expression(expr) => {
+                            let value = eval(expr, &ctx).map_err(|e| {
+                                JsError::new(&format!("printes evaluation error: {}", e))
+                            })?;
+                            printes_output.push_str(&value.to_string());
+                        }
+                    }
+                }
             }
         }
 
@@ -360,6 +387,7 @@ pub fn generate(
 
     let result = GenerateResult {
         hit_limit: produced < produce && generated >= max_generate,
+        printes: printes_output,
         produced,
         deals,
         generated,

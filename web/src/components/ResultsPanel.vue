@@ -91,7 +91,13 @@
           one-line format.
         </p>
         <DealGrid v-else-if="view === 'grid'" :deals="parsedDeals" />
-        <pre v-else class="deals">{{ result.deals.join('\n') }}</pre>
+        <template v-else>
+          <!-- `printes` is the script's own output. It goes above the deals
+               because that is what it is usually for: a line summarising each
+               deal, which is easier to read as a block than interleaved. -->
+          <pre v-if="result.printes" class="deals printes">{{ result.printes }}</pre>
+          <pre class="deals">{{ result.deals.join('\n') }}</pre>
+        </template>
       </section>
       <p v-else-if="!result.hitLimit" class="results-muted">
         No deals matched the condition.
@@ -218,6 +224,12 @@ const formatValue = formatAverage
 }
 .dl:hover { background: var(--bg-subtle); }
 .dl:disabled { opacity: 0.5; cursor: default; }
+
+.printes {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+  margin-bottom: 12px;
+}
 
 .deals {
   font-family: var(--mono); font-size: 12px; line-height: 1.5;

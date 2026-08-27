@@ -30,9 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `--batch-size` say.
   - `--rnd-seed N` shifts that stream, for a different draw from the same
     deals. Long form only: the short letters are dealer.exe's.
-  - Neither `printes` nor `print` is available in the WebAssembly build — both
-    write to a terminal — and a script using one is refused there rather than
-    quietly running without it.
+  - In the browser, `printes` output appears at the top of the Text view rather
+    than going to a terminal. `print` is refused there: a paginated hand record
+    with form feeds has nowhere to go on a page, and quietly dropping it would
+    leave a script looking as though it had run.
 - `evalcontract` is now reserved in the grammar, so it fails loudly instead of
   being read as an undefined variable that silently matched nothing. The
   original parses it and then aborts on an assertion, so there is nothing to be

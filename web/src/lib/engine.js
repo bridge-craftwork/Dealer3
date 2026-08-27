@@ -61,6 +61,10 @@ export function generate(script, { seed = 1, produce = 20, maxGenerate = 1000000
     hitLimit: raw.hit_limit,
     averages: raw.averages,
     frequencies: raw.frequencies,
+    // Whatever the script's `printes` statements wrote. The CLI sends this to
+    // the terminal interleaved with the deals; here it comes back as one block
+    // for the page to show above them.
+    printes: raw.printes,
     // `deals` is capped by the engine; `produced` counts every match. A script
     // gathering statistics over 50,000 deals returns statistics for all of them
     // and only the first few hundred deals.

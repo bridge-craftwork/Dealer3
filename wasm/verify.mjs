@@ -32,6 +32,11 @@ const CASES = [
     script: 'condition hcp(north) >= 0\naction printoneline,\n  frequency "Narrow" (hcp(north), 11, 13)\n' },
   { name: 'predeal', seed: 5, produce: 4,
     script: 'predeal north SAKQ,HAK\ncondition hcp(south) >= 8\n' },
+  // `printes`, which the CLI writes to a terminal and the bindings return as a
+  // block. Checked with `-q`, which suppresses the CLI's deal output and leaves
+  // only what the script printed itself.
+  { name: 'printes', seed: 17, produce: 5, quiet: true,
+    script: 'condition hcp(north) >= 11\naction printes("N=", hcp(north), " S=", hcp(south), \\n)\n' },
   // Double-dummy, which is the one function whose answer comes from outside
   // the evaluator. Two denominations and a frequency, so it also covers the
   // per-deal memo: the browser and the CLI each have to search once per
@@ -72,6 +77,21 @@ const fail = (c, msg) => { failures++; console.log(`  ✗ ${c}: ${msg}`) }
 for (const c of CASES) {
   const path = join(tmp, `${c.name.replace(/\W+/g, '_')}.dlr`)
   writeFileSync(path, c.script)
+
+  // A `printes` case is compared on what the script printed, not on deals: the
+  // CLI interleaves the two on stdout, so `-q` is what separates them.
+  if (c.quiet) {
+    const printed = execFileSync(CLI,
+      [path, '-s', String(c.seed), '-p', String(c.produce), '-q'],
+      { encoding: 'utf8' })
+    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline')).printes
+    if (printed !== fromWasm) {
+      fail(c.name, `printes differs\n      cli:  ${JSON.stringify(printed)}\n      wasm: ${JSON.stringify(fromWasm)}`)
+    } else {
+      console.log(`  \u2713 ${c.name} (${printed.split('\n').length - 1} lines)`)
+    }
+    continue
+  }
 
   const cli = parseCli(execFileSync(CLI,
     [path, '-s', String(c.seed), '-p', String(c.produce), '-f', 'oneline', '-X'],
