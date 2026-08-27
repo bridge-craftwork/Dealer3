@@ -110,14 +110,6 @@ pub struct WorkItem {
 pub const REMAINING: &[WorkItem] = &[
     // ---- The language, which is where the real gaps are now ---------------
     WorkItem {
-        what: "Allow variables whose name begins with a statement keyword",
-        done_when: None,
-        issue: Some(12),
-        effort: Effort::Low,
-        value: Value::Medium,
-        note: None,
-    },
-    WorkItem {
         what: "Two-dimensional `frequency`",
         done_when: None,
         issue: None,

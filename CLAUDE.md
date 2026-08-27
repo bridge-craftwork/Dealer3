@@ -9,7 +9,7 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 - **Version**: 1.0.0
 - **Last Updated**: 2026-08-26
 - **Switches**: 26 of 36 implemented across the three dealers
-- **Language**: 24 functions under 39 spellings; the remaining gaps are in issues #12 and #13
+- **Language**: 24 functions under 39 spellings; the remaining gap is issue #13
 - **Also shipping**: a WebAssembly build and a browser app at
   https://dealer.bridge-classroom.org, with a generated language reference
 
@@ -146,8 +146,8 @@ EOF
 Compass predeal, CSV export and title metadata are all **done** — this list said
 otherwise for months, which is why the status tables are now generated.
 
-1. BBO strict mode, `--bbo-strict` (#13, low priority)
-2. Variables named like statement keywords (#12)
+The only language issue still open is BBO strict mode, `--bbo-strict` (#13, low
+priority).
 
 Remaining switch gaps are the DealerV2_4-only ones (`-M`, `-Z`, `-U`, `-O`,
 `-D`); see the generated comparison table.
@@ -191,9 +191,8 @@ All located at `/Users/rick/Development/GitHub/`:
 ## Known Issues
 
 Tracked on GitHub rather than listed here, so this file cannot go stale:
-`gh issue list`. The ones worth knowing before touching anything:
-
-- **#12** — variables whose name begins with a statement keyword are rejected.
+`gh issue list`. One piece of history is worth knowing before touching
+anything:
 
 `tricks()` used to take minutes per solve and saturate every core (#14). It now
 goes through `bridge-solver` and takes about ten milliseconds, remembered per

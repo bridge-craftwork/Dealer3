@@ -31,25 +31,28 @@ dealer_statement = {
 }
 
 // Standalone action statements (can appear without "action" keyword)
-average_stmt = { ^"average" ~ string_literal? ~ expr }
-frequency_stmt = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
-print_stmt = { ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline" }
+average_stmt = { &kw_average ~ ^"average" ~ string_literal? ~ expr }
+frequency_stmt = { &kw_frequency ~ ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
+// The parentheses matter: `~` binds tighter than `|`, so without them the
+// guard would cover only the first alternative and `printewFoo` would still
+// be swallowed while `printallQ` was fixed.
+print_stmt = { &kw_print ~ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline") }
 
 // Action block keywords
-condition_stmt = { ^"condition" ~ expr }
-produce_stmt = { ^"produce" ~ literal }
-generate_stmt = { ^"generate" ~ literal }
-action_stmt = { ^"action" ~ (action_component ~ ("," ~ action_component)*)? }
-dealer_stmt = { ^"dealer" ~ compass }
-vulnerable_stmt = { ^"vulnerable" ~ vulnerability }
-predeal_stmt = { ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
-csvrpt_stmt = { ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
+condition_stmt = { &kw_condition ~ ^"condition" ~ expr }
+produce_stmt = { &kw_produce ~ ^"produce" ~ literal }
+generate_stmt = { &kw_generate ~ ^"generate" ~ literal }
+action_stmt = { &kw_action ~ ^"action" ~ (action_component ~ ("," ~ action_component)*)? }
+dealer_stmt = { &kw_dealer ~ ^"dealer" ~ compass }
+vulnerable_stmt = { &kw_vulnerable ~ ^"vulnerable" ~ vulnerability }
+predeal_stmt = { &kw_predeal ~ ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
+csvrpt_stmt = { &kw_csvrpt ~ ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
 // Script-defined point counts. Values run from the ace downwards; ranks not
 // reached score nothing. The count of values is checked when the statement is
 // built rather than here, so the message can say what the limit is.
-pointcount_stmt = { ^"pointcount" ~ literal+ }
-altcount_stmt = { ^"altcount" ~ literal ~ literal+ }
+pointcount_stmt = { &kw_pointcount ~ ^"pointcount" ~ literal+ }
+altcount_stmt = { &kw_altcount ~ ^"altcount" ~ literal ~ literal+ }
 
 // CSV terms for csvrpt
 csv_term = {
@@ -79,8 +82,10 @@ compass = @{
 }
 
 // Vulnerability values
+// The boundary is what stops `vulnerable ewer` being read as `vulnerable ew`
+// with a stray `er` after it, which dealer.exe calls a syntax error.
 vulnerability = @{
-    ^"none" | ^"ns" | ^"ew" | ^"all"
+    (^"none" | ^"ns" | ^"ew" | ^"all") ~ !(ASCII_ALPHANUMERIC | "_")
 }
 
 // Variable assignment - uses assign_ident which allows single letters like s, n, e, w
@@ -223,6 +228,38 @@ predeal_card = @{
 rank = { "A" | "K" | "Q" | "J" | "T" | "9" | "8" | "7" | "6" | "5" | "4" | "3" | "2" }
 suit_char = { "S" | "H" | "D" | "C" }
 
+// A statement keyword, and nothing longer.
+//
+// Each `*_stmt` rule opens with `&kw_x`, a predicate: it checks that the
+// keyword ends here rather than running on into an identifier, consumes
+// nothing and — being a predicate — produces no pair, so `parser.rs` sees the
+// same shape it always did.
+//
+// The boundary cannot go in the statement rule directly. Those rules are not
+// atomic, so pest inserts implicit whitespace between every pair of elements:
+// `dealer ~ !(ALNUM) ~ compass` consumes the space first and then tests the
+// `s` of `south`, rejecting every valid statement. Hence a separate atomic
+// rule, checked ahead of the keyword rather than after it.
+//
+// Without these, a statement rule eats the front of any variable named after
+// it. Some of that was loud — `conditionMet = 1` was a parse error — and some
+// was not: `action` and the `print*` statements take no required argument, so
+// `actionList = 1` parsed as an empty `action` plus an assignment to `List`,
+// and the script then generated ten million deals, matched none, and exited 0.
+kw_condition  = @{ ^"condition"  ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_produce    = @{ ^"produce"    ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_generate   = @{ ^"generate"   ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_action     = @{ ^"action"     ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_dealer     = @{ ^"dealer"     ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_vulnerable = @{ ^"vulnerable" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_predeal    = @{ ^"predeal"    ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_csvrpt     = @{ ^"csvrpt"     ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_pointcount = @{ ^"pointcount" ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_altcount   = @{ ^"altcount"   ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_average    = @{ ^"average"    ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_frequency  = @{ ^"frequency"  ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline") ~ !(ASCII_ALPHANUMERIC | "_") }
+
 // Words that introduce a statement. Kept out of bare-identifier position: a
 // malformed statement otherwise backtracks into `expr` and parses as bare
 // identifiers the evaluator ignores, so `dealer soudfsfd` was silently accepted
@@ -232,10 +269,9 @@ suit_char = { "S" | "H" | "D" | "C" }
 // inserted before the boundary lookahead. The trailing `!(ALNUM | "_")` keeps
 // names like `conditionMet` from matching the bare keyword.
 statement_keyword = @{
-    (^"condition" | ^"produce" | ^"generate" | ^"action" | ^"dealer"
-     | ^"vulnerable" | ^"predeal" | ^"csvrpt" | ^"average" | ^"frequency"
-     | ^"pointcount" | ^"altcount")
-    ~ !(ASCII_ALPHANUMERIC | "_")
+    kw_condition | kw_produce | kw_generate | kw_action | kw_dealer
+    | kw_vulnerable | kw_predeal | kw_csvrpt | kw_average | kw_frequency
+    | kw_pointcount | kw_altcount
 }
 
 // Words the original dealer accepts that dealer3 does not implement.

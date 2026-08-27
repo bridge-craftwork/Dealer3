@@ -201,7 +201,6 @@ tracked by a generated table, so this section is maintained by hand.
 | `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
-| Variables whose name begins with a statement keyword are rejected | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |
 
 ## Variables
 

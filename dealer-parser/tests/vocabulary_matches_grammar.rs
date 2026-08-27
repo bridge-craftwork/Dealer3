@@ -138,6 +138,57 @@ fn statement_keywords_are_all_in_the_grammar() {
     }
 }
 
+/// Every statement rule opens with its `&kw_` guard.
+///
+/// Without one, the rule matches the keyword at the front of a longer name and
+/// eats it — issue #12. Checking the rules rather than the behaviour is what
+/// covers a statement added later: its `*_stmt` rule fails this the moment it
+/// is written, before anyone has to think of the case.
+#[test]
+fn every_statement_rule_is_guarded() {
+    let rules: Vec<&str> = GRAMMAR
+        .lines()
+        .filter_map(|line| line.split_once(" = ").map(|(name, _)| name.trim()))
+        .filter(|name| name.ends_with("_stmt"))
+        .collect();
+    assert!(
+        rules.len() >= 13,
+        "only found {} statement rules, so this check is looking in the wrong place",
+        rules.len()
+    );
+    for rule in rules {
+        let body = rule_body(rule);
+        let opening = body.trim_start_matches('{').trim_start();
+        assert!(
+            opening.starts_with("&kw_"),
+            "`{}` does not open with a keyword guard, so it will match the front of a \
+             variable named after it:\n  {}",
+            rule,
+            opening.lines().next().unwrap_or("")
+        );
+    }
+}
+
+/// And the guards cover exactly the words that can begin a statement.
+#[test]
+fn the_guards_cover_every_statement_keyword_and_action() {
+    // Each guard is one line, which is what lets this read them without
+    // parsing the grammar.
+    let guarded: BTreeSet<String> = GRAMMAR
+        .lines()
+        .filter(|line| line.starts_with("kw_"))
+        .flat_map(literals)
+        .collect();
+    compare(
+        "the statement guards",
+        guarded,
+        as_set(dealer_parser::vocabulary::STATEMENT_KEYWORDS)
+            .into_iter()
+            .chain(as_set(dealer_parser::vocabulary::ACTIONS))
+            .collect(),
+    );
+}
+
 #[test]
 fn logical_words_are_all_in_the_grammar() {
     for w in dealer_parser::vocabulary::LOGICAL_WORDS {

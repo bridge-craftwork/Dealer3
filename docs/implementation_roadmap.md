@@ -285,7 +285,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🟡 Worth it | Allow variables whose name begins with a statement keyword | Low | Medium | [#12](https://github.com/bridge-craftwork/Dealer3/issues/12) |  |
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |

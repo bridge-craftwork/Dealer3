@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A variable may be named after a keyword** — `conditionMet`, `actionList`,
+  `printewFoo`, `produce5`, `dealerN` and the rest (#12). Every statement rule
+  now checks that its keyword ends where it appears to, rather than matching the
+  front of a longer name.
+  - Half of this was a parse error and half of it was silent. `action` and the
+    `print*` statements take no required argument, so `actionList = 1` parsed as
+    an empty `action` plus an assignment to `List`: the script ran to its
+    generate limit, matched nothing and exited 0.
+  - dealer.exe accepts all of these names — its lexer takes the longest token —
+    so this moves toward compatibility, not away.
+- **`vulnerable ewer` is now the syntax error dealer.exe calls it**, rather than
+  being read as `vulnerable ew` with a stray `er` after it. The missing word
+  boundary on the vulnerability values is the same defect from the other side.
+
 ### Added
 - **The original's swapping switches, `-0`, `-2` and `-3`.** One shuffle, several
   deals: `-2` deals each shuffle again with East and West exchanged, `-3` runs
