@@ -103,7 +103,7 @@
       "patterns": [
         {
           "name": "keyword.control.dlr",
-          "match": "\\b(printcompact|printoneline|pointcount|vulnerable|condition|frequency|altcount|generate|printall|printpbn|average|predeal|printew|produce|action|csvrpt|dealer)\\b"
+          "match": "\\b(printcompact|printoneline|pointcount|vulnerable|condition|frequency|altcount|generate|printall|printpbn|average|predeal|printes|printew|produce|action|csvrpt|dealer|print)\\b"
         },
         {
           "name": "keyword.other.condition.dlr",
@@ -111,7 +111,7 @@
         },
         {
           "name": "support.function.dlr",
-          "match": "\\b(controls|diamonds|control|diamond|hascard|quality|hearts|losers|queens|spades|tricks|clubs|heart|jacks|kings|loser|queen|score|shape|spade|trick|aces|cccc|club|hcps|imps|jack|king|tens|top2|top3|top4|top5|ace|c13|hcp|imp|pt0|pt1|pt2|pt3|pt4|pt5|pt6|pt7|pt8|pt9|ten)\\b"
+          "match": "\\b(controls|diamonds|control|diamond|hascard|quality|hearts|losers|queens|spades|tricks|clubs|heart|jacks|kings|loser|queen|score|shape|spade|trick|aces|cccc|club|hcps|imps|jack|king|tens|top2|top3|top4|top5|ace|c13|hcp|imp|pt0|pt1|pt2|pt3|pt4|pt5|pt6|pt7|pt8|pt9|rnd|ten)\\b"
         },
         {
           "name": "constant.language.dlr",

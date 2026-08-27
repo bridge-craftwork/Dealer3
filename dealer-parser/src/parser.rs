@@ -95,6 +95,57 @@ fn check_count_length(values: &[i32]) -> Result<(), ParseError> {
 }
 
 /// Build a statement from pest parse tree
+/// Build a `printes(...)` list from its rule pair.
+fn build_es_terms(pair: pest::iterators::Pair<Rule>) -> Result<Vec<EsTerm>, ParseError> {
+    let mut terms = Vec::new();
+    for term in pair.into_inner() {
+        if term.as_rule() != Rule::es_term {
+            continue;
+        }
+        let inner = term.into_inner().next().ok_or_else(|| ParseError {
+            message: "empty printes term".to_string(),
+        })?;
+        terms.push(match inner.as_rule() {
+            // Kept exactly as written: the original reads no escapes inside
+            // quotes, so what is between them is what gets printed.
+            Rule::string_literal => {
+                let raw = inner.as_str();
+                EsTerm::String(raw[1..raw.len() - 1].to_string())
+            }
+            Rule::newline => EsTerm::Newline,
+            _ => EsTerm::Expression(build_ast(inner)?),
+        });
+    }
+    Ok(terms)
+}
+
+/// Build the seat list of a `print(...)` action.
+fn build_print_hands(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Position>, ParseError> {
+    let mut seats = Vec::new();
+    for compass in pair.into_inner() {
+        if compass.as_rule() != Rule::compass {
+            continue;
+        }
+        let seat = match compass.as_str().to_lowercase().as_str() {
+            "north" | "n" => Position::North,
+            "east" | "e" => Position::East,
+            "south" | "s" => Position::South,
+            "west" | "w" => Position::West,
+            other => {
+                return Err(ParseError {
+                    message: format!("Invalid seat in print(): {}", other),
+                })
+            }
+        };
+        // The original ORs the seats into a bitmask, so naming one twice is
+        // the same as naming it once.
+        if !seats.contains(&seat) {
+            seats.push(seat);
+        }
+    }
+    Ok(seats)
+}
+
 fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     let inner = pair.into_inner().next().unwrap();
 
@@ -121,6 +172,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             let mut averages = Vec::new();
             let mut frequencies = Vec::new();
             let mut format = None;
+            let mut printes = Vec::new();
+            let mut print_hands: Vec<Position> = Vec::new();
 
             // Parse comma-separated action components
             for component in inner.into_inner() {
@@ -188,6 +241,16 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
 
                                 frequencies.push(FrequencySpec { label, expr, range });
                             }
+                            Rule::printes_spec => {
+                                printes.push(build_es_terms(comp_inner)?);
+                            }
+                            Rule::printhands_spec => {
+                                for seat in build_print_hands(comp_inner)? {
+                                    if !print_hands.contains(&seat) {
+                                        print_hands.push(seat);
+                                    }
+                                }
+                            }
                             Rule::action_type => {
                                 let action_type = ActionType::parse(comp_inner.as_str())
                                     .ok_or_else(|| ParseError {
@@ -220,6 +283,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 averages,
                 frequencies,
                 format,
+                printes,
+                print_hands,
             })
         }
         Rule::dealer_stmt => {
@@ -391,6 +456,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 averages: vec![AverageSpec { label, expr }],
                 frequencies: Vec::new(),
                 format: None,
+                printes: Vec::new(),
+                print_hands: Vec::new(),
             })
         }
         Rule::frequency_stmt => {
@@ -436,6 +503,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                     range: Some((min, max)),
                 }],
                 format: None,
+                printes: Vec::new(),
+                print_hands: Vec::new(),
             })
         }
         Rule::print_stmt => {
@@ -447,6 +516,32 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 averages: Vec::new(),
                 frequencies: Vec::new(),
                 format: Some(action_type),
+                printes: Vec::new(),
+                print_hands: Vec::new(),
+            })
+        }
+        Rule::printes_stmt => {
+            let spec = inner.into_inner().next().ok_or_else(|| ParseError {
+                message: "printes with no list".to_string(),
+            })?;
+            Ok(Statement::Action {
+                averages: Vec::new(),
+                frequencies: Vec::new(),
+                format: None,
+                printes: vec![build_es_terms(spec)?],
+                print_hands: Vec::new(),
+            })
+        }
+        Rule::printhands_stmt => {
+            let spec = inner.into_inner().next().ok_or_else(|| ParseError {
+                message: "print with no seats".to_string(),
+            })?;
+            Ok(Statement::Action {
+                averages: Vec::new(),
+                frequencies: Vec::new(),
+                format: None,
+                printes: Vec::new(),
+                print_hands: build_print_hands(spec)?,
             })
         }
         Rule::assignment => {
@@ -1285,6 +1380,7 @@ mod tests {
                 averages,
                 frequencies,
                 format,
+                ..
             } => {
                 assert!(averages.is_empty());
                 assert!(frequencies.is_empty());

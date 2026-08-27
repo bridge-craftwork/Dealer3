@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The last three words of the original's language: `print`, `printes` and
+  `rnd`** (#15). All three were reserved and refused; all three now work, and
+  their output is byte-identical to dealer.exe's on the same deal.
+  - `printes(<expression> | "string" | \n, ...)` prints a line of your own per
+    matching deal. Nothing is added between terms and no line ends unless you
+    ask for one — and a line ending is a bare `\n` in the list, not an escape
+    inside a string, because the original's lexer reads no escapes between
+    quotes. Verified against the reference binary rather than inferred.
+  - `print(<compass>, ...)` lays a seat's hands out at the end of the run, four
+    boards to a line-printer page, spades down to clubs, a form feed after each
+    seat. Seats come out north, east, south, west whatever order they are named
+    in, as in the original.
+  - `rnd(bound)` gives a random number in `0..bound`. **It draws from a stream
+    of its own, seeded from the deal**, rather than from the generator dealer3
+    shuffles with. The original shares one generator, so calling `rnd()` there
+    changes which deals come out; that is an artefact of having one generator,
+    and copying it here is not possible anyway, since deals are worked out in
+    parallel and a shared stream would make output depend on thread scheduling.
+    As it is, the same seed gives the same answers whatever `-R` or
+    `--batch-size` say.
+  - `--rnd-seed N` shifts that stream, for a different draw from the same
+    deals. Long form only: the short letters are dealer.exe's.
+  - Neither `printes` nor `print` is available in the WebAssembly build — both
+    write to a terminal — and a script using one is refused there rather than
+    quietly running without it.
+- `evalcontract` is now reserved in the grammar, so it fails loudly instead of
+  being read as an undefined variable that silently matched nothing. The
+  original parses it and then aborts on an assertion, so there is nothing to be
+  compatible with.
+
 ### Fixed
 - **A variable may be named after a keyword** — `conditionMet`, `actionList`,
   `printewFoo`, `produce5`, `dealerN` and the rest (#12). Every statement rule

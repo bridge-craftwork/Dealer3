@@ -25,6 +25,10 @@ pub enum Statement {
         averages: Vec<AverageSpec>,
         frequencies: Vec<FrequencySpec>,
         format: Option<ActionType>,
+        /// `printes(...)` lists, printed per deal in the order written.
+        printes: Vec<Vec<EsTerm>>,
+        /// Seats named by `print(...)`, whose hands are laid out at the end.
+        print_hands: Vec<Position>,
     },
     /// Dealer statement: dealer N/E/S/W
     Dealer(Position),
@@ -47,6 +51,21 @@ pub enum Statement {
     /// index — row 0 is `hcp` and row 1 is `controls`, so `altcount 2` is what
     /// sets `pt0`. Verified against dealer.exe.
     AltCount { row: usize, values: Vec<i32> },
+}
+
+/// An item in a `printes(...)` list.
+///
+/// The original prints expressions with `%d` and strings exactly as written,
+/// with nothing in between — so the script supplies its own separators, and a
+/// line ending is a `Newline` item rather than an escape inside a string.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EsTerm {
+    /// An expression, printed as a decimal integer.
+    Expression(Expr),
+    /// A string literal, printed exactly as written.
+    String(String),
+    /// A bare `\n` in the list, which the original lexes as its own token.
+    Newline,
 }
 
 /// A single term in a CSV report
@@ -345,6 +364,12 @@ pub enum Function {
     Score,
     /// Convert score difference to IMPs
     Imps,
+    /// A random number below the given bound
+    ///
+    /// The original draws this from the same generator it shuffles with, so
+    /// calling it changes which deals come out. dealer3 keeps the two apart —
+    /// see the evaluator.
+    Rnd,
 }
 
 impl Function {
@@ -375,6 +400,7 @@ impl Function {
             "tricks" | "trick" => Some(Function::Tricks),
             "score" => Some(Function::Score),
             "imps" | "imp" => Some(Function::Imps),
+            "rnd" => Some(Function::Rnd),
             _ => None,
         }
     }

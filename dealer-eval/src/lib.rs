@@ -1,4 +1,5 @@
 pub mod counts;
+pub mod rnd;
 
 pub use counts::{CountError, CountRow, PointCounts};
 
@@ -317,6 +318,12 @@ pub struct EvalContext<'a> {
     /// Keys are &str references to avoid String cloning on cache insert
     /// FxHashMap uses a faster (non-cryptographic) hash function
     cache: RefCell<FxHashMap<&'a str, i32>>,
+    /// The stream `rnd()` draws from, seeded from the deal on first use.
+    ///
+    /// One per context rather than one per deal, so a `rnd()` in a `condition`
+    /// and a `rnd()` in an `average` are separate draws — which is also what
+    /// the original does, since it evaluates them as separate calls.
+    rnd: RefCell<Option<dealer_core::rng::Xoshiro256PlusPlus>>,
     /// Point counts a script redefined with `pointcount` or `altcount`.
     ///
     /// `None` is the ordinary case — no script in the 1,076-script corpus uses
@@ -336,6 +343,7 @@ impl<'a> EvalContext<'a> {
             deal,
             variables: &EMPTY_VARIABLES,
             cache: RefCell::new(FxHashMap::default()),
+            rnd: RefCell::new(None),
             counts: None,
         }
     }
@@ -346,8 +354,24 @@ impl<'a> EvalContext<'a> {
             deal,
             variables,
             cache: RefCell::new(FxHashMap::default()),
+            rnd: RefCell::new(None),
             counts: None,
         }
+    }
+
+    /// The next number below `bound` from this context's `rnd()` stream.
+    ///
+    /// A bound of zero or less has no numbers below it; the original computes
+    /// `bound * random() / (RAND_MAX + 1)` and lands on zero, so zero it is.
+    pub fn next_random(&self, bound: i32) -> i32 {
+        if bound <= 0 {
+            return 0;
+        }
+        let mut stream = self.rnd.borrow_mut();
+        let stream = stream.get_or_insert_with(|| {
+            dealer_core::rng::Xoshiro256PlusPlus::seed_from_u64(rnd::seed_for(self.deal))
+        });
+        stream.next_index(bound as u32) as i32
     }
 
     /// A context whose counts a script has redefined.
@@ -364,6 +388,7 @@ impl<'a> EvalContext<'a> {
             deal,
             variables,
             cache: RefCell::new(FxHashMap::default()),
+            rnd: RefCell::new(None),
             counts,
         }
     }
@@ -1228,6 +1253,19 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             };
 
             Ok(calculate_score(vulnerable, &contract, tricks as u8))
+        }
+
+        Function::Rnd => {
+            // rnd(bound) - a random number in 0..bound, drawn from a stream of
+            // this deal's own rather than from the shuffle. See `rnd`.
+            if args.len() != 1 {
+                return Err(EvalError::InvalidArgumentCount {
+                    function: "rnd".to_string(),
+                    expected: 1,
+                    got: args.len(),
+                });
+            }
+            Ok(ctx.next_random(eval(&args[0], ctx)?))
         }
 
         Function::Imps => {

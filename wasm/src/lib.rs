@@ -186,9 +186,27 @@ pub fn generate(
         if let Statement::Action {
             averages: avg_specs,
             frequencies: freq_specs,
+            printes,
+            print_hands,
             ..
         } = statement
         {
+            // These two write straight to a terminal — `printes` a line per
+            // deal, `print` a paginated hand record with form feeds. There is
+            // nowhere for either to go here, and quietly dropping them would
+            // leave a script looking as though it had run.
+            if !printes.is_empty() {
+                return Err(JsError::new(
+                    "printes(...) is a terminal action and is not available in the browser; \
+                     use the deal output or an average instead",
+                ));
+            }
+            if !print_hands.is_empty() {
+                return Err(JsError::new(
+                    "print(...) writes a paginated hand record for a printer and is not \
+                     available in the browser",
+                ));
+            }
             for a in avg_specs {
                 averages.push((a.label.clone(), a.expr.clone(), 0.0, 0));
             }

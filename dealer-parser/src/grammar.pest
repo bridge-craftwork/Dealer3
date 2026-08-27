@@ -25,6 +25,8 @@ dealer_statement = {
     | altcount_stmt
     | average_stmt
     | frequency_stmt
+    | printes_stmt
+    | printhands_stmt
     | print_stmt
     | assignment
     | expr
@@ -48,6 +50,11 @@ vulnerable_stmt = { &kw_vulnerable ~ ^"vulnerable" ~ vulnerability }
 predeal_stmt = { &kw_predeal ~ ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { &kw_csvrpt ~ ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
+// printes(expr | string, ...) - the original's formatted per-deal output.
+printes_stmt = { &kw_printes ~ printes_spec }
+// print(compass, ...) - hand records for the named seats, four to a page.
+printhands_stmt = { &kw_print ~ printhands_spec }
+
 // Script-defined point counts. Values run from the ace downwards; ranks not
 // reached score nothing. The count of values is checked when the statement is
 // built rather than here, so the message can say what the limit is.
@@ -66,10 +73,20 @@ csv_term = {
 side = @{ ^"ns" | ^"ew" }
 
 // Action components (can be comma-separated)
-action_component = { average_spec | frequency_spec | action_type }
+action_component = { average_spec | frequency_spec | printes_spec | printhands_spec | action_type }
 average_spec = { ^"average" ~ string_literal? ~ expr }
 // frequency "label" (expr, min, max) - parentheses with commas
 frequency_spec = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
+
+printes_spec = { ^"printes" ~ "(" ~ es_term ~ ("," ~ es_term)* ~ ")" }
+printhands_spec = { ^"print" ~ "(" ~ compass ~ ("," ~ compass)* ~ ")" }
+
+// A `printes` item. `newline` is a token in its own right, because the
+// original's lexer does not read escapes inside quotes: `"\n"` there is a
+// backslash and an `n`, and a real newline is written as a bare `\n` in the
+// list. Verified against the reference binary rather than assumed.
+es_term = { string_literal | newline | expr }
+newline = @{ "\\n" }
 
 action_type = @{
     ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
@@ -163,6 +180,7 @@ function_name = @{
     | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
     | "tricks" | "trick"
     | "imps" | "imp"
+    | "rnd"
     | "hearts" | "heart"
     | "spades" | "spade"
     | "diamonds" | "diamond"
@@ -258,7 +276,8 @@ kw_pointcount = @{ ^"pointcount" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_altcount   = @{ ^"altcount"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_average    = @{ ^"average"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_frequency  = @{ ^"frequency"  ~ !(ASCII_ALPHANUMERIC | "_") }
-kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline") ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_printes    = @{ ^"printes"    ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline" | ^"print") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // Words that introduce a statement. Kept out of bare-identifier position: a
 // malformed statement otherwise backtracks into `expr` and parses as bare
@@ -271,7 +290,7 @@ kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^
 statement_keyword = @{
     kw_condition | kw_produce | kw_generate | kw_action | kw_dealer
     | kw_vulnerable | kw_predeal | kw_csvrpt | kw_average | kw_frequency
-    | kw_pointcount | kw_altcount
+    | kw_pointcount | kw_altcount | kw_printes | kw_print
 }
 
 // Words the original dealer accepts that dealer3 does not implement.
@@ -288,7 +307,7 @@ statement_keyword = @{
 //
 // Held to `vocabulary::NOT_SUPPORTED` by tests/vocabulary_matches_grammar.rs.
 reserved_unsupported = @{
-    (^"printes" | ^"print" | ^"rnd")
+    (^"evalcontract")
     ~ !(ASCII_ALPHANUMERIC | "_")
 }
 

@@ -132,6 +132,18 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         note: None,
     },
     SwitchRow {
+        short: "",
+        long: "--rnd-seed",
+        group: "Generation",
+        what: "Shift the stream `rnd()` draws from",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "`rnd()` is reproducible without it. The original draws from the generator it \
+             shuffles with, so calling it there changes the deals; dealer3 keeps the two apart.",
+        ),
+    },
+    SwitchRow {
         short: "-0",
         long: "",
         group: "Generation",

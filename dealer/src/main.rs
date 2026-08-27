@@ -12,7 +12,7 @@ mod roadmap;
 mod switches;
 
 use clap::Parser;
-use dealer_core::{Deal, FastDealConfig, Position, SwapMode};
+use dealer_core::{Deal, FastDealConfig, Position, Suit, SwapMode};
 use dealer_eval::{
     eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
     extract_variables, EvalContext,
@@ -121,6 +121,15 @@ struct Args {
     /// every expected deal was read.
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
+
+    /// Seed for `rnd()`, which draws from its own stream rather than the shuffle
+    ///
+    /// Long form only: the short letters are dealer.exe's and are not ours to
+    /// take. Without it, `rnd()` still gives the same answers for the same
+    /// deals every run — this shifts the stream when a script wants a different
+    /// draw from the same deals.
+    #[arg(long = "rnd-seed", value_name = "SEED", default_value = "0")]
+    rnd_seed: u64,
 
     /// No swapping (default)
     #[arg(short = '0', overrides_with_all = ["swap_two", "swap_three"])]
@@ -264,6 +273,55 @@ impl From<VulnerabilityArg> for Vulnerability {
             VulnerabilityArg::All => Vulnerability::All,
         }
     }
+}
+
+/// Lay out one seat's hands the way the original's `print(...)` action does.
+///
+/// Four boards to a line-printer page, twenty columns each, spades down to
+/// clubs, a form feed at the end. The layout is copied from `printhands` in
+/// dealer.c and checked against the reference binary byte for byte — including
+/// the trailing space after every card, and the `-` a void prints.
+fn format_print_hands(deals: &[Deal], seat: Position) -> String {
+    let name = match seat {
+        Position::North => "North",
+        Position::East => "East",
+        Position::South => "South",
+        Position::West => "West",
+    };
+    let mut out = format!("\n\n{} hands:\n\n\n\n", name);
+    for (page, group) in deals.chunks(4).enumerate() {
+        for i in 0..group.len() {
+            out.push_str(&format!("{:4}.{:15}", page * 4 + i + 1, ""));
+        }
+        out.push('\n');
+        for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
+            // Each column is ten card slots wide. The original pads the
+            // *previous* hand out to ten before starting the next, which is
+            // why the last column on a line is never padded.
+            let mut cards = 10;
+            for deal in group {
+                for _ in cards..10 {
+                    out.push_str("  ");
+                }
+                cards = 0;
+                let mut in_suit = deal.hand(seat).cards_in_suit(suit);
+                in_suit.sort_by_key(|card| std::cmp::Reverse(card.rank));
+                for card in &in_suit {
+                    out.push(card.rank.to_char());
+                    out.push(' ');
+                    cards += 1;
+                }
+                if cards == 0 {
+                    out.push_str("- ");
+                    cards = 1;
+                }
+            }
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+    out.push('\x0c');
+    out
 }
 
 /// Name a set of seats for a message: "East and West", "East, South and West".
@@ -601,8 +659,12 @@ fn main() {
     )> = Vec::new();
 
     // Track CSV report statements
-    use dealer_parser::{CsvTerm, Side};
+    use dealer_parser::{CsvTerm, EsTerm, Side};
     let mut csv_reports: Vec<Vec<CsvTerm>> = Vec::new();
+    // `printes(...)` lists, printed per matching deal in the order written.
+    let mut printes_reports: Vec<Vec<EsTerm>> = Vec::new();
+    // Seats named by `print(...)`, whose hands are laid out once at the end.
+    let mut print_hand_seats: Vec<Position> = Vec::new();
 
     for statement in &program.statements {
         match statement {
@@ -612,6 +674,8 @@ fn main() {
                 averages: avg_specs,
                 frequencies: freq_specs,
                 format: action_format,
+                printes: printes_specs,
+                print_hands,
             } => {
                 // Extract format if present
                 if let Some(action_type) = action_format {
@@ -635,6 +699,12 @@ fn main() {
                         HashMap::new(),
                         freq_spec.range,
                     ));
+                }
+                printes_reports.extend(printes_specs.iter().cloned());
+                for seat in print_hands {
+                    if !print_hand_seats.contains(seat) {
+                        print_hand_seats.push(*seat);
+                    }
                 }
             }
             Statement::Dealer(pos) => {
@@ -708,6 +778,8 @@ fn main() {
 
     // Start timing
     let start_time = SystemTime::now();
+
+    dealer_eval::rnd::set_seed(args.rnd_seed);
 
     // How many deals each shuffle turns into. The three switches override one
     // another, so the last one written wins, as it does under getopt.
@@ -867,6 +939,11 @@ fn main() {
     let mut produced = 0;
     let mut generated: usize = 0;
 
+    // `print(...)` lays its hands out at the end, four boards to a page, so it
+    // is the one action that needs every produced deal kept. Nothing is kept
+    // unless a script asks for it.
+    let mut printed_deals: Vec<Deal> = Vec::new();
+
     // Verbose flag for stats output (matches dealer.exe behavior)
     // Default is true (stats shown), -v toggles it off
     // -X forces stats on (cannot be toggled off)
@@ -883,136 +960,160 @@ fn main() {
 
     // Helper closure to process a matching deal (averages, frequencies, output, CSV)
     #[allow(clippy::type_complexity)]
-    let process_matching_deal =
-        |deal: &Deal,
-         produced: usize,
-         averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
-         frequencies: &mut Vec<(
-            Option<String>,
-            Expr,
-            HashMap<i32, usize>,
-            Option<(i32, i32)>,
-        )>,
-         csv_writer: &mut Option<BufWriter<std::fs::File>>| {
-            // Calculate averages for this matching deal
-            if !averages.is_empty() || !frequencies.is_empty() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+    let process_matching_deal = |deal: &Deal,
+                                 produced: usize,
+                                 averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
+                                 frequencies: &mut Vec<(
+        Option<String>,
+        Expr,
+        HashMap<i32, usize>,
+        Option<(i32, i32)>,
+    )>,
+                                 csv_writer: &mut Option<BufWriter<std::fs::File>>,
+                                 printed_deals: &mut Vec<Deal>| {
+        if !print_hand_seats.is_empty() {
+            printed_deals.push(deal.clone());
+        }
+        // Calculate averages for this matching deal
+        if !averages.is_empty() || !frequencies.is_empty() {
+            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
-                for (_, expr, sum, count) in averages.iter_mut() {
-                    match eval(expr, &ctx) {
-                        Ok(val) => {
-                            *sum += val as f64;
-                            *count += 1;
-                        }
-                        Err(e) => {
-                            eprintln!("Average evaluation error: {}", e);
-                            std::process::exit(1);
-                        }
+            for (_, expr, sum, count) in averages.iter_mut() {
+                match eval(expr, &ctx) {
+                    Ok(val) => {
+                        *sum += val as f64;
+                        *count += 1;
                     }
-                }
-
-                // Calculate frequencies for this matching deal
-                for (_, expr, histogram, _) in frequencies.iter_mut() {
-                    match eval(expr, &ctx) {
-                        Ok(val) => {
-                            *histogram.entry(val).or_insert(0) += 1;
-                        }
-                        Err(e) => {
-                            eprintln!("Frequency evaluation error: {}", e);
-                            std::process::exit(1);
-                        }
+                    Err(e) => {
+                        eprintln!("Average evaluation error: {}", e);
+                        std::process::exit(1);
                     }
                 }
             }
 
-            // In quiet mode, don't print deals (only statistics)
-            if !args.quiet {
-                let output = match output_format {
-                    OutputFormat::PrintAll => format_printall(deal, produced),
-                    OutputFormat::PrintEW => format_printew(deal),
-                    OutputFormat::PrintPBN => {
-                        let dealer_pos = dealer_position.map(|d| d.into());
-                        let vuln = vulnerability.map(|v| v.into());
-                        let event_name = args.title.as_deref();
-                        let input_file = args.input_file.as_deref();
-                        format_printpbn(
-                            deal,
-                            produced,
-                            dealer_pos,
-                            vuln,
-                            event_name,
-                            Some(seed),
-                            input_file,
-                        )
+            // Calculate frequencies for this matching deal
+            for (_, expr, histogram, _) in frequencies.iter_mut() {
+                match eval(expr, &ctx) {
+                    Ok(val) => {
+                        *histogram.entry(val).or_insert(0) += 1;
                     }
-                    OutputFormat::PrintCompact => format_printcompact(deal),
-                    OutputFormat::PrintOneLine => format_oneline(deal),
-                };
-                print!("{}", output);
-            }
-
-            // Write CSV reports if any
-            if !csv_reports.is_empty() && csv_writer.is_some() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-
-                for csv_terms in &csv_reports {
-                    let mut line_parts: Vec<String> = Vec::new();
-
-                    for term in csv_terms {
-                        match term {
-                            CsvTerm::Expression(expr) => match eval(expr, &ctx) {
-                                Ok(val) => line_parts.push(val.to_string()),
-                                Err(e) => {
-                                    eprintln!("CSV evaluation error: {}", e);
-                                    std::process::exit(1);
-                                }
-                            },
-                            CsvTerm::String(s) => {
-                                line_parts.push(format!("'{}'", s));
-                            }
-                            CsvTerm::Compass(pos) => {
-                                let hand = deal.hand(*pos);
-                                line_parts.push(format_hand_pbn(hand));
-                            }
-                            CsvTerm::Side(side) => {
-                                let (pos1, pos2) = match side {
-                                    Side::NS => (Position::North, Position::South),
-                                    Side::EW => (Position::East, Position::West),
-                                };
-                                let hand1 = deal.hand(pos1);
-                                let hand2 = deal.hand(pos2);
-                                line_parts.push(format!(
-                                    "{} {}",
-                                    format_hand_pbn(hand1),
-                                    format_hand_pbn(hand2)
-                                ));
-                            }
-                            CsvTerm::Deal => {
-                                let n = deal.hand(Position::North);
-                                let e = deal.hand(Position::East);
-                                let s = deal.hand(Position::South);
-                                let w = deal.hand(Position::West);
-                                line_parts.push(format!(
-                                    "{} {} {} {}",
-                                    format_hand_pbn(n),
-                                    format_hand_pbn(e),
-                                    format_hand_pbn(s),
-                                    format_hand_pbn(w)
-                                ));
-                            }
-                        }
-                    }
-
-                    // Write line with space before first item, commas between items
-                    if let Some(writer) = csv_writer.as_mut() {
-                        writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
-                            eprintln!("CSV write error: {}", e);
-                            std::process::exit(1);
-                        });
+                    Err(e) => {
+                        eprintln!("Frequency evaluation error: {}", e);
+                        std::process::exit(1);
                     }
                 }
             }
-        };
+        }
+
+        // printes: the script's own formatted output, with nothing added
+        // between terms and no line ending unless the script asked for one.
+        if !printes_reports.is_empty() {
+            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+            for terms in &printes_reports {
+                for term in terms {
+                    match term {
+                        EsTerm::String(text) => print!("{}", text),
+                        EsTerm::Newline => println!(),
+                        EsTerm::Expression(expr) => match eval(expr, &ctx) {
+                            Ok(value) => print!("{}", value),
+                            Err(e) => {
+                                eprintln!("printes evaluation error: {}", e);
+                                std::process::exit(1);
+                            }
+                        },
+                    }
+                }
+            }
+        }
+
+        // In quiet mode, don't print deals (only statistics)
+        if !args.quiet {
+            let output = match output_format {
+                OutputFormat::PrintAll => format_printall(deal, produced),
+                OutputFormat::PrintEW => format_printew(deal),
+                OutputFormat::PrintPBN => {
+                    let dealer_pos = dealer_position.map(|d| d.into());
+                    let vuln = vulnerability.map(|v| v.into());
+                    let event_name = args.title.as_deref();
+                    let input_file = args.input_file.as_deref();
+                    format_printpbn(
+                        deal,
+                        produced,
+                        dealer_pos,
+                        vuln,
+                        event_name,
+                        Some(seed),
+                        input_file,
+                    )
+                }
+                OutputFormat::PrintCompact => format_printcompact(deal),
+                OutputFormat::PrintOneLine => format_oneline(deal),
+            };
+            print!("{}", output);
+        }
+
+        // Write CSV reports if any
+        if !csv_reports.is_empty() && csv_writer.is_some() {
+            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+
+            for csv_terms in &csv_reports {
+                let mut line_parts: Vec<String> = Vec::new();
+
+                for term in csv_terms {
+                    match term {
+                        CsvTerm::Expression(expr) => match eval(expr, &ctx) {
+                            Ok(val) => line_parts.push(val.to_string()),
+                            Err(e) => {
+                                eprintln!("CSV evaluation error: {}", e);
+                                std::process::exit(1);
+                            }
+                        },
+                        CsvTerm::String(s) => {
+                            line_parts.push(format!("'{}'", s));
+                        }
+                        CsvTerm::Compass(pos) => {
+                            let hand = deal.hand(*pos);
+                            line_parts.push(format_hand_pbn(hand));
+                        }
+                        CsvTerm::Side(side) => {
+                            let (pos1, pos2) = match side {
+                                Side::NS => (Position::North, Position::South),
+                                Side::EW => (Position::East, Position::West),
+                            };
+                            let hand1 = deal.hand(pos1);
+                            let hand2 = deal.hand(pos2);
+                            line_parts.push(format!(
+                                "{} {}",
+                                format_hand_pbn(hand1),
+                                format_hand_pbn(hand2)
+                            ));
+                        }
+                        CsvTerm::Deal => {
+                            let n = deal.hand(Position::North);
+                            let e = deal.hand(Position::East);
+                            let s = deal.hand(Position::South);
+                            let w = deal.hand(Position::West);
+                            line_parts.push(format!(
+                                "{} {} {} {}",
+                                format_hand_pbn(n),
+                                format_hand_pbn(e),
+                                format_hand_pbn(s),
+                                format_hand_pbn(w)
+                            ));
+                        }
+                    }
+                }
+
+                // Write line with space before first item, commas between items
+                if let Some(writer) = csv_writer.as_mut() {
+                    writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
+                        eprintln!("CSV write error: {}", e);
+                        std::process::exit(1);
+                    });
+                }
+            }
+        }
+    };
 
     // Choose execution mode: input-deals, legacy, or fast (parallel)
     if let Some(ref input_deals_source) = args.input_deals {
@@ -1107,6 +1208,7 @@ fn main() {
                         &mut averages,
                         &mut frequencies,
                         &mut csv_writer,
+                        &mut printed_deals,
                     );
                     produced += 1;
                     if produced >= produce_count {
@@ -1218,6 +1320,7 @@ fn main() {
                         &mut averages,
                         &mut frequencies,
                         &mut csv_writer,
+                        &mut printed_deals,
                     );
                     produced += 1;
 
@@ -1235,6 +1338,17 @@ fn main() {
     // Calculate elapsed time
     let elapsed = start_time.elapsed().unwrap();
     let elapsed_secs = elapsed.as_secs_f64();
+
+    // `print(...)` output, before the statistics as in the original. Seats come
+    // out north, east, south, west whatever order the script named them, since
+    // the original collects them into a bitmask.
+    if !print_hand_seats.is_empty() && !printed_deals.is_empty() {
+        for seat in Position::ALL {
+            if print_hand_seats.contains(&seat) {
+                print!("{}", format_print_hands(&printed_deals, seat));
+            }
+        }
+    }
 
     // Print averages if any were requested (format matches dealer.exe %g format)
     // dealer.exe outputs averages to stdout without any prefix

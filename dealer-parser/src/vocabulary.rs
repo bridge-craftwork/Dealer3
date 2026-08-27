@@ -28,7 +28,7 @@ pub const FUNCTIONS: &[&str] = &[
     "top3", "top4", "top5", "c13", // Indexed point counts
     "pt0", "pt1", "pt2", "pt3", "pt4", "pt5", "pt6", "pt7", "pt8", "pt9",
     // Double-dummy and scoring
-    "tricks", "trick", "score", "imps", "imp",
+    "tricks", "trick", "score", "imps", "imp", "rnd",
 ];
 
 /// Statement keywords that introduce a directive.
@@ -45,6 +45,8 @@ pub const STATEMENT_KEYWORDS: &[&str] = &[
     "altcount",
     "average",
     "frequency",
+    "printes",
+    "print",
 ];
 
 /// Output actions, valid inside `action` or standalone.
@@ -600,6 +602,21 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         alias_of: None,
         note: None,
     },
+    FunctionDoc {
+        name: "rnd",
+        group: "Double-dummy and scoring",
+        signature: "rnd(bound)",
+        summary: "A random whole number from zero up to, but not including, the bound.",
+        example: "rnd(10) == 3",
+        alias_of: None,
+        note: Some(
+            "Drawn from a stream of its own, seeded from the deal, so the same seed gives the \
+             same answers however many threads are running. The original draws from the \
+             generator it shuffles with, which means calling it there changes the deals; that \
+             is an artefact of having one generator, not something to reproduce. `--rnd-seed` \
+             shifts the stream.",
+        ),
+    },
 ];
 
 /// One operator, and how tightly it binds.
@@ -824,6 +841,29 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
         note: Some("With no `action`, the deals are printed."),
     },
     StatementDoc {
+        keyword: Some("printes"),
+        form: "printes(<expression> | \"string\" | \\n, ...)",
+        summary: "Print a line of your own for each matching deal, from expressions and \
+                  literal text.",
+        example: "printes(\"N=\", hcp(north), \\n)",
+        note: Some(
+            "Nothing is added between terms and no line ends unless you ask for one. A line \
+             ending is a bare `\\n` in the list, not an escape inside a string: the original's \
+             lexer reads no escapes between quotes, so \"\\n\" there is a backslash and an `n`.",
+        ),
+    },
+    StatementDoc {
+        keyword: Some("print"),
+        form: "print(<compass>, ...)",
+        summary: "Lay out one seat's hands at the end of the run, four boards to a page.",
+        example: "print(north)",
+        note: Some(
+            "A line-printer format from the original: twenty columns a board, spades down to \
+             clubs, a form feed after each seat. Seats come out north, east, south, west \
+             whatever order they are named in.",
+        ),
+    },
+    StatementDoc {
         keyword: Some("average"),
         form: "average [\"label\"] <expression>",
         summary: "Report the mean of the expression over the deals that matched.",
@@ -981,20 +1021,11 @@ pub struct NotSupported {
 /// `tests/vocabulary_matches_grammar.rs` fails if the list and the grammar's
 /// `reserved_unsupported` rule disagree — so implementing one means taking it
 /// out of both, and the language reference stops mentioning it automatically.
-pub const NOT_SUPPORTED: &[NotSupported] = &[
-    NotSupported {
-        name: "print",
-        instead: "Use `printall`, or one of the other print actions.",
-    },
-    NotSupported {
-        name: "printes",
-        instead: "There is no expression-printing action; use `average` or `csvrpt`.",
-    },
-    NotSupported {
-        name: "rnd",
-        instead: "There is no random function inside the language.",
-    },
-];
+pub const NOT_SUPPORTED: &[NotSupported] = &[NotSupported {
+    name: "evalcontract",
+    instead: "The original parses it and then aborts on an assertion, so there is \
+                  nothing to be compatible with. Use `score` and `tricks`.",
+}];
 
 /// Every reserved word, for "is this an identifier or a keyword" checks.
 pub fn all_reserved() -> Vec<&'static str> {

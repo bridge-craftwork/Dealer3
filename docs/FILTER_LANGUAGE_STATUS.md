@@ -35,7 +35,7 @@ for the same predealt deal.
 
 <!-- BEGIN GENERATED: functions -->
 
-**24 functions**, under 48 spellings — the extra 24 are alternative names, listed with the function they stand for.
+**25 functions**, under 49 spellings — the extra 24 are alternative names, listed with the function they stand for.
 
 ### Hand evaluation
 
@@ -115,6 +115,8 @@ for the same predealt deal.
 | `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
 | | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
 | `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
+| `rnd(bound)` | A random whole number from zero up to, but not including, the bound. | `rnd(10) == 3` |
+| | Drawn from a stream of its own, seeded from the deal, so the same seed gives the same answers however many threads are running. The original draws from the generator it shuffles with, which means calling it there changes the deals; that is an artefact of having one generator, not something to reproduce. `--rnd-seed` shifts the stream. | |
 <!-- END GENERATED: functions -->
 
 ## Operators
@@ -154,6 +156,8 @@ Tightest binding first. Operators sharing a level are applied left to right.
 | `produce <number>` | Stop once this many deals have matched. | `produce 25` |
 | `generate <number>` | Stop after dealing this many hands, however few matched. | `generate 100000` |
 | `action <action>, <action>, ...` | What to do with each matching deal: a print format, and any averages or frequencies to accumulate. | `action printoneline, average "hcp" hcp(north)` |
+| `printes(<expression> \| "string" \| \n, ...)` | Print a line of your own for each matching deal, from expressions and literal text. | `printes("N=", hcp(north), \n)` |
+| `print(<compass>, ...)` | Lay out one seat's hands at the end of the run, four boards to a page. | `print(north)` |
 | `average ["label"] <expression>` | Report the mean of the expression over the deals that matched. | `average "north hcp" hcp(north)` |
 | `frequency ["label"] (<expression>, <low>, <high>)` | Report a histogram of the expression over the deals that matched, counting from low to high inclusive. | `frequency "north hcp" (hcp(north), 10, 20)` |
 | `pointcount <value> <value> ...` | Re-scale the high card points. Values run from the ace downwards, and ranks not reached score nothing. | `pointcount 6 4 2 1` |
@@ -180,15 +184,17 @@ Tightest binding first. Operators sharing a level are applied left to right.
 
 Words the original dealer accepts that dealer3 does not. Each is **reserved in
 the grammar**, so using one is a syntax error rather than something that quietly
-changes what a script means — see the note on #15 below.
+changes what a script means.
+
+There is one left. `print`, `printes` and `rnd` were on this list until they
+were implemented; `evalcontract` is here because the original parses it and then
+fails an assertion, so there is no behaviour to be compatible with.
 
 <!-- BEGIN GENERATED: not-supported -->
 
 | Word | Instead |
 |---|---|
-| `print` | Use `printall`, or one of the other print actions. |
-| `printes` | There is no expression-printing action; use `average` or `csvrpt`. |
-| `rnd` | There is no random function inside the language. |
+| `evalcontract` | The original parses it and then aborts on an assertion, so there is nothing to be compatible with. Use `score` and `tricks`. |
 <!-- END GENERATED: not-supported -->
 
 ## Where dealer3 still differs
@@ -201,6 +207,8 @@ tracked by a generated table, so this section is maintained by hand.
 | `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
+| `rnd()` does not disturb the deal sequence | Deliberate. The original shares one generator between `rnd()` and the shuffle, so calling it changes which deals come out. dealer3 gives `rnd()` a stream of its own, seeded from the deal, so output does not depend on how many threads are running. `--rnd-seed` shifts it. |
+| `printes` and `print` are not in the browser build | Both write to a terminal. A script using either is refused there rather than quietly running without it. |
 
 ## Variables
 

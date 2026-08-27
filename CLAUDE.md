@@ -9,7 +9,8 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 - **Version**: 1.0.0
 - **Last Updated**: 2026-08-26
 - **Switches**: 26 of 36 implemented across the three dealers
-- **Language**: 24 functions under 39 spellings; the remaining gap is issue #13
+- **Language**: every word the original accepts is implemented, bar `evalcontract`,
+  which the original itself aborts on; 25 functions under 40 spellings
 - **Also shipping**: a WebAssembly build and a browser app at
   https://dealer.bridge-classroom.org, with a generated language reference
 
@@ -147,7 +148,7 @@ Compass predeal, CSV export and title metadata are all **done** — this list sa
 otherwise for months, which is why the status tables are now generated.
 
 The only language issue still open is BBO strict mode, `--bbo-strict` (#13, low
-priority).
+priority) — a warning switch, not a missing word.
 
 Remaining switch gaps are the DealerV2_4-only ones (`-M`, `-Z`, `-U`, `-O`,
 `-D`); see the generated comparison table.
