@@ -296,6 +296,17 @@ than a warning.
   measured rates sum to 1.
 - **A missing placeholder, or a `levelTheDeal` nothing uses**, either of which
   would produce a file that looks levelled and is not.
+- **A generated file given as the stock one.** Levelling an already-levelled
+  scenario measures the levelled mix, computes keeps of roughly 1, and quietly
+  writes a scenario with no levelling at all. The generated files carry a stamp
+  so this is caught rather than discovered later.
+- **A `roll` that is not the safe form.** A scenario may already define one — an
+  include is the obvious way — and then the generated block uses it rather than
+  writing a second. But only if it is `(rnd(N) % N + N) % N`: anything else,
+  `roll = rnd(1000)` included, is refused, because the keeps are read against a
+  draw assumed uniform over `0..N-1` and a bare `rnd` is neither on every build.
+  An existing `roll` also sets the denominator, so thresholds are written
+  against the draw that actually happens.
 
 ### What it stamps into the generated file
 
