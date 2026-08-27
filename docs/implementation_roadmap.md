@@ -118,7 +118,7 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 
 ---
 
-## Phase 4: Performance — partly delivered
+## Phase 4: Performance — ✅ delivered
 
 ### 4.1 Multi-threading
 **Switch**: `-R/--threads N` (1-9 threads)
@@ -139,6 +139,12 @@ dealer -N "AS,KS,QS" -S "AH,KH,QH" -p 10
 - `-2`: Generate deal, then swap E/W
 - `-3`: Generate deal, then 5 permutations
 - **Incompatible with predeal** (error if both used)
+
+**As built**, this plan changed in two ways. `-x MODE` was dropped: it is
+DealerV2_4's spelling, and the scripts that exist are written against
+dealer.exe's `-0`/`-2`/`-3`. And the predeal error is per-seat rather than
+blanket — only a predeal to a seat the swap actually moves is refused, so
+`predeal north` with `-3`, one hand against six defensive layouts, works.
 
 ---
 
@@ -216,9 +222,11 @@ See `CHANGELOG.md` for the migration note.
 - [x] CSV export (`-C`) - **COMPLETED**
 - [x] Title metadata (`-T`) - **COMPLETED**
 
-### Sprint 3 (Medium-term - 1 week) — partly done
+### Sprint 3 (Medium-term - 1 week) ✅ **COMPLETED**
 - [x] Multi-threading (`-R`, plus `--batch-size`) - **COMPLETED**
-- [ ] Swapping modes (`-x`) - recognised and rejected, not implemented
+- [x] Swapping modes (`-0`, `-2`, `-3`) - **COMPLETED**. dealer.exe's spelling,
+      not DealerV2_4's `-x MODE`; a predeal to a seat the swap moves is refused
+      rather than silently broken, so `predeal north` with `-3` still works
 
 ### Sprint 4 (Long-term - 2-3 weeks) — partly done
 - [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`,
