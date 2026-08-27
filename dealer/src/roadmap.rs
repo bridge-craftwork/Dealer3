@@ -151,14 +151,6 @@ pub const REMAINING: &[WorkItem] = &[
     },
     // ---- Switches ---------------------------------------------------------
     WorkItem {
-        what: "Swapping modes",
-        done_when: Some(DoneWhen::Switch("-2")),
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
-        note: Some("Recognised and refused today. Not compatible with predeal in any dealer."),
-    },
-    WorkItem {
         what: "Library mode: replay deals by index",
         done_when: Some(DoneWhen::Switch("-l")),
         issue: None,

@@ -283,7 +283,6 @@ Priority is derived from effort and value rather than written down beside them.
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
 | 🔵 Unlikely | Script parameters `$0`-`$9` | Medium | Low |  | DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping switches — so the spelling would have to differ. |
-| 🔵 Unlikely | Swapping modes | Medium | Low |  | Recognised and refused today. Not compatible with predeal in any dealer. |
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | Rejected loudly today; the same thing can be written in the condition. |
 | 🔵 Unlikely | Two-dimensional `frequency` | Medium | Low |  | The original takes a second expression and range and prints marginals. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |

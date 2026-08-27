@@ -118,8 +118,8 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Same,
         dealer_v2: Origin::Same,
         note: Some(
-            "Same seed gives the same deals as dealer.exe: the RNG is a reimplementation of \
-             its 64-bit GNU random().",
+            "Default is the clock. dealer3 has its own RNG (xoshiro256++), so a seed does not \
+             reproduce dealer.exe's deals — that went with legacy mode.",
         ),
     },
     SwitchRow {
@@ -130,6 +130,39 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
         note: None,
+    },
+    SwitchRow {
+        short: "-0",
+        long: "",
+        group: "Generation",
+        what: "No swapping (the default)",
+        dealer_exe: Origin::Same,
+        dealer_v2: Origin::Differs("-x MODE"),
+        note: Some("The three swapping switches override one another, so the last one wins."),
+    },
+    SwitchRow {
+        short: "-2",
+        long: "",
+        group: "Generation",
+        what: "Two-way swapping: deal each shuffle again with East and West exchanged",
+        dealer_exe: Origin::Same,
+        dealer_v2: Origin::Differs("-x MODE"),
+        note: Some(
+            "Refused alongside a predeal to East or West, which it would move. The original \
+             allows it and loses the predealt cards without saying so.",
+        ),
+    },
+    SwitchRow {
+        short: "-3",
+        long: "",
+        group: "Generation",
+        what: "Three-way swapping: six deals a shuffle, rotating East, South and West",
+        dealer_exe: Origin::Same,
+        dealer_v2: Origin::Differs("-x MODE"),
+        note: Some(
+            "`predeal north` still works, since North never moves — a fixed hand against six \
+             defensive layouts is what the switch is for.",
+        ),
     },
     // ---- Output -----------------------------------------------------------
     SwitchRow {
@@ -339,24 +372,6 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Same,
         dealer_v2: Origin::Absent,
         note: Some("Cosmetic."),
-    },
-    SwitchRow {
-        short: "-2",
-        long: "",
-        group: "Recognised but not supported",
-        what: "Two-way swapping, East/West",
-        dealer_exe: Origin::Same,
-        dealer_v2: Origin::Differs("-x MODE"),
-        note: Some("dealer3 rejects it with a message rather than ignoring it."),
-    },
-    SwitchRow {
-        short: "-3",
-        long: "",
-        group: "Recognised but not supported",
-        what: "Three-way swapping",
-        dealer_exe: Origin::Same,
-        dealer_v2: Origin::Differs("-x MODE"),
-        note: Some("Neither is compatible with predeal."),
     },
     SwitchRow {
         short: "-e",

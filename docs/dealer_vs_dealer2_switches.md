@@ -31,8 +31,8 @@ These switches exist in dealer.exe but were NOT included in DealerV2_4:
 | Switch | Description | Reason Not in V2_4 |
 |--------|-------------|-------------------|
 | `-u` | Upper/lowercase AKQJT | Cosmetic feature, low priority |
-| `-2` | 2-way swapping (E/W) | Not compatible with predeal |
-| `-3` | 3-way swapping (E/W/S) | Not compatible with predeal |
+| `-2` | 2-way swapping (E/W) | Implemented. Refused with a predeal to East or West |
+| `-3` | 3-way swapping (E/W/S) | Implemented. `predeal north` still works |
 | `-e` | Exhaust mode (alpha) | Experimental, never completed |
 
 **Total: 4 switches**
@@ -152,7 +152,7 @@ When porting scripts from dealer.exe to DealerV2_4:
 - ✅ Core generation switches work unchanged
 - ✅ Predeal syntax in input files still works (keyword-based)
 - ⚠️ Remove `-l library.dat` usage (different meaning in V2_4)
-- ⚠️ Swapping modes (`-2`, `-3`) need conversion to `-x 2` or `-x 3`
+- ⚠️ Swapping modes (`-2`, `-3`) need conversion to `-x 2` or `-x 3` for DealerV2_4. dealer3 keeps the original spelling.
 - ⚠️ Exhaust mode (`-e`) not available
 - ✅ Consider using new `-N/E/S/W` switches for predeal convenience
 
@@ -175,7 +175,7 @@ Based on this analysis, dealer3 should:
 8. ❌ Add `-T` title metadata - **TODO**
 
 ### Low Priority (Advanced Features)
-9. Swapping modes (`-x`) - Low value, not compatible with predeal
+9. ~~Swapping modes~~ - done, using dealer.exe's `-0`/`-2`/`-3` rather than V2_4's `-x MODE`
 10. DDS integration (`-M`, `-R`) - High effort, requires external library
 11. Export formats (`-Z` RP zrd, `-l` DL52) - Niche use cases
 
@@ -197,8 +197,8 @@ Based on this analysis, dealer3 should:
 | Verbose (`-v`) | ✅ Yes | Identical |
 | Progress meter (`-m`) | ✅ Yes | Identical |
 | No swapping (`-0`) | ✅ Yes | Identical |
-| 2-way swap (`-2`) | ⚠️ Changed | Use `-x 2` instead |
-| 3-way swap (`-3`) | ⚠️ Changed | Use `-x 3` instead |
+| 2-way swap (`-2`) | ✅ Yes | dealer3 keeps `-2`; V2_4 spells it `-x 2` |
+| 3-way swap (`-3`) | ✅ Yes | dealer3 keeps `-3`; V2_4 spells it `-x 3` |
 | Upper/lowercase (`-u`) | ❌ No | Cosmetic, dropped |
 | Exhaust mode (`-e`) | ❌ No | Experimental, never finished |
 | Library mode (`-l`) | ⚠️ Different | Now means DL52 export, not input |

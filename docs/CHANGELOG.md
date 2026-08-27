@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The original's swapping switches, `-0`, `-2` and `-3`.** One shuffle, several
+  deals: `-2` deals each shuffle again with East and West exchanged, `-3` runs
+  East, South and West through all six arrangements, `-0` asks for the default.
+  The three override one another, so the last one written wins, as under getopt.
+  They were previously parsed only to be refused.
+  - **A predeal to a seat the swap moves is refused**, rather than silently
+    broken. The original applies the swap without telling the shuffle, which
+    tracks predealt cards by position, so predealt cards move to the wrong seat
+    on the first swap and are gone by the second shuffle, with no message. Only
+    the seats actually at risk are refused: `predeal north` with `-3` — a fixed
+    hand against six defensive layouts — works, and so does `predeal south`
+    with `-2`.
+  - `-g` still counts and stops exactly, whatever the batch size, and output is
+    unchanged by thread count. Every nth deal of a swapped run is the deal the
+    same seed produces without the switch.
+  - Not combinable with `--input-deals`, which supplies deals rather than
+    shuffling them.
+
 ### Changed
 - **`tricks()` now goes through `bridge-solver`.** A solve was over fifteen
   minutes and saturated every core, which put every double-dummy script out of

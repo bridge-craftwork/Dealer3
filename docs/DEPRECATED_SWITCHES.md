@@ -4,70 +4,21 @@ This document lists all dealer.exe switches that are **not supported** in dealer
 
 ---
 
-## Status: ✅ All Deprecated Switches Implemented
+## Status
 
-All 5 deprecated switches are now recognized and produce helpful error messages.
+Three switches are recognised and refused with an explanation.
+
+The swapping switches `-2` and `-3` used to be on this list. They are
+**implemented** now — see `docs/command_line_comparison.md` — with the one
+combination that would go wrong, a predeal to a seat the swap moves, refused
+explicitly. The original allows that combination and silently loses the
+predealt cards.
 
 ---
 
 ## Deprecated Switches
 
-### 1. `-2` - 2-Way Swapping Mode
-
-**Status**: ❌ Not Supported
-**Reason**: Incompatible with predeal functionality
-
-**Error Message**:
-```
-Error: Switch '-2' (2-way swapping) is not supported in dealer3.
-
-Reason: Swapping modes are incompatible with predeal functionality,
-        which is a core feature of dealer3.
-
-Suggestion: Remove the '-2' switch from your command.
-            If you need swapping, use the original dealer.exe.
-```
-
-**What it did in dealer.exe**:
-- After each shuffle, generate another deal by swapping E and W
-- Leaves N and S in place
-- Incompatible with predeal
-
-**Why not supported**:
-- Predeal is a more useful feature than swapping
-- Swapping and predeal are fundamentally incompatible
-- Low user demand for swapping feature
-
----
-
-### 2. `-3` - 3-Way Swapping Mode
-
-**Status**: ❌ Not Supported
-**Reason**: Incompatible with predeal functionality
-
-**Error Message**:
-```
-Error: Switch '-3' (3-way swapping) is not supported in dealer3.
-
-Reason: Swapping modes are incompatible with predeal functionality,
-        which is a core feature of dealer3.
-
-Suggestion: Remove the '-3' switch from your command.
-            If you need swapping, use the original dealer.exe.
-```
-
-**What it did in dealer.exe**:
-- After each shuffle, generate 5 more deals by permuting E, W, and S
-- Leaves N in place
-- Incompatible with predeal
-
-**Why not supported**:
-- Same reasons as `-2`
-- Even less compatible with predeal (more positions swapped)
-
----
-
-### 3. `-e` - Exhaust Mode
+### 1. `-e` - Exhaust Mode
 
 **Status**: ❌ Not Supported
 **Reason**: Experimental feature never completed
@@ -94,7 +45,7 @@ Suggestion: Remove the '-e' switch from your command.
 
 ---
 
-### 4. `-u` - Upper/Lowercase Toggle
+### 2. `-u` - Upper/Lowercase Toggle
 
 **Status**: ❌ Not Supported
 **Reason**: Cosmetic feature with low priority
@@ -121,7 +72,7 @@ Suggestion: Remove the '-u' switch from your command.
 
 ---
 
-### 5. `-l` - Library Mode
+### 3. `-l` - Library Mode
 
 **Status**: ❌ Not Supported
 **Reason**: Conflicting meanings in dealer.exe vs DealerV2_4
@@ -162,12 +113,6 @@ File: [dealer/src/main.rs](../dealer/src/main.rs)
 
 ```rust
 // Deprecated switches - parse them to show helpful error messages
-#[arg(short = '2', hide = true)]
-swap_2: bool,
-
-#[arg(short = '3', hide = true)]
-swap_3: bool,
-
 #[arg(short = 'e', hide = true)]
 exhaust: bool,
 
@@ -184,14 +129,12 @@ library: bool,
 Each deprecated switch is checked in `main()` before normal execution:
 
 ```rust
-if args.swap_2 {
-    eprintln!("Error: Switch '-2' (2-way swapping) is not supported in dealer3.");
+if args.exhaust {
+    eprintln!("Error: Switch '-e' (exhaust mode) is not supported in dealer3.");
     eprintln!();
-    eprintln!("Reason: Swapping modes are incompatible with predeal functionality,");
-    eprintln!("        which is a core feature of dealer3.");
-    eprintln!();
-    eprintln!("Suggestion: Remove the '-2' switch from your command.");
-    eprintln!("            If you need swapping, use the original dealer.exe.");
+    eprintln!("Reason: Exhaust mode was an experimental alpha feature in dealer.exe");
+    eprintln!("        that was never completed or documented.");
+    ...
     std::process::exit(1);
 }
 ```
@@ -206,14 +149,6 @@ All deprecated switches have been tested:
 
 ```bash
 # Test each deprecated switch
-$ echo "hcp(north) >= 20" | dealer -2 -p 1
-Error: Switch '-2' (2-way swapping) is not supported in dealer3.
-...
-
-$ echo "hcp(north) >= 20" | dealer -3 -p 1
-Error: Switch '-3' (3-way swapping) is not supported in dealer3.
-...
-
 $ echo "hcp(north) >= 20" | dealer -e -p 1
 Error: Switch '-e' (exhaust mode) is not supported in dealer3.
 ...
@@ -235,18 +170,18 @@ Error: Switch '-l' (library mode) is not supported in dealer3.
 
 ### Positive Impact
 - ✅ Clear error messages help users understand what's wrong
-- ✅ Provides migration guidance (use dealer.exe for swapping)
+- ✅ Provides migration guidance
 - ✅ Explains *why* features aren't supported
 - ✅ Better than silent failures or cryptic errors
 
 ### Affected Users
-- Users migrating from dealer.exe who used swapping modes (likely rare)
 - Users who tried experimental `-e` flag (likely none)
 - Users who customized card display with `-u` (likely rare)
 - Users who used library.dat with `-l` (advanced users only)
 
 ### Migration Path
-- **Swapping (`-2`, `-3`)**: Use original dealer.exe or remove swapping
+- **Swapping (`-2`, `-3`)**: nothing to do — they work. Only a predeal to a
+  seat the swap moves is refused, and the original was silently wrong there.
 - **Exhaust (`-e`)**: Remove switch (feature never worked)
 - **Uppercase (`-u`)**: Remove switch (cosmetic only)
 - **Library (`-l`)**: Remove switch, wait for future library support

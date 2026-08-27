@@ -11,12 +11,16 @@
 
 use dealer_core::{
     generate_deal_from_seed, generate_deal_from_seed_no_predeal, Deal, FastDealConfig,
-    FastDealGenerator,
+    FastDealGenerator, SwapMode,
 };
 use rayon::prelude::*;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 /// Work unit for fast parallel generation - just a seed and serial number.
+///
+/// One unit is one *shuffle*. Without swapping that is also one deal; with
+/// `-2` or `-3` it is the two or six deals that shuffle is arranged into.
 #[derive(Clone, Copy)]
 pub struct FastWorkUnit {
     /// Serial number for ordering results
@@ -51,8 +55,17 @@ pub struct FastSupervisor {
     generator: FastDealGenerator,
     /// Predeal configuration (shared via Arc if non-empty)
     predeal_config: Option<Arc<FastDealConfig>>,
-    /// Next serial number to assign
+    /// Next shuffle serial number to assign
     next_serial: u64,
+    /// How many deals each shuffle is arranged into.
+    swap: SwapMode,
+    /// Deals a shuffle produced beyond what the last batch asked for.
+    ///
+    /// A batch size is not generally a multiple of the swap width, and a
+    /// shuffle's variants have to stay together and in order. Holding the
+    /// remainder over is what lets `process_batch` return *exactly* what it was
+    /// asked for, so `-g` still stops on the deal it should.
+    pending: VecDeque<(u64, Deal)>,
 }
 
 impl FastSupervisor {
@@ -70,6 +83,8 @@ impl FastSupervisor {
             generator: FastDealGenerator::new(seed),
             predeal_config: None,
             next_serial: 0,
+            swap: SwapMode::None,
+            pending: VecDeque::new(),
         }
     }
 
@@ -90,7 +105,17 @@ impl FastSupervisor {
             generator: FastDealGenerator::with_config(seed, FastDealConfig::new()),
             predeal_config: Some(Arc::new(predeal_config)),
             next_serial: 0,
+            swap: SwapMode::None,
+            pending: VecDeque::new(),
         }
+    }
+
+    /// Arrange every shuffle into the deals `swap` asks for.
+    ///
+    /// Set this before the first batch: it changes what a serial number means.
+    pub fn with_swapping(mut self, swap: SwapMode) -> Self {
+        self.swap = swap;
+        self
     }
 
     /// Generate a batch of work units (just seeds).
@@ -108,45 +133,62 @@ impl FastSupervisor {
         units
     }
 
-    /// Process a batch of work units in parallel.
+    /// Every deal one batch of shuffles produces, in order.
     ///
-    /// Returns results sorted by serial number.
+    /// Generation stays parallel: a shuffle and its variants are worked out
+    /// together on one worker, since the variants are only a rearrangement of
+    /// the hands the shuffle already dealt.
+    fn deals_from(&self, units: Vec<FastWorkUnit>) -> Vec<(u64, Deal)> {
+        let swap = self.swap;
+        let width = swap.deals_per_shuffle() as u64;
+        let predeal = self.predeal_config.clone();
+        let mut deals: Vec<(u64, Deal)> = units
+            .into_par_iter()
+            .flat_map_iter(move |unit| {
+                let base = match predeal {
+                    Some(ref config) => generate_deal_from_seed(unit.seed, config),
+                    None => generate_deal_from_seed_no_predeal(unit.seed),
+                };
+                let first = unit.serial_number * width;
+                (0..width)
+                    .map(move |variant| (first + variant, swap.apply(&base, variant as usize)))
+            })
+            .collect();
+        deals.sort_by_key(|(serial, _)| *serial);
+        deals
+    }
+
+    /// Process a batch of deals in parallel.
+    ///
+    /// `count` is a number of deals, not of shuffles: with `-3` a batch of ten
+    /// is two shuffles' worth, and the two deals left over start the next
+    /// batch. Returns results sorted by serial number.
     pub fn process_batch<F>(&mut self, count: usize, filter: F) -> Vec<FastCompletedWork>
     where
         F: Fn(&Deal) -> bool + Sync,
     {
-        let units = self.generate_batch(count);
+        let mut deals: Vec<(u64, Deal)> = self.pending.drain(..).collect();
+        let shortfall = count.saturating_sub(deals.len());
+        if shortfall > 0 {
+            let shuffles = shortfall.div_ceil(self.swap.deals_per_shuffle());
+            let units = self.generate_batch(shuffles);
+            deals.extend(self.deals_from(units));
+        }
+        if deals.len() > count {
+            self.pending = deals.split_off(count).into();
+        }
 
-        let mut results: Vec<FastCompletedWork> = if let Some(ref config) = self.predeal_config {
-            // With predeal - need to share config
-            let config = Arc::clone(config);
-            units
-                .into_par_iter()
-                .map(|unit| {
-                    let deal = generate_deal_from_seed(unit.seed, &config);
-                    let passed = filter(&deal);
-                    FastCompletedWork {
-                        serial_number: unit.serial_number,
-                        deal,
-                        passed,
-                    }
-                })
-                .collect()
-        } else {
-            // No predeal - fully independent generation
-            units
-                .into_par_iter()
-                .map(|unit| {
-                    let deal = generate_deal_from_seed_no_predeal(unit.seed);
-                    let passed = filter(&deal);
-                    FastCompletedWork {
-                        serial_number: unit.serial_number,
-                        deal,
-                        passed,
-                    }
-                })
-                .collect()
-        };
+        let mut results: Vec<FastCompletedWork> = deals
+            .into_par_iter()
+            .map(|(serial_number, deal)| {
+                let passed = filter(&deal);
+                FastCompletedWork {
+                    serial_number,
+                    deal,
+                    passed,
+                }
+            })
+            .collect();
 
         // Sort by serial number for deterministic output
         results.sort_by_key(|w| w.serial_number);

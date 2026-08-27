@@ -8,7 +8,7 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 
 - **Version**: 1.0.0
 - **Last Updated**: 2026-08-26
-- **Switches**: 23 of 35 implemented across the three dealers
+- **Switches**: 26 of 36 implemented across the three dealers
 - **Language**: 24 functions under 39 spellings; the remaining gaps are in issues #12 and #13
 - **Also shipping**: a WebAssembly build and a browser app at
   https://dealer.bridge-classroom.org, with a generated language reference
@@ -150,7 +150,7 @@ otherwise for months, which is why the status tables are now generated.
 2. Variables named like statement keywords (#12)
 
 Remaining switch gaps are the DealerV2_4-only ones (`-M`, `-Z`, `-U`, `-O`,
-`-D`) and dealer.exe's swapping modes; see the generated comparison table.
+`-D`); see the generated comparison table.
 
 ## Development Guidelines
 

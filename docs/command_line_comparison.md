@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **23 of the 35 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **26 of the 36 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -34,8 +34,11 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 |---|---|---|---|---|---|
 | `-p`, `--produce` | Stop after N deals have matched | ✅ | ✅ | ✅ | Default 40, as in the original. |
 | `-g`, `--generate` | Stop after dealing N hands | ✅ | ✅ | ✅ | Default 10,000,000. Whichever limit is reached first ends the run. |
-| `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Same seed gives the same deals as dealer.exe: the RNG is a reimplementation of its 64-bit GNU random(). |
+| `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Default is the clock. dealer3 has its own RNG (xoshiro256++), so a seed does not reproduce dealer.exe's deals — that went with legacy mode. |
 | `-t`, `--timeout` | Give up after N seconds | ✅ | — | — |  |
+| `-0` | No swapping (the default) | ✅ | ✅ | ⚠️ -x MODE | The three swapping switches override one another, so the last one wins. |
+| `-2` | Two-way swapping: deal each shuffle again with East and West exchanged | ✅ | ✅ | ⚠️ -x MODE | Refused alongside a predeal to East or West, which it would move. The original allows it and loses the predealt cards without saying so. |
+| `-3` | Three-way swapping: six deals a shuffle, rotating East, South and West | ✅ | ✅ | ⚠️ -x MODE | `predeal north` still works, since North never moves — a fixed hand against six defensive layouts is what the switch is for. |
 
 ### Output
 
@@ -87,8 +90,6 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
 | `-u` | Upper-case the honour cards in output | ⚠️ rejected with a message | ✅ | — | Cosmetic. |
-| `-2` | Two-way swapping, East/West | ⚠️ rejected with a message | ✅ | ⚠️ -x MODE | dealer3 rejects it with a message rather than ignoring it. |
-| `-3` | Three-way swapping | ⚠️ rejected with a message | ✅ | ⚠️ -x MODE | Neither is compatible with predeal. |
 | `-e` | Exhaust mode | ⚠️ rejected with a message | ⚠️ compiled out; prints "not included" | — | Never finished in the original either. |
 | `-l` | Replay deals from a library file | ⚠️ rejected with a message | ✅ | ⚠️ -l exports DL52 | `--input-deals` covers this use case in dealer3's own way. |
 | `--legacy` | The old single-threaded RNG mode | ⚠️ rejected with a message | — | — | Removed in 0.5.0; still parsed so a script using it gets an explanation. |

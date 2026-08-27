@@ -12,7 +12,7 @@ mod roadmap;
 mod switches;
 
 use clap::Parser;
-use dealer_core::{Deal, FastDealConfig, Position};
+use dealer_core::{Deal, FastDealConfig, Position, SwapMode};
 use dealer_eval::{
     eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
     extract_variables, EvalContext,
@@ -122,15 +122,19 @@ struct Args {
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
+    /// No swapping (default)
+    #[arg(short = '0', overrides_with_all = ["swap_two", "swap_three"])]
+    swap_off: bool,
+
+    /// Two-way swapping: also deal each shuffle with East and West exchanged
+    #[arg(short = '2', overrides_with_all = ["swap_off", "swap_three"])]
+    swap_two: bool,
+
+    /// Three-way swapping: deal each shuffle six ways, rotating East/South/West
+    #[arg(short = '3', overrides_with_all = ["swap_off", "swap_two"])]
+    swap_three: bool,
+
     // Deprecated switches - parse them to show helpful error messages
-    /// DEPRECATED: 2-way swapping mode (not supported - incompatible with predeal)
-    #[arg(short = '2', hide = true)]
-    swap_2: bool,
-
-    /// DEPRECATED: 3-way swapping mode (not supported - incompatible with predeal)
-    #[arg(short = '3', hide = true)]
-    swap_3: bool,
-
     /// DEPRECATED: Exhaust mode (experimental feature never completed)
     #[arg(short = 'e', hide = true)]
     exhaust: bool,
@@ -260,6 +264,32 @@ impl From<VulnerabilityArg> for Vulnerability {
             VulnerabilityArg::All => Vulnerability::All,
         }
     }
+}
+
+/// Name a set of seats for a message: "East and West", "East, South and West".
+fn describe_seats(seats: &[Position]) -> String {
+    let names: Vec<&str> = seats
+        .iter()
+        .map(|seat| match seat {
+            Position::North => "North",
+            Position::East => "East",
+            Position::South => "South",
+            Position::West => "West",
+        })
+        .collect();
+    match names.split_last() {
+        None => "no seat".to_string(),
+        Some((last, [])) => last.to_string(),
+        Some((last, rest)) => format!("{} and {}", rest.join(", "), last),
+    }
+}
+
+/// The seats a swapping mode leaves where they were dealt.
+fn unmoved_seats(swapping: SwapMode) -> Vec<Position> {
+    Position::ALL
+        .into_iter()
+        .filter(|seat| !swapping.moves().contains(seat))
+        .collect()
 }
 
 /// Parse predeal card string (format: S8743,HA9,D642,CQT64)
@@ -452,28 +482,6 @@ fn main() {
     }
 
     // Check for deprecated switches and provide helpful error messages
-    if args.swap_2 {
-        eprintln!("Error: Switch '-2' (2-way swapping) is not supported in dealer3.");
-        eprintln!();
-        eprintln!("Reason: Swapping modes are incompatible with predeal functionality,");
-        eprintln!("        which is a core feature of dealer3.");
-        eprintln!();
-        eprintln!("Suggestion: Remove the '-2' switch from your command.");
-        eprintln!("            If you need swapping, use the original dealer.exe.");
-        std::process::exit(1);
-    }
-
-    if args.swap_3 {
-        eprintln!("Error: Switch '-3' (3-way swapping) is not supported in dealer3.");
-        eprintln!();
-        eprintln!("Reason: Swapping modes are incompatible with predeal functionality,");
-        eprintln!("        which is a core feature of dealer3.");
-        eprintln!();
-        eprintln!("Suggestion: Remove the '-3' switch from your command.");
-        eprintln!("            If you need swapping, use the original dealer.exe.");
-        std::process::exit(1);
-    }
-
     if args.exhaust {
         eprintln!("Error: Switch '-e' (exhaust mode) is not supported in dealer3.");
         eprintln!();
@@ -701,6 +709,16 @@ fn main() {
     // Start timing
     let start_time = SystemTime::now();
 
+    // How many deals each shuffle turns into. The three switches override one
+    // another, so the last one written wins, as it does under getopt.
+    let swapping = if args.swap_three {
+        SwapMode::ThreeWay
+    } else if args.swap_two {
+        SwapMode::TwoWay
+    } else {
+        SwapMode::None
+    };
+
     // Collect predeal configuration (shared between legacy and fast modes)
     let mut fast_predeal_config = FastDealConfig::new();
 
@@ -781,8 +799,50 @@ fn main() {
         || fast_predeal_config.predeal_count(Position::South) > 0
         || fast_predeal_config.predeal_count(Position::West) > 0;
 
+    // Swapping rearranges whole hands after the deal, so a predeal to a seat it
+    // moves would be honoured on the first deal of each shuffle and quietly
+    // broken on the rest. The original does exactly that and says nothing; here
+    // it is refused, and only for the seats actually at risk — `predeal north`
+    // with `-3`, a fixed declarer against six defensive layouts, is the whole
+    // point of the switch and keeps working.
+    let clashing_predeals: Vec<Position> = swapping
+        .moves()
+        .iter()
+        .copied()
+        .filter(|seat| fast_predeal_config.predeal_count(*seat) > 0)
+        .collect();
+    if !clashing_predeals.is_empty() {
+        eprintln!(
+            "Error: '{}' swapping moves the cards of {}, so it cannot be combined with a \
+             predeal to {}.",
+            swapping.switch(),
+            describe_seats(swapping.moves()),
+            describe_seats(&clashing_predeals)
+        );
+        eprintln!();
+        eprintln!(
+            "Reason: swapping exchanges whole hands between seats after the deal, which \
+             would move predealt cards to a seat the script did not ask for."
+        );
+        eprintln!();
+        eprintln!(
+            "Suggestion: predeal only to {}, which '{}' leaves in place, or drop the switch.",
+            describe_seats(&unmoved_seats(swapping)),
+            swapping.switch()
+        );
+        std::process::exit(1);
+    }
+
     // Validate --input-deals conflicts
     if let Some(ref source) = args.input_deals {
+        if swapping != SwapMode::None {
+            eprintln!(
+                "Error: '{}' swapping rearranges deals this program shuffled, so it has \
+                 nothing to do with deals read by --input-deals.",
+                swapping.switch()
+            );
+            std::process::exit(1);
+        }
         if has_predeal {
             eprintln!(
                 "Error: --input-deals cannot be combined with predeal (command-line or script)"
@@ -1079,7 +1139,8 @@ fn main() {
             FastSupervisor::with_predeal(seed as u64, fast_predeal_config, config)
         } else {
             FastSupervisor::new(seed as u64, config)
-        };
+        }
+        .with_swapping(swapping);
 
         let actual_batch_size = if args.batch_size == 0 {
             200 * if args.threads == 0 {

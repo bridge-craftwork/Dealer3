@@ -4,6 +4,7 @@ mod fast_deal;
 mod hand;
 pub mod rng;
 mod shape;
+mod swap;
 
 // Re-export core types from bridge-types
 pub use bridge_types::{Card, Direction, Rank, Suit};
@@ -17,3 +18,4 @@ pub use fast_deal::{
 };
 pub use hand::Hand;
 pub use shape::{shape_to_index, ShapeMask};
+pub use swap::SwapMode;
