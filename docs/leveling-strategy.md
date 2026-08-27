@@ -1,0 +1,229 @@
+# Levelling a scenario
+
+A practice scenario usually wants its hand types in some deliberate mix — a
+quarter of the boards weak, a quarter invitational, and so on — while nature
+supplies them in quite another. **Levelling** is discarding some of the common
+types so the mix comes out as intended.
+
+This describes how to do that in one measurement and one calculation, why the
+older way needed neither but took several passes, and the one construct that
+makes it portable.
+
+## The two ways to flip a coin
+
+For a long time dealer's language had no usable randomness, so scripts made
+their own out of the deal:
+
+```
+c1 = hascard(west, 2C)     # true on a quarter of deals
+keep25 = c1
+keep06 = c1 and hascard(east, 2D)
+```
+
+A named card sits in a named hand exactly a quarter of the time, so this is a
+probability ladder built from spot cards. It works, it is portable to every
+build of every dealer, and it has one flaw that is easy to miss.
+
+**The spot card is part of the hand being filtered.** `hascard(west, 2C)` is 25%
+*unconditionally*. It is not 25% once the script's own condition has a view
+about clubs:
+
+| | rate |
+|---|---|
+| `hascard(west, 2C)` with no condition | 0.2501 |
+| the same under `clubs(north) >= 6` | **0.1764** |
+| `rnd(4) == 0` under the same condition | 0.2450 |
+
+Worse than the rate being wrong is that the ladder **biases the hands it
+keeps**. Selecting on where the ♣2 landed selects for West being long in clubs,
+and slightly weak, because one of West's thirteen slots is now a known low card:
+
+| kept by | clubs(west) | hcp(west) |
+|---|---|---|
+| nothing (baseline) | 2.259 | 10.01 |
+| `hascard(west, 2C)` | **2.846** | **9.31** |
+| `rnd(4) == 0` | 2.258 | 10.02 |
+
+And because each keep shifts the population the other keeps are measured
+against, tuning a script is iterative: change one level, re-measure everything.
+
+`rnd()` has no such coupling. It knows nothing about the deal, so the keeps are
+independent of the hands and of each other — which is what turns the tuning into
+arithmetic.
+
+## The roll variable
+
+`rnd()` needs one piece of care. Write it like this:
+
+```
+roll = (rnd(1000) % 1000 + 1000) % 1000
+```
+
+Two reasons, and both matter.
+
+**The modulo is not decoration.** `rnd(n)` is meant to give `0..n-1`, and does on
+BBO and in dealer3. On a locally built dealer binary it does not: `rnd` divides
+by `RAND_MAX`, which describes `rand()` rather than the generator it actually
+calls, so a build without `STD_RAND` returns values far outside the bound —
+`rnd(10)` averages 322,000 on a Windows build — or negative ones, 43% of the
+time on a macOS build. The inner `% 1000` reduces any magnitude and the
+`+ 1000) % 1000` folds negatives back up, so the same expression lands on target
+everywhere:
+
+| | `%4==0` want .25 | `%2==0` want .50 | `%10<3` want .30 |
+|---|---|---|---|
+| BBO | 0.2525 | 0.507 | 0.3096 |
+| dealer3 | 0.2455 | 0.4945 | 0.3011 |
+| Windows `dealer.exe` | 0.2540 | 0.5096 | 0.3011 |
+
+Scaling cannot do this. Scaling needs the maximum, and the maximum is exactly
+what differs between builds. Neither can `abs()`: `r < 0 ? -r : r` re-evaluates
+`r` at every mention, so it tests one draw and negates another.
+
+**Every mention draws again.** `roll` is not a stored value; it is an expression
+worked out afresh wherever it appears, which is what the original does with all
+its variables and what dealer3 now does with any variable that can reach
+`rnd()`. So `roll < 88` twice is two independent flips. Use `roll` once per deal,
+in a condition whose branches are mutually exclusive, and the point never
+arises.
+
+Pick a modulus that divides the bound. With `rnd(1000)`, `% 2`, `% 4`, `% 5`,
+`% 100` and `% 1000` are exact; `% 3` carries about a tenth of a percent of bias.
+
+## Levelling in two steps
+
+### Step one: measure
+
+Classify the deals, and run the script with no levelling at all.
+
+```
+nt = hcp(north) >= 15 and hcp(north) <= 17 and shape(north, any 4333 + any 4432 + any 5332)
+weak     = hcp(south) <= 7
+invite   = hcp(south) >= 8 and hcp(south) <= 9
+game     = hcp(south) >= 10 and hcp(south) <= 14
+slammish = hcp(south) >= 15
+
+condition nt
+action average "weak" weak, average "invite" invite,
+       average "game" game, average "slam" slammish
+```
+
+```
+$ dealer -q --stats-json -g 2000000 -p 200000 scenario.dlr
+```
+
+`--stats-json` reports the same numbers as the tables, at full precision and
+with the sample size each was measured over, which is what a build script should
+read rather than parsing `%g` out of a text table.
+
+```
+weak     0.4525
+invite   0.2126
+game     0.2952
+slam     0.0397
+```
+
+### Step two: calculate
+
+For an even mix, keep the rarest type always and every other type in inverse
+proportion to how common it is:
+
+> **kᵢ = p_min / pᵢ**
+
+For an uneven target mix `q`, it is **kᵢ ∝ qᵢ / pᵢ**, scaled so the largest keep
+is 1.
+
+| | p | keep | per 1000 |
+|---|---|---|---|
+| weak | 0.4525 | 8.78% | 88 |
+| invite | 0.2126 | 18.70% | 187 |
+| game | 0.2952 | 13.46% | 135 |
+| slam | 0.0397 | 100% | 1000 |
+
+Then write the keeps into the condition, one roll, one branch per type:
+
+```
+roll = (rnd(1000) % 1000 + 1000) % 1000
+
+condition nt and (
+      (weak     and roll <   88)
+   or (invite   and roll <  187)
+   or (game     and roll <  135)
+   or (slammish)
+)
+```
+
+Level to within half a percent, first attempt, on both engines:
+
+| | dealer3 | BBO |
+|---|---|---|
+| weak | 0.2415 | 0.2545 |
+| invite | 0.2459 | 0.2520 |
+| game | 0.2513 | 0.2545 |
+| slam | 0.2613 | 0.2390 |
+
+Because the type tests partition the deals, at most one branch's comparison can
+matter. That makes the construct correct whether or not the engine
+short-circuits `and`, and whether or not `roll` is redrawn at each mention —
+worth keeping as a rule when the shape is generalised.
+
+## What it costs, before you run it
+
+The acceptance rate among deals that already pass the base condition is
+
+> **acceptance = 1 / max(qⱼ / pⱼ)**
+
+Not a sum: the single type being stretched furthest from nature sets the price,
+and every other type is free. Here slam is 3.97% against a 25% target, a ratio
+of 6.29, so 15.9% of qualifying deals survive and roughly 6.3 times as many must
+be generated. Measured against a base condition rate of 0.0482, that predicts an
+overall yield of 0.00767; the run produced 0.00761.
+
+Read the other way, it is a budget:
+
+> **With an acceptance budget A, no type can be over-represented beyond 1/A
+> times its natural rate.**
+
+A 20% budget allows a 5× stretch, so a type occurring 3.97% of the time can be
+asked for at most 19.9%. When a target costs more than the budget allows, cap
+and redistribute:
+
+1. `R = 1 / A_budget`
+2. `q'ⱼ = min(qⱼ, R · pⱼ)` — cap the over-ambitious types
+3. Share the shortfall `1 − Σq'` among the uncapped types, in proportion to
+   their targets
+4. Repeat until stable — at most as many rounds as there are types
+
+On the numbers above with a 20% budget, slam caps at 19.9% and the other three
+rise to 26.7% each, landing exactly on the budget. Which is a better answer than
+"it is slow, try again": it says what mix is affordable and which type is the
+bottleneck.
+
+## Generating levelled scripts
+
+The two steps are mechanical, so they can be a build step: declare the target
+mix and the budget in the scenario, measure, calculate, and write the roll
+thresholds into a generated copy. Two things are worth building in.
+
+**Stamp what the keeps were measured against.** They are only valid for the base
+condition in force at the time. Record the source script's hash, the measured
+`p`, the target `q`, the achieved acceptance and the sample size in the
+generated file, so a stale copy is detectable rather than merely wrong.
+
+**Require a minimum count per type, not just a total.** At 200,000 qualifying
+deals the slam bucket held about 8,000 hands, so its rate is good to about 1%. A
+type occurring a tenth as often, measured in the same run, would be good to only
+3% — and that error goes straight into the keep and out into the mix. This is
+the one way the method goes quietly wrong, and `--stats-json` reports the count
+per average so a tool can refuse rather than divide by a thin bucket.
+
+## A note on where scripts run
+
+`rnd()` is in the original dealer's lexer, grammar and implementation, and it
+works correctly on BBO. It is absent from BBO's own language manual, which is
+probably why it went unused for so long. It is *broken* on locally built dealer
+binaries, in the two different ways described above — which is what the roll
+variable's modulo is there to absorb.
+
+The levelling itself is engine-independent: the same thresholds produce the same
+mix on dealer3 and on BBO, because both draw uniformly within the bound.

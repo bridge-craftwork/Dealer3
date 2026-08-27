@@ -133,6 +133,19 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--stats-json",
+        group: "Reporting",
+        what: "Report the statistics as JSON instead of tables",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "For a tool rather than a reader: full precision, and the sample size behind each \
+             average. Pair with `-q` for a stdout that is nothing but JSON. See \
+             `docs/leveling-strategy.md`.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--rnd-seed",
         group: "Generation",
         what: "Shift the stream `rnd()` draws from",

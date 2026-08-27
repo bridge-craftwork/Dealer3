@@ -122,6 +122,14 @@ struct Args {
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
+    /// Report the statistics as JSON instead of tables, for a tool to read
+    ///
+    /// Use with `-q` for a stdout that is nothing but JSON. The per-average
+    /// `count` is how many deals it was measured over, which is what tells you
+    /// whether a rare category was sampled enough to trust.
+    #[arg(long = "stats-json")]
+    stats_json: bool,
+
     /// Seed for `rnd()`, which draws from its own stream rather than the shuffle
     ///
     /// Long form only: the short letters are dealer.exe's and are not ours to
@@ -272,6 +280,38 @@ impl From<VulnerabilityArg> for Vulnerability {
             VulnerabilityArg::EW => Vulnerability::EW,
             VulnerabilityArg::All => Vulnerability::All,
         }
+    }
+}
+
+/// Escape a string for JSON. Labels come from the script, so they can hold
+/// quotes, backslashes and control characters.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// A JSON number that round-trips, unlike the `%g` the tables print.
+///
+/// The tables match dealer.exe's six significant digits, which is right for
+/// reading and wrong for a tool that is about to divide by the number.
+fn json_number(value: f64) -> String {
+    if value.is_finite() {
+        format!("{}", value)
+    } else {
+        "null".to_string()
     }
 }
 
@@ -1348,6 +1388,112 @@ fn main() {
                 print!("{}", format_print_hands(&printed_deals, seat));
             }
         }
+    }
+
+    // One JSON object instead of the tables, for a tool rather than a reader.
+    // Everything a caller needs to compute levelling keeps is here: each
+    // average's value and the count it was measured over, and the frequency
+    // bins with what fell outside a declared range.
+    if args.stats_json {
+        let mut out = String::from("{\n");
+        out.push_str(&format!("  \"generated\": {},\n", generated));
+        out.push_str(&format!("  \"produced\": {},\n", produced));
+        match args.input_deals {
+            Some(ref source) => {
+                out.push_str(&format!("  \"input_deals\": {},\n", json_string(source)))
+            }
+            None => out.push_str(&format!("  \"seed\": {},\n", seed)),
+        }
+        out.push_str(&format!("  \"seconds\": {},\n", json_number(elapsed_secs)));
+        out.push_str(&format!("  \"timed_out\": {},\n", timed_out));
+
+        out.push_str("  \"averages\": [");
+        for (i, (label, _, sum, count)) in averages.iter().enumerate() {
+            let value = if *count > 0 {
+                sum / (*count as f64)
+            } else {
+                0.0
+            };
+            out.push_str(if i == 0 { "\n" } else { ",\n" });
+            out.push_str(&format!(
+                "    {{ \"label\": {}, \"value\": {}, \"count\": {} }}",
+                match label {
+                    Some(text) => json_string(text),
+                    None => "null".to_string(),
+                },
+                json_number(value),
+                count
+            ));
+        }
+        out.push_str(if averages.is_empty() {
+            "],\n"
+        } else {
+            "\n  ],\n"
+        });
+
+        out.push_str("  \"frequencies\": [");
+        for (i, (label, _, histogram, range)) in frequencies.iter().enumerate() {
+            let (min_val, max_val) = match range {
+                Some((min, max)) => (*min, *max),
+                None if !histogram.is_empty() => (
+                    *histogram.keys().min().unwrap_or(&0),
+                    *histogram.keys().max().unwrap_or(&0),
+                ),
+                None => (0, 0),
+            };
+            let below: usize = histogram
+                .iter()
+                .filter(|(&k, _)| k < min_val)
+                .map(|(_, &v)| v)
+                .sum();
+            let above: usize = histogram
+                .iter()
+                .filter(|(&k, _)| k > max_val)
+                .map(|(_, &v)| v)
+                .sum();
+            let bins: Vec<String> = (min_val..=max_val)
+                .map(|v| {
+                    format!(
+                        "{{ \"value\": {}, \"count\": {} }}",
+                        v,
+                        histogram.get(&v).unwrap_or(&0)
+                    )
+                })
+                .collect();
+            out.push_str(if i == 0 { "\n" } else { ",\n" });
+            out.push_str(&format!(
+                "    {{ \"label\": {}, \"min\": {}, \"max\": {}, \"below\": {}, \"above\": {}, \"total\": {}, \"bins\": [{}] }}",
+                match label {
+                    Some(text) => json_string(text),
+                    None => "null".to_string(),
+                },
+                match range {
+                    Some((min, _)) => min.to_string(),
+                    None => "null".to_string(),
+                },
+                match range {
+                    Some((_, max)) => max.to_string(),
+                    None => "null".to_string(),
+                },
+                below,
+                above,
+                histogram.values().sum::<usize>(),
+                bins.join(", ")
+            ));
+        }
+        out.push_str(if frequencies.is_empty() {
+            "]\n"
+        } else {
+            "\n  ]\n"
+        });
+
+        out.push('}');
+        println!("{}", out);
+
+        if timed_out {
+            std::process::exit(2);
+        }
+        return;
     }
 
     // Print averages if any were requested (format matches dealer.exe %g format)

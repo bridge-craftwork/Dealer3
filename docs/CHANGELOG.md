@@ -39,6 +39,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   original parses it and then aborts on an assertion, so there is nothing to be
   compatible with.
 
+### Added
+- **`--stats-json`** reports `average` and `frequency` results as JSON instead of
+  tables: full precision rather than the tables' six significant digits, and the
+  sample size behind each average. Pair with `-q` for a stdout that is nothing
+  but JSON. Written for the levelling workflow in
+  `docs/leveling-strategy.md`, where a build step measures a scenario's natural
+  mix and computes keep rates from it — dividing by a rate parsed out of `%g`
+  output, from a label that might contain a colon, is not a foundation.
+- **`docs/leveling-strategy.md`**, describing how to level a scenario in one
+  measurement and one calculation, the portable `roll` construct `rnd()` needs,
+  and the closed-form cost of a target mix.
+
 ### Fixed
 - **A variable holding `rnd()` is no longer cached for the deal.** Every mention
   draws again, including through another variable, which is what the original
