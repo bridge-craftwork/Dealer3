@@ -36,6 +36,7 @@ too, for anyone who prefers the predicate reading.
 
 import argparse
 import hashlib
+import math
 import json
 import re
 import subprocess
@@ -250,6 +251,30 @@ def relax(p, target, budget_acceptance):
     return lam, mix, 1 / (1 + lam * (r_max - 1))
 
 
+def measurement_precision(p, mix, deals_measured):
+    """How well the keeps are pinned down, and what that costs the mix.
+
+    The verification run and this one answer different questions and want
+    different sizes. Verification samples bands at their *target* share, so its
+    precision follows from that share alone. This run samples them at their
+    *natural* share, and the keep is `p_min / p`, so a relative error in a
+    measured rate passes straight through into the mix. The rarest band is
+    measured on the fewest deals and therefore sets the answer.
+    """
+    rarest = min(p, key=p.get)
+    rate = p[rarest]
+    seen = rate * deals_measured
+    if seen <= 0:
+        return rarest, 0, float("inf"), float("inf")
+    relative = math.sqrt(rate * (1 - rate) / deals_measured) / rate
+    return rarest, round(seen), relative, 100 * mix[rarest] * relative
+
+
+def deals_for_precision(rate, relative):
+    """Deals to measure a band of this rate to a given relative precision."""
+    return (1 - rate) / (rate * relative * relative)
+
+
 def thresholds(p, mix, scale=1000):
     """Keep rates as integer thresholds out of `scale`, largest pinned at 1."""
     ratios = {k: mix[k] / p[k] for k in p}
@@ -293,6 +318,11 @@ def render(
         + ("  (full)" if lam >= 0.999 else "  (relaxed to fit the budget)"),
         f"# acceptance     {acceptance:.4f} of qualifying deals",
         f"# cost           about {1 / (base_rate * acceptance):,.0f} deals dealt per deal kept",
+        f"# precision      keeps set by {min(p, key=p.get)}, the rarest, seen "
+        f"{round(min(p.values()) * stats['produced']):,} times"
+        f" (+-{100 * measurement_precision(p, mix, stats['produced'])[2]:.1f}%);"
+        f" expect the mix within"
+        f" +-{measurement_precision(p, mix, stats['produced'])[3]:.2f} points",
         "",
     ]
     if roll_is_external:
@@ -367,9 +397,19 @@ def main():
             f"  {t:<{width}}  {p[t]:>9.5f} {target[t]:>9.5f} {mix[t]:>9.5f} "
             f"{keeps[t] / scale:>8.4f} {counts[t]:>9,}"
         )
+    rarest, seen, relative, mix_error = measurement_precision(p, mix, stats["produced"])
     print(f"\n  exactness {lam:.3f}" + ("" if lam >= 0.999 else "  (relaxed to fit the budget)"))
     print(f"  acceptance {acceptance:.4f} of qualifying deals")
     print(f"  about {cost:,.0f} deals dealt per deal kept")
+    print(
+        f"\n  keeps pinned down by `{rarest}`, the rarest, seen {seen:,} times:"
+        f" +-{100 * relative:.1f}%"
+    )
+    print(f"  so expect the delivered mix within about +-{mix_error:.2f} points of target")
+    tighter = mix_error / 3
+    if tighter > 0.05:
+        needed = deals_for_precision(p[rarest], relative / 3)
+        print(f"  for +-{tighter:.2f} points, measure on --deals {needed:,.0f}")
     if budget and lam < 0.999:
         print(f"  a fully level mix would have cost {1 / (base_rate / max(target[t] / p[t] for t in types)):,.0f}")
 

@@ -357,6 +357,56 @@ all of them have to hold at once.)
 **10,000 is a good default.** It buys about ±1 point for anything from three
 bands to ten, and costs a second or two.
 
+### The baseline run wants a different number
+
+Not the same one, and usually a bigger one. The two runs sample the same bands
+at different rates:
+
+- **Verification** sees each band at its *target* share — 20% for five even
+  bands — so its precision follows from that share alone, which is why one
+  number serves every script.
+- **The baseline** sees each band at its *natural* share, and the rarest is by
+  definition the one measured on fewest deals. Since the keep is `p_min / p`, a
+  relative error in a measured rate passes straight into the mix. The rarest
+  band sets the precision of the whole thing.
+
+For NT_Ladder, whose rarest band is 1.285% of qualifying deals:
+
+| measured on | sightings | relative error | resulting mix error |
+|---|---|---|---|
+| 20,000 | 257 | 6.2% | 1.24 pts |
+| 100,000 | 1,285 | 2.8% | 0.55 pts |
+| 500,000 | 6,425 | 1.2% | 0.25 pts |
+| 2,000,000 | 25,700 | 0.6% | 0.12 pts |
+
+**And that error is systematic, not noise.** It is baked into the keeps, so no
+amount of verification averages it away. Measured: three baselines of 40,000
+each, verified at 50,000 where the sampling SD is 0.18 points, put the rare band
+at 18.82 — more than six SD from target, and repeatable. The same test with
+400,000-deal baselines never strays past 0.58.
+
+Turned round, to measure a band of a given natural rate to a given relative
+precision:
+
+| rarest band | ±5% | ±2% | ±1% |
+|---|---|---|---|
+| 5% | 7,600 | 47,500 | 190,000 |
+| 2% | 19,600 | 122,500 | 490,000 |
+| 1% | 39,600 | 247,500 | 990,000 |
+| 0.5% | 79,600 | 497,500 | 1,990,000 |
+
+`level-scenario.py` reports where it landed, so this need not be worked out by
+hand:
+
+```
+  keeps pinned down by `hcp22_24`, the rarest, seen 1,285 times: +-2.8%
+  so expect the delivered mix within about +-0.55 points of target
+  for +-0.18 points, measure on --deals 900,000
+```
+
+The same line goes into the generated file, so a scenario carries the precision
+it was built to.
+
 ### Before chasing a tighter number
 
 Tightening from ±1 point to ±0.2 costs 25 times the deals — a quarter of a
