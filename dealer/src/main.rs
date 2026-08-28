@@ -19,7 +19,7 @@ use dealer_eval::{
 };
 use dealer_level::{
     check_leveling_source, hand_type_label, hand_types, insert_leveling_block, interleave,
-    level_from, Measurement, MIN_HAND_TYPE_SAMPLE,
+    level_from, Leveled, Measurement, MIN_HAND_TYPE_SAMPLE,
 };
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
@@ -570,6 +570,70 @@ fn format_g(val: f64) -> String {
             s
         }
     }
+}
+
+/// The levelling, laid out for a terminal.
+///
+/// Presentation rather than arithmetic, so it lives with the front end that has
+/// a terminal to lay it out on. The engine returns the numbers; the browser
+/// draws bars from the same ones.
+fn leveling_summary(leveled: &Leveled, measured: &Measurement) -> String {
+    let width = leveled
+        .plans
+        .iter()
+        .map(|p| p.name.len())
+        .max()
+        .unwrap_or(4)
+        .max(4);
+    let mut out = format!(
+        "measured over {} deals\n  {:<width$}  {:>9} {:>9} {:>9} {:>8} {:>9}\n",
+        measured.produced,
+        "type",
+        "natural",
+        "target",
+        "mix",
+        "keep",
+        "seen",
+        width = width
+    );
+    for plan in &leveled.plans {
+        out.push_str(&format!(
+            "  {:<width$}  {:>9.5} {:>9.5} {:>9.5} {:>8.4} {:>9}\n",
+            plan.name,
+            plan.natural,
+            plan.target,
+            plan.mix,
+            plan.keep,
+            plan.seen,
+            width = width
+        ));
+    }
+    let rarest = leveled
+        .plans
+        .iter()
+        .min_by(|a, b| a.natural.total_cmp(&b.natural))
+        .expect("at least one hand type");
+    let relative = if rarest.seen > 0 {
+        (rarest.natural * (1.0 - rarest.natural) / measured.produced as f64).sqrt() / rarest.natural
+    } else {
+        f64::INFINITY
+    };
+    out.push_str(&format!(
+        "\n  exactness {:.3}{}\n  acceptance {:.4} of qualifying deals\n  about {:.0} deals \
+         dealt per deal kept\n  keeps pinned down by `{}`, the rarest, seen {} times: +-{:.1}%",
+        leveled.lambda,
+        if leveled.lambda >= 0.999 {
+            ""
+        } else {
+            "  (relaxed to fit the budget)"
+        },
+        leveled.acceptance,
+        1.0 / (leveled.base_rate * leveled.acceptance),
+        rarest.name,
+        rarest.seen,
+        100.0 * relative,
+    ));
+    out
 }
 
 fn main() {
@@ -1649,7 +1713,11 @@ fn main() {
             eprintln!("Error: could not write {}: {}", leveled_path.display(), e);
             std::process::exit(1);
         }
-        eprintln!("{}\n\nwrote {}", leveled.summary, leveled_path.display());
+        eprintln!(
+            "{}\n\nwrote {}",
+            leveling_summary(&leveled, &measured),
+            leveled_path.display()
+        );
         return;
     }
 
