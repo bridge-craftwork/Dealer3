@@ -31,20 +31,7 @@
 
       <section class="col col-editor">
         <div class="controls">
-          <label>
-            Seed
-            <input v-model.number="seed" type="number" min="0" max="4294967295" />
-            <button class="reseed" title="New random seed now" @click="seed = randomSeed()">⟳</button>
-          </label>
-          <!-- Rolled *before* the run and written into the field above, so the
-               seed on screen is still the seed that produced what is shown.
-               That was the reason Run never re-rolled on its own; doing it this
-               way keeps the guarantee and saves the click. -->
-          <label class="check" title="Roll a new seed each time you press Run, so every run is a fresh sample">
-            <input v-model="newSeedEachRun" type="checkbox" />
-            New seed each run
-          </label>
-          <label>Produce <input v-model.number="produce" type="number" min="1" /></label>
+          <label>Produce <input v-model.number="produce" class="narrow" type="number" min="1" /></label>
           <label>
             Max generate
             <!-- `min` must be a multiple of `step`, or the browser snaps to the
@@ -52,6 +39,22 @@
                  values were 1, 1001, 2001…, so 500000 stepped up to 500001 and
                  down to 499001. A zero is rejected at run time instead. -->
             <input v-model.number="maxGenerate" type="number" min="0" :step="generateStep" />
+          </label>
+          <!-- After the two limits, because on Random it is a field to read
+               rather than set: it says which run this was, for quoting or
+               coming back to. -->
+          <label>
+            Seed
+            <input v-model.number="seed" type="number" min="0" max="4294967295" />
+          </label>
+          <!-- Rolled *before* the run and written into the field beside it, so
+               the seed on screen is still the seed that produced what is shown.
+               That was the reason Run never re-rolled on its own; doing it this
+               way keeps the guarantee and saves the click — and saves needing a
+               button to roll one by hand, since there is no other reason to. -->
+          <label class="check" title="Roll a new seed each time you press Run, so every run is a fresh sample">
+            <input v-model="newSeedEachRun" type="checkbox" />
+            Random
           </label>
           <label>
             Format
@@ -467,7 +470,13 @@ body {
   font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
+/* Wide enough for a ten-digit seed, which is the longest thing any of them
+   holds. Produce is a board count and never needs half of that. */
 .controls input[type="number"] { width: 7em; }
+/* Two digits narrower than it was: the spinner takes a chunk of the box, and a
+   board count is two or three digits nearly always. Five figures still fit the
+   field, they just scroll. */
+.controls input.narrow { width: 3.25em; }
 .check {
   display: inline-flex;
   align-items: center;
@@ -505,12 +514,6 @@ body {
 }
 .tabs button.on { background: var(--editor-bg); color: #fff; border-color: var(--editor-line); }
 
-.reseed {
-  border: 1px solid var(--line); border-radius: 3px; background: var(--bg);
-  color: var(--fg-muted); font: inherit; font-size: 11px;
-  padding: 2px 6px; cursor: pointer; line-height: 1.2;
-}
-.reseed:hover { background: var(--bg-subtle); color: var(--fg); }
 .editor-loading {
   flex: 1; display: grid; place-items: center;
   color: var(--fg-muted); font-size: 13px;
