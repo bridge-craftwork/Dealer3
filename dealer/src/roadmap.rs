@@ -335,24 +335,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "Script parameters `$0`-`$9`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
-        note: Some(
-            "Not a value but a substitution: DealerV2_4's lexer re-scans the switch's text \
-             where the `$n` stood, so a parameter can be a number, a compass, a shape spec \
-             or a function name — `$9($0)` with `-9 hcp -0 west` is `hcp(west)`. So this \
-             belongs in the preprocessor, not the grammar. Its switches `-0` to `-9` are \
-             dealer.exe's swapping switches and dealer.exe wins, so the spelling would be \
-             dealer3's own. Worth doing better in one place: V2_4 expands an unfilled `$n` \
-             to nothing and carries on, and `$` marks the spot plainly enough to refuse \
-             instead. `$` is absent from the original's lexer, so a script using it stops \
-             being a BBO script.",
-        ),
-    },
-    WorkItem {
         what: "Exhaust mode",
         done_when: Some(DoneWhen::Switch("-e")),
         issue: None,

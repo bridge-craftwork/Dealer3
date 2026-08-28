@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--param N=TEXT`: DealerV2_4's script parameters, `$0` to `$9`.** One script
+  can then be several — `NTscripted.dls` in that project's own examples is a
+  notrump opener whose range, seats and shape all come from the command line.
+  - A parameter is source rather than a value. DealerV2_4's lexer scans the
+    switch's text where the `$n` stood, so it can be a number, a compass, a
+    shape spec or a function name: `$9($0)` with `--param 9=hcp --param 0=west`
+    is `hcp(west)`. Nothing but substitution does that, so it is a preprocessor
+    pass, running before the shapes are expanded — a parameter may be part of
+    one, as `shape{$1, $2:d>c or h>s}` is in their regression suite.
+  - **The switch differs, the syntax does not.** DealerV2_4 sets these with `-0`
+    to `-9`, which are dealer.exe's swapping switches; dealer.exe wins.
+  - A `$n` nothing supplies is an error, naming the line. DealerV2_4 zeroes its
+    parameter table and never looks again, so an unfilled one scans an empty
+    buffer and vanishes — `average $2 controls(west)` quietly becomes a valid
+    statement that has lost its label. A `--param` the script never mentions is
+    a warning.
 - **`shape{ ... }`: François Dellacherie's shape language** (his 1997 `dpp`, which
   DealerV2_4 ships as `fdp`). `shape{north, 4M(3+3+2+)}` says what twelve
   patterns say in `shape(...)`: `5+` is at least five, `2-` at most two,

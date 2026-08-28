@@ -18,7 +18,7 @@
 //! `:;<=` standing for ten through thirteen, so its answer is a superset and
 //! the difference is never anything else.
 
-use dealer_parser::preprocess_all;
+use dealer_parser::{preprocess_all, ScriptParams};
 use std::collections::BTreeSet;
 
 type Shape = [u8; 4];
@@ -60,8 +60,11 @@ fn shapes_of_patterns(list: &str) -> BTreeSet<Shape> {
 
 /// What dealer3 makes of an FD shape body.
 fn dealer3(body: &str) -> BTreeSet<Shape> {
-    let expanded = preprocess_all(&format!("condition shape{{north, {body}}}\n"))
-        .unwrap_or_else(|e| panic!("`{body}` should expand: {e}"));
+    let expanded = preprocess_all(
+        &format!("condition shape{{north, {body}}}\n"),
+        &ScriptParams::default(),
+    )
+    .unwrap_or_else(|e| panic!("`{body}` should expand: {e}"));
     let open = expanded.find("shape(").expect("a shape call");
     let close = expanded[open..].find(')').expect("a closing paren") + open;
     let inner = &expanded[open + "shape(".len()..close];

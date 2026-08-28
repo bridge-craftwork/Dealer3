@@ -167,6 +167,21 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--param",
+        group: "Generation",
+        what: "Fill a script parameter: `--param 1=west` puts `west` where `$1` stands",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Differs("-0 to -9 set $0 to $9"),
+        note: Some(
+            "DealerV2_4's spelling collides with dealer.exe's swapping switches, which win, \
+             so only the switch differs — a script written for it is unchanged. A parameter \
+             is source rather than a value: a compass, a number, a shape, even a function \
+             name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike \
+             DealerV2_4, a `$n` nothing supplies is an error rather than an empty space.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--interleave",
         group: "Output",
         what: "Order the output so each hand type appears before any repeats",

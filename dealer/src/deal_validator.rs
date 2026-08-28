@@ -91,7 +91,7 @@ fn main() {
     };
 
     // Preprocess and parse the filter
-    let preprocessed = match dealer_parser::preprocess_all(&filter_content) {
+    let preprocessed = match dealer_parser::preprocess_all(&filter_content, &Default::default()) {
         Ok(text) => text,
         Err(message) => {
             eprintln!("Error in filter file: {}", message);

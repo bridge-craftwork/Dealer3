@@ -147,6 +147,15 @@ struct Args {
     #[arg(long = "interleave")]
     interleave: bool,
 
+    /// Fill a script parameter: `--param 1=west` puts `west` where `$1` stands
+    ///
+    /// DealerV2_4 sets these with `-0` to `-9`, which are dealer.exe's swapping
+    /// switches here, so the spelling differs. A parameter is source rather than
+    /// a value — a compass, a number, a shape, even a function name — and a `$n`
+    /// with nothing behind it is an error rather than an empty space.
+    #[arg(long = "param", value_name = "N=TEXT")]
+    param: Vec<String>,
+
     /// Report the statistics as JSON instead of tables, for a tool to read
     ///
     /// Use with `-q` for a stdout that is nothing but JSON. The per-average
@@ -1331,8 +1340,22 @@ fn main() {
         }
     }
 
-    // Expand the `shape{...}` shapes, then mark four-digit shape literals.
-    let preprocessed = match dealer_parser::preprocess_all(constraint_str) {
+    // Fill the script parameters, expand the `shape{...}` shapes, then mark
+    // four-digit shape literals.
+    let mut params = dealer_parser::ScriptParams::default();
+    for spec in &args.param {
+        if let Err(message) = params.set(spec) {
+            eprintln!("Error: {}", message);
+            std::process::exit(1);
+        }
+    }
+    for index in params.unused(constraint_str) {
+        eprintln!(
+            "Warning: --param {} was given and the script never mentions `${}`",
+            index, index
+        );
+    }
+    let preprocessed = match dealer_parser::preprocess_all(constraint_str, &params) {
         Ok(text) => text,
         Err(message) => {
             eprintln!("Error: {}", message);

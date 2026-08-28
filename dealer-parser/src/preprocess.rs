@@ -7,11 +7,18 @@ use regex::Regex;
 /// Example: "shape(north, any 4333 - 4333)" becomes "shape(north, any 4333 - %s4333)"
 /// Everything that happens to a script before it is parsed.
 ///
-/// Two passes, and the order between them matters: the François Dellacherie
-/// shapes expand into exactly the four-digit literals the second pass exists to
-/// mark, so they have to be written before it runs.
-pub fn preprocess_all(input: &str) -> Result<String, String> {
-    Ok(preprocess(&crate::fdshape::expand(input)?))
+/// Three passes, and the order between them is not free.
+///
+/// Script parameters go first, because a parameter can be part of a shape:
+/// `shape{$1, $2:d>c or h>s}` is in DealerV2_4's own regression suite, and its
+/// lexer likewise fills the parameter into the command buffer before running
+/// the shape expander.
+///
+/// The François Dellacherie shapes go next, because they expand into exactly
+/// the four-digit literals the last pass exists to mark.
+pub fn preprocess_all(input: &str, params: &crate::ScriptParams) -> Result<String, String> {
+    let filled = crate::script_params::substitute(input, params)?;
+    Ok(preprocess(&crate::fdshape::expand(&filled)?))
 }
 
 pub fn preprocess(input: &str) -> String {

@@ -115,3 +115,93 @@ fn a_script_that_defines_what_it_uses_is_left_alone() {
     assert_eq!(status, 0, "stderr was: {err}");
     assert_eq!(out.lines().count(), 2);
 }
+
+#[test]
+fn a_script_parameter_is_source_rather_than_a_value() {
+    // DealerV2_4's own NTscripted.dls: one script, two notrump ranges, with
+    // `$9($0)` a function name applied to a compass.
+    let script = "\
+NTshape = shape($0, any 4333 + any 4432 + any 5332 - 5xxx - x5xx)
+condition NTshape and ($9($0) >= $1) and ($9($0) <= $2)
+action printoneline
+";
+    let weak = [
+        "-p", "40", "-g", "3000000", "-s", "1", "--param", "0=west", "--param", "1=12", "--param",
+        "2=14", "--param", "9=hcp",
+    ];
+    let (out, err, status) = run(&weak, script);
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert_eq!(out.lines().count(), 40);
+
+    // The same script asking for a different band deals different hands.
+    let strong: Vec<&str> = weak
+        .iter()
+        .map(|a| match *a {
+            "1=12" => "1=15",
+            "2=14" => "2=17",
+            other => other,
+        })
+        .collect();
+    let (stronger, _, status) = run(&strong, script);
+    assert_eq!(status, 0);
+    assert_ne!(out, stronger);
+}
+
+#[test]
+fn an_unfilled_parameter_is_refused() {
+    // Where DealerV2_4 scans an empty buffer and carries on.
+    let (out, err, status) = run(
+        &["-p", "1", "-s", "1", "--param", "0=north"],
+        "condition hcp($0) >= $1\n",
+    );
+    assert_eq!(status, 1, "stdout was: {out}");
+    assert!(err.contains("$1"), "stderr was: {err}");
+    assert!(err.contains("--param 1="), "should say how: {err}");
+}
+
+#[test]
+fn a_parameter_nothing_uses_is_a_warning_not_an_error() {
+    let (out, err, status) = run(
+        &["-p", "1", "-s", "1", "--param", "7=north"],
+        "condition hcp(north) >= 10\naction printoneline\n",
+    );
+    assert_eq!(status, 0, "an unused parameter should not stop the run");
+    assert!(err.contains("never mentions"), "stderr was: {err}");
+    assert_eq!(out.lines().count(), 1);
+}
+
+#[test]
+fn a_parameter_fills_a_shape_before_it_is_expanded() {
+    // From DealerV2_4's FDScript_s233.dls, whose own comment says to run it
+    // with `-1 north -2 '(55xx)'`. The order matters: the parameter has to be
+    // in place before the shape language reads it.
+    let script = "condition shape{$1, $2:d>c or h>s}\naction printoneline\n";
+    let (out, err, status) = run(
+        &[
+            "-p", "20", "-g", "2000000", "-s", "1", "--param", "1=north", "--param", "2=(55xx)",
+        ],
+        script,
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert_eq!(out.lines().count(), 20);
+    // Every hand is 5-5 somewhere, which is what `(55xx)` asks for.
+    for line in out.lines() {
+        let north = line.split_whitespace().nth(1).expect("the north holding");
+        let mut lengths: Vec<usize> = north.split('.').map(str::len).collect();
+        lengths.sort_unstable();
+        assert_eq!(
+            &lengths[2..],
+            &[5, 5],
+            "`{north}` is not a 5-5 hand, from: {line}"
+        );
+    }
+}
+
+#[test]
+fn a_malformed_parameter_is_refused() {
+    for spec in ["west", "x=west", "10=west"] {
+        let (_, err, status) = run(&["-p", "1", "-s", "1", "--param", spec], "condition 1\n");
+        assert_eq!(status, 1, "`{spec}` should be refused");
+        assert!(!err.is_empty());
+    }
+}

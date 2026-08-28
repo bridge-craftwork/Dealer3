@@ -720,7 +720,10 @@ pub fn expand(source: &str) -> Result<String, String> {
 }
 
 /// The end of the comment or string starting at `at`, if one does.
-fn skippable(chars: &[char], at: usize) -> Option<usize> {
+///
+/// Shared with the script-parameter pass, which has to step over the same
+/// things for the same reason.
+pub(crate) fn skippable(chars: &[char], at: usize) -> Option<usize> {
     let two: String = chars[at..(at + 2).min(chars.len())].iter().collect();
     let line_end = |from: usize| {
         chars[from..]

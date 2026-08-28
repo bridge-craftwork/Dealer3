@@ -312,7 +312,9 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
              `shape{north, 4M(3+3+2+)}` is the twelve patterns above, and it is expanded \
              before the script is parsed. A `+` or `-` joining two patterns needs a space on \
              both sides, which is what keeps the one in `h+s>=10` inside its condition; and \
-             only one `M` and one `m` fit in a pattern, two of a colour needing `(...)`.",
+             only one `M` and one `m` fit in a pattern, two of a colour needing `(...)`. A \
+             script parameter may stand anywhere inside one, since `--param` fills it \
+             in before the shape is read.",
         ),
     },
     FunctionDoc {
