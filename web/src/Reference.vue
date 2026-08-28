@@ -4,6 +4,7 @@
       <h1>dealer3</h1>
       <span class="bar-sub">language reference</span>
       <span class="bar-spacer"></span>
+      <a class="bar-link" href="./leveling.html">Levelling guide</a>
       <a class="bar-link" href="./index.html">Back to the app</a>
       <span v-if="engineVersion" class="bar-version">engine {{ engineVersion }}</span>
     </header>

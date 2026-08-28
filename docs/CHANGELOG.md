@@ -143,6 +143,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`docs/leveling-strategy.md`**, describing how to level a scenario in one
   measurement and one calculation, the portable `roll` construct `rnd()` needs,
   and the closed-form cost of a target mix.
+- **`docs/leveling-guide.md`**, the how-to companion to that paper: the
+  `HandType_` convention, the generated block, the switches, the browser's
+  Auto-level box, and — first, because it is the one error levelling cannot
+  recover from — how many deals to measure over.
+  - The keeps are `mix / natural`, so a relative error in a measured rate is
+    baked in permanently and producing more deals never averages it out. The
+    command line refuses under 500 sightings of a type; the browser goes ahead
+    from 50 and reports the count. Both numbers are in the guide with the
+    reason, and a worked case: a 10,000-deal pass that saw `22_24` 159 times
+    against a true rate predicting 129 leaves that band delivering 16.7%
+    instead of 20%, for good.
+  - One source, three readings. It is markdown in the repo,
+    <https://dealer.bridge-classroom.org/leveling.html> on the site — a third
+    Vite entry that inlines the file with `?raw`, so `pages.yml` now watches the
+    markdown as a build input — and a PDF from
+    `.github/workflows/docs-pdf.yml`, which builds this and the strategy paper
+    on a change to either.
+  - It does **not** live in `docs/FILTER_LANGUAGE_STATUS.md`. Levelling is a
+    layer over the language rather than part of it, and that page is generated
+    from `vocabulary.rs` with a test to keep it that way.
 
 ### Fixed
 - **A variable holding `rnd()` is no longer cached for the deal.** Every mention

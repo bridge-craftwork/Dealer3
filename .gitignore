@@ -43,3 +43,8 @@ wasm/target/
 web/node_modules/
 web/dist/
 web/src/wasm/
+
+# Built by .github/workflows/docs-pdf.yml, and by md-to-pdf when run locally.
+# Generated, so not committed: a binary in git makes every docs edit a
+# two-commit affair and every diff unreadable.
+docs/*.pdf

@@ -141,7 +141,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         note: Some(
             "Measures how often each `HandType_*` variable comes up, works out the keep rate \
              for each, and writes them into the copy. `-p` sets the sample. See \
-             `docs/leveling-strategy.md`.",
+             `docs/leveling-guide.md`.",
         ),
     },
     SwitchRow {
@@ -189,7 +189,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_v2: Origin::Absent,
         note: Some(
             "Needs `HandType_*` variables to classify against. Rare types are spread across \
-             the run rather than exhausted early. See `docs/leveling-strategy.md`.",
+             the run rather than exhausted early. See `docs/leveling-guide.md`.",
         ),
     },
     SwitchRow {
@@ -202,7 +202,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         note: Some(
             "For a tool rather than a reader: full precision, and the sample size behind each \
              average. Pair with `-q` for a stdout that is nothing but JSON. See \
-             `docs/leveling-strategy.md`.",
+             `docs/leveling-guide.md`.",
         ),
     },
     SwitchRow {

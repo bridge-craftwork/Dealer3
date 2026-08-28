@@ -25,8 +25,10 @@ src/
 │   ├── cardFormatting.js card/suit primitives and oneline parsing (vendored)
 │   ├── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
 │   ├── reference.js      shaping the vocabulary into reference sections
+│   ├── guide.js          rendering a docs/ markdown file as a page
 │   └── download.js       saving results as PBN or text
 ├── Reference.vue         the language reference page
+├── Leveling.vue          the levelling guide, rendered from docs/
 └── components/
     ├── ScenarioPicker.vue  340+ PBS scenarios, grouped and searchable
     ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
@@ -35,11 +37,12 @@ src/
     └── ResultsPanel.vue    deals, averages, frequency charts
 ```
 
-Two pages, both Vite entries: `index.html` (the app) and `reference.html` (the
-language reference). They share the engine chunk; the reference pulls in none of
-the editor.
+Three pages, all Vite entries: `index.html` (the app), `reference.html` (the
+language reference) and `leveling.html` (the levelling guide). The app and the
+reference share the engine chunk, and the reference pulls in none of the editor.
+The guide loads neither: its text is inlined at build time.
 
-## Four things worth knowing
+## Five things worth knowing
 
 **Diagnostics come from the parser, not a regex.** `check_script()` is the same
 pest parser the CLI uses, so a squiggle means the engine will reject the script,
@@ -59,6 +62,18 @@ where `tests/vocabulary_docs.rs` holds them to it: **adding a function to the
 grammar fails the build until it is documented**. Every example on the page is
 parsed by that test and *evaluated* by `dealer-eval`'s, so no snippet in the
 reference is one the engine would reject.
+
+**The levelling guide has one source, and it is not here.** `leveling.html`
+renders `docs/leveling-guide.md` — the same file GitHub shows and
+`.github/workflows/docs-pdf.yml` builds the PDF from — inlined at build time by
+Vite's `?raw`. A second copy written for the web would be a second thing to keep
+right, and the guide is mostly measurements. `lib/guide.js` does the rendering
+and rewrites the document's repo-relative links back to GitHub, since
+`../examples/` means nothing here; `guide.test.js` checks every link in the
+built page resolves and every contents entry lands on a heading that exists.
+
+Because the markdown is a build input, `pages.yml` redeploys on a change to it.
+Without that the site would go stale while the repo looked current.
 
 **Scenarios are fetched, not bundled.** `pbsScenarios.js` reads the manifest that
 Practice-Bidding-Scenarios CI builds, straight from raw.githubusercontent.com,
@@ -187,9 +202,10 @@ Both drive off the same vocabulary, so the choice is presentation only.
 npm test
 ```
 
-77 cases covering manifest parsing, the language derivation — tokenizer
+Cases covering manifest parsing, the language derivation — tokenizer
 classification, longest-first matching, case-insensitivity, completion shape —
-and the reference page's transforms of the vocabulary.
+the reference page's transforms of the vocabulary, and the levelling guide's
+markdown rendering.
 
 The Vue components are not covered by unit tests; they are exercised by the
 browser smoke checks instead. That division is deliberate: every real bug in

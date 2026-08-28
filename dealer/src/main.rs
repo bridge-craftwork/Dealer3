@@ -132,7 +132,7 @@ struct Args {
     /// Runs the script as it stands to measure how often each `HandType_*`
     /// variable comes up, works out the keep rate for each, and writes the
     /// result into the copy's `### BEGIN GENERATED LEVELING ###` block. `-p`
-    /// sets how many deals to measure over. See `docs/leveling-strategy.md`.
+    /// sets how many deals to measure over. See `docs/leveling-guide.md`.
     #[arg(long = "write-leveled", value_name = "FILE")]
     write_leveled: Option<PathBuf>,
 

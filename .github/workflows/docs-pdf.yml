@@ -1,0 +1,72 @@
+name: Docs PDF
+
+# The levelling guide has one source and three readings: markdown in the repo,
+# a page on the site built by `pages.yml`, and the PDF built here. A PDF because
+# the guide is the thing somebody prints and takes to a class, and raw markdown
+# is not a document.
+#
+# The strategy paper comes along because the two are a pair: the guide says how,
+# the paper says why, and anyone printing one generally wants the other.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/leveling-guide.md'
+      - 'docs/leveling-strategy.md'
+      - 'docs/pdf.css'
+      - '.github/workflows/docs-pdf.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        doc: [leveling-guide, leveling-strategy]
+      # One failing document should not hide whether the other built.
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install md-to-pdf
+        run: npm install -g md-to-pdf
+
+      - name: Build ${{ matrix.doc }}.pdf
+        run: |
+          md-to-pdf "docs/${{ matrix.doc }}.md" \
+            --stylesheet docs/pdf.css \
+            --document-title "dealer3 — ${{ matrix.doc }}" \
+            --launch-options '{"args": ["--no-sandbox", "--disable-setuid-sandbox"]}' \
+            --pdf-options '{
+              "format": "A4",
+              "margin": {"top": "18mm", "bottom": "20mm", "left": "18mm", "right": "18mm"},
+              "printBackground": true,
+              "displayHeaderFooter": true,
+              "headerTemplate": "<div></div>",
+              "footerTemplate": "<div style=\"width:100%;font:9px -apple-system,sans-serif;color:#888;padding:0 18mm;display:flex;justify-content:space-between\"><span>dealer.bridge-classroom.org</span><span class=\"pageNumber\"></span></div>"
+            }'
+
+      # Not committed back to the repo: a generated binary in git makes every
+      # docs edit a two-commit affair and every diff unreadable. The artifact is
+      # for anyone who wants it now, the release asset for anyone who wants a
+      # version they can cite.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.doc }}-pdf
+          path: docs/${{ matrix.doc }}.pdf
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: docs/${{ matrix.doc }}.pdf

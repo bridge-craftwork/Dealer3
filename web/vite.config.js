@@ -26,12 +26,15 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      // Two pages: the app, and a language reference generated from the
-      // engine's own vocabulary. The reference imports the engine, so it has to
-      // be a bundler entry rather than a static file copied past it.
+      // Three pages: the app, a language reference generated from the engine's
+      // own vocabulary, and the levelling guide. The reference imports the
+      // engine, so it has to be a bundler entry rather than a static file
+      // copied past it; the guide inlines `docs/leveling-guide.md` with `?raw`,
+      // which likewise only happens for something the bundler owns.
       input: {
         main: entry('index.html'),
         reference: entry('reference.html'),
+        leveling: entry('leveling.html'),
       },
       output: {
         // Keep the engine and the editor in their own chunks. Both are large,

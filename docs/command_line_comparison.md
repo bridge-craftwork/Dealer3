@@ -36,7 +36,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-g`, `--generate` | Stop after dealing N hands | ✅ | ✅ | ✅ | Default 10,000,000. Whichever limit is reached first ends the run. |
 | `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Default is the clock. dealer3 has its own RNG (xoshiro256++), so a seed does not reproduce dealer.exe's deals — that went with legacy mode. |
 | `-t`, `--timeout` | Give up after N seconds | ✅ | — | — |  |
-| `--write-leveled` | Write a copy of the script with its hand types levelled | ✅ | — | — | Measures how often each `HandType_*` variable comes up, works out the keep rate for each, and writes them into the copy. `-p` sets the sample. See `docs/leveling-strategy.md`. |
+| `--write-leveled` | Write a copy of the script with its hand types levelled | ✅ | — | — | Measures how often each `HandType_*` variable comes up, works out the keep rate for each, and writes them into the copy. `-p` sets the sample. See `docs/leveling-guide.md`. |
 | `--level-target` | Target mix for `--write-leveled`: even, or one weight per hand type | ✅ | — | — |  |
 | `--level-budget` | Budget for `--write-leveled`, in deals dealt per deal kept | ✅ | — | — | When a target costs more than this, exactness is relaxed rather than the rarest type sacrificed: every type moves the same fraction toward its target. |
 | `--param` | Fill a script parameter: `--param 1=west` puts `west` where `$1` stands | ✅ | — | ⚠️ -0 to -9 set $0 to $9 | DealerV2_4's spelling collides with dealer.exe's swapping switches, which win, so only the switch differs — a script written for it is unchanged. A parameter is source rather than a value: a compass, a number, a shape, even a function name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike DealerV2_4, a `$n` nothing supplies is an error rather than an empty space. |
@@ -49,7 +49,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `--interleave` | Order the output so each hand type appears before any repeats | ✅ | — | — | Needs `HandType_*` variables to classify against. Rare types are spread across the run rather than exhausted early. See `docs/leveling-strategy.md`. |
+| `--interleave` | Order the output so each hand type appears before any repeats | ✅ | — | — | Needs `HandType_*` variables to classify against. Rare types are spread across the run rather than exhausted early. See `docs/leveling-guide.md`. |
 | `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. |
 | `-d`, `--dealer` | Dealer position | ✅ | — | — | The original uses the `dealer` statement, which dealer3 also accepts. |
 | `--vulnerable` | Vulnerability | ✅ | — | ⚠️ -P sets vulnerability for par | Long form only. `-v` is verbose, as in the original — this was the 0.2.0 breaking change. |
@@ -75,7 +75,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `--stats-json` | Report the statistics as JSON instead of tables | ✅ | — | — | For a tool rather than a reader: full precision, and the sample size behind each average. Pair with `-q` for a stdout that is nothing but JSON. See `docs/leveling-strategy.md`. |
+| `--stats-json` | Report the statistics as JSON instead of tables | ✅ | — | — | For a tool rather than a reader: full precision, and the sample size behind each average. Pair with `-q` for a stdout that is nothing but JSON. See `docs/leveling-guide.md`. |
 | `-C`, `--CSV` | Write a CSV report to a file | ✅ | — | ✅ | Appends by default; `w:filename` truncates. Driven by the `csvrpt` statement. |
 | `-T`, `--title` | Title for PBN output | ✅ | — | ✅ |  |
 

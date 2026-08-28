@@ -1,0 +1,128 @@
+/* Print styling for the docs PDFs built by `.github/workflows/docs-pdf.yml`.
+ *
+ * These documents are mostly tables of measurements, so the tables get the
+ * attention: they have to stay on one page where they can, and stay legible
+ * where they cannot. md-to-pdf renders through Chrome, so this is ordinary CSS
+ * with paged-media rules on top. */
+
+body {
+  font: 10.5pt/1.55 -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1a1a1a;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+h1 {
+  font-size: 20pt;
+  line-height: 1.2;
+  margin: 0 0 1.2rem;
+}
+h2 {
+  font-size: 14pt;
+  margin: 1.6rem 0 0.5rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid #ddd;
+}
+h3 {
+  font-size: 11.5pt;
+  margin: 1.2rem 0 0.35rem;
+}
+
+/* A heading stranded at the foot of a page is the commonest ugliness here. */
+h1,
+h2,
+h3 {
+  break-after: avoid;
+  page-break-after: avoid;
+}
+
+p,
+li {
+  orphans: 2;
+  widows: 2;
+}
+
+a {
+  color: #1d5f8a;
+  text-decoration: none;
+}
+
+code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  background: #f4f4f4;
+  border: 1px solid #e2e2e2;
+  border-radius: 2px;
+  padding: 0.05em 0.28em;
+}
+
+pre {
+  background: #f7f7f7;
+  border: 1px solid #e2e2e2;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  font-size: 8.6pt;
+  line-height: 1.45;
+  /* The generated block and the summary output are wide and matter as blocks;
+     splitting one across a page break loses the shape of it. */
+  break-inside: avoid;
+  page-break-inside: avoid;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
+blockquote {
+  margin: 0.9rem 0;
+  padding: 0.1rem 0.9rem;
+  border-left: 3px solid #1d5f8a;
+  background: #f7f7f7;
+  color: #444;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+blockquote strong {
+  color: #1a1a1a;
+}
+
+/* Tables ------------------------------------------------------------------ */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 9pt;
+  margin: 0.9rem 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+th,
+td {
+  border-bottom: 1px solid #e2e2e2;
+  padding: 0.28rem 0.5rem 0.28rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+thead th {
+  border-bottom: 1.5pt solid #bbb;
+  font-weight: 600;
+  color: #555;
+}
+/* The wide refusals table is prose in its last column. */
+td:last-child {
+  hyphens: auto;
+}
+
+/* The guide's `---` separators mark its major sections. Left as rules rather
+ * than forced page breaks: the sections are very uneven in length, so a page
+ * each would leave several nearly blank. */
+hr {
+  border: 0;
+  border-top: 1px solid #ddd;
+  margin: 1.8rem 0;
+}

@@ -12,6 +12,11 @@ on:
       - 'wasm/**'
       - 'web/**'
       - 'Cargo.toml'
+      # The levelling guide page inlines this file with `?raw` at build time,
+      # so editing the markdown is editing the site. Without this the guide
+      # would go stale on the site while looking current in the repo — and
+      # nothing would say so.
+      - 'docs/leveling-guide.md'
       # The hosting half of the deploy: a change to the headers or the Pages
       # config has to redeploy too, or the site would keep serving the old ones.
       - 'wrangler.jsonc'

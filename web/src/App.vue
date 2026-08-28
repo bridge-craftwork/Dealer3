@@ -13,6 +13,15 @@
         target="_blank"
         rel="noopener"
       >Language reference ↗</a>
+      <!-- Beside the reference because it answers the other half of "what do I
+           write": the reference says what the words mean, the guide says what
+           to do with the Auto-level box below. -->
+      <a
+        class="bar-link"
+        href="./leveling.html"
+        target="_blank"
+        rel="noopener"
+      >Levelling guide ↗</a>
       <!-- Feedback needs somewhere durable to land. Without this the only route
            is email, and a report with no script attached is hard to act on. -->
       <a

@@ -9,6 +9,12 @@ This describes how to do that in one measurement and one calculation, why the
 older way needed neither but took several passes, and the one construct that
 makes it portable.
 
+**Looking for how to use it rather than why it works?**
+[`docs/leveling-guide.md`](leveling-guide.md) is the shorter companion — the
+`HandType_` convention, the switches, the browser's Auto-level box, and the
+sample size that matters more than any of them. It is also on the site at
+<https://dealer.bridge-classroom.org/leveling.html>.
+
 ## The two ways to flip a coin
 
 For a long time dealer's language had no usable randomness, so scripts made
@@ -287,13 +293,13 @@ measured over 100000 deals
   type     natural    target       mix     keep      seen
   12_14    0.58367   0.20000   0.20000   0.0220     58367
   15_17    0.29189   0.20000   0.20000   0.0440     29189
-  18_19    0.08006   0.20000   0.20000   0.1610      8006
-  20_21    0.03153   0.20000   0.20000   0.4080      3153
+  18_19    0.08006   0.20000   0.20000   0.1605      8006
+  20_21    0.03153   0.20000   0.20000   0.4075      3153
   22_24    0.01285   0.20000   0.20000   1.0000      1285
 
   exactness 1.000
-  acceptance 0.0630 of qualifying deals
-  about 95 deals dealt per deal kept
+  acceptance 0.0643 of qualifying deals
+  about 93 deals dealt per deal kept
   keeps pinned down by `22_24`, the rarest, seen 1285 times: +-2.8%
 ```
 
