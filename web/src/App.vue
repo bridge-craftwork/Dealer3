@@ -34,10 +34,15 @@
           <label>
             Seed
             <input v-model.number="seed" type="number" min="0" max="4294967295" />
-            <!-- Run deliberately does not re-roll: the seed on screen has to be
-                 the seed that produced what is shown, or reproducing a result
-                 becomes guesswork. -->
-            <button class="reseed" title="New random seed" @click="seed = randomSeed()">⟳</button>
+            <button class="reseed" title="New random seed now" @click="seed = randomSeed()">⟳</button>
+          </label>
+          <!-- Rolled *before* the run and written into the field above, so the
+               seed on screen is still the seed that produced what is shown.
+               That was the reason Run never re-rolled on its own; doing it this
+               way keeps the guarantee and saves the click. -->
+          <label class="check" title="Roll a new seed each time you press Run, so every run is a fresh sample">
+            <input v-model="newSeedEachRun" type="checkbox" />
+            New seed each run
           </label>
           <label>Produce <input v-model.number="produce" type="number" min="1" /></label>
           <label>
@@ -170,6 +175,9 @@ const downloading = ref(false)
 // has since had an opinion, so re-ticking the box on their next keystroke does
 // not take it away from them.
 const autoLevel = ref(restored?.autoLevel ?? false)
+// Off by default: a run that changes its own seed cannot be repeated by
+// pressing Run again, which is the first thing anyone tries.
+const newSeedEachRun = ref(restored?.newSeedEachRun ?? false)
 const autoLevelTouched = ref(restored?.autoLevel != null)
 const editorTab = ref('script')
 
@@ -216,7 +224,7 @@ onMounted(async () => {
 // synchronous — it would otherwise sit on the typing path.
 let saveTimer = null
 watch(
-  [script, seed, produce, maxGenerate, format, selectedFile, autoLevel],
+  [script, seed, produce, maxGenerate, format, selectedFile, autoLevel, newSeedEachRun],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -228,6 +236,7 @@ watch(
         format: format.value,
         scenario: selectedFile.value,
         autoLevel: autoLevel.value,
+        newSeedEachRun: newSeedEachRun.value,
       })
     }, 400)
   },
@@ -313,6 +322,10 @@ function onPrint() {
 }
 
 async function run() {
+  // Before the checks below, so the new seed is the one they validate and the
+  // one the field shows beside the result.
+  if (newSeedEachRun.value) seed.value = randomSeed()
+
   // The fields are free text, so they can hold 0, a negative, or nothing at all
   // if someone clears one. Catch that here rather than asking the engine to
   // generate zero deals and reporting an empty result as if it meant something.
