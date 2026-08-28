@@ -232,17 +232,17 @@ as the budget allows.
 
 ## Generating levelled scripts
 
-`scripts/level-scenario.py` does all of it. Two files per scenario: a *stock*
-one written by hand, and a *levelled* one generated from it that should never be
+`dealer --write-leveled` does all of it. Two files per scenario: a *stock* one
+written by hand, and a *levelled* one generated from it that should never be
 edited.
 
-The stock file declares its types in the header the corpus already uses, and
-leaves a placeholder where the levelling goes:
+The stock file names its types with the `HandType_` prefix — a naming
+convention rather than syntax, so the script still parses on BBO — and leaves a
+placeholder where the levelling goes:
 
 ```
-# level-types: hcp12_14, hcp15_17, hcp18_19, hcp20_21, hcp22_24
-# level-target: even            # or a weighting: 30, 30, 20, 10, 10
-# level-budget: 150             # deals dealt per deal kept; optional
+HandType_12_14 = hcp(south) >= 12 and hcp(south) <= 14
+HandType_15_17 = hcp(south) >= 15 and hcp(south) <= 17
 
 ### BEGIN GENERATED LEVELING ###
 noLeveling = 1
@@ -264,24 +264,24 @@ which is what the tool does first. (`keepTheDeal` is accepted as the verdict's
 name too, for anyone who prefers the predicate reading.)
 
 ```
-$ scripts/level-scenario.py stock.dlr -o leveled.dlr
-measured over 100,000 deals of 599,930 dealt
-  base condition accepts 16.669% of deals
-
-  type        natural    target       mix     keep      seen
-  hcp12_14    0.58367   0.20000   0.20000   0.0220    58,367
-  hcp15_17    0.29189   0.20000   0.20000   0.0440    29,189
-  hcp18_19    0.08006   0.20000   0.20000   0.1610     8,006
-  hcp20_21    0.03153   0.20000   0.20000   0.4080     3,153
-  hcp22_24    0.01285   0.20000   0.20000   1.0000     1,285
+$ dealer stock.dlr -q -p 100000 -s 1 --write-leveled leveled.dlr
+measured over 100000 deals
+  type     natural    target       mix     keep      seen
+  12_14    0.58367   0.20000   0.20000   0.0220     58367
+  15_17    0.29189   0.20000   0.20000   0.0440     29189
+  18_19    0.08006   0.20000   0.20000   0.1610      8006
+  20_21    0.03153   0.20000   0.20000   0.4080      3153
+  22_24    0.01285   0.20000   0.20000   1.0000      1285
 
   exactness 1.000
-  acceptance 0.0643 of qualifying deals
-  about 93 deals dealt per deal kept
+  acceptance 0.0630 of qualifying deals
+  about 95 deals dealt per deal kept
+  keeps pinned down by `22_24`, the rarest, seen 1285 times: +-2.8%
 ```
 
-`--dry-run` reports the numbers without writing. `--budget` overrides the
-header. `--deals` sets how many to measure over.
+`-p` sets how many deals to measure over and `-s` the seed, so the result is
+reproducible. `--level-target` takes `even` or one weight per type;
+`--level-budget` caps the cost in deals dealt per deal kept.
 
 `examples/NT_Ladder.stock.dlr` and `examples/NT_Ladder.leveled.dlr` are a real
 scenario and its generated pair, if you would rather read one than a
@@ -299,8 +299,8 @@ So the shares can come from the same numbers as the keeps. In the stock file:
 
 ```
 Five HCP ranges, leveled to:
-• 12-14 HCP ({{level-mix:hcp12_14}}) - Open 1 of a suit, then rebid 1NT
-• 15-17 HCP ({{level-mix:hcp15_17}}) - Standard 1NT opening
+• 12-14 HCP ({{level-mix:12_14}}) - Open 1 of a suit, then rebid 1NT
+• 15-17 HCP ({{level-mix:15_17}}) - Standard 1NT opening
 ```
 
 and in the generated one:
@@ -316,8 +316,8 @@ that wants a block rather than prose. Either way the figure follows the budget:
 generate the same file at `--budget 40` and it reads `43.4%`, `25.6%` and so on,
 because that is what it now delivers.
 
-A marker naming a type `# level-types:` does not list is an error, so a typo
-surfaces rather than silently leaving `{{level-mix:hcp22_25}}` in the text a
+A marker naming a type the scenario does not declare is an error, so a typo
+surfaces rather than silently leaving `{{level-mix:22_25}}` in the text a
 student reads.
 
 ### What it refuses to do
@@ -327,7 +327,7 @@ than a warning.
 
 - **Types measured on too few deals.** A rate that is divided by has to be worth
   dividing by; fewer than 500 sightings of a type is refused, naming the type
-  and suggesting a larger measuring run.
+  and suggesting a larger `-p`.
 - **Types that overlap**, or that **leave a gap**. They have to partition the
   produced deals or the keeps will not add up, and the tool checks that the
   measured rates sum to 1.
@@ -432,13 +432,11 @@ precision:
 | 1% | 39,600 | 247,500 | 990,000 |
 | 0.5% | 79,600 | 497,500 | 1,990,000 |
 
-`level-scenario.py` reports where it landed, so this need not be worked out by
+`--write-leveled` reports where it landed, so this need not be worked out by
 hand:
 
 ```
-  keeps pinned down by `hcp22_24`, the rarest, seen 1,285 times: +-2.8%
-  so expect the delivered mix within about +-0.55 points of target
-  for +-0.18 points, measure on --deals 900,000
+  keeps pinned down by `22_24`, the rarest, seen 1285 times: +-2.8%
 ```
 
 The same line goes into the generated file, so a scenario carries the precision
@@ -501,7 +499,7 @@ that is enough.
 narrow the condition instead:
 
 ```
-condition balanced and hcp(south) >= 12 and hcp(south) <= 24 and hcp22_24
+condition balanced and hcp(south) >= 12 and hcp(south) <= 24 and HandType_22_24
 ```
 
 which deals that type and nothing else, on demand, with no roll and no

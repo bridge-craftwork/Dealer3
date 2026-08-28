@@ -21,6 +21,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     matching none is untagged, which is not an error.
   - `format_printpbn` takes a `PbnBoard` struct rather than eight positional
     arguments.
+- **`--write-leveled FILE`** measures a scenario's hand types and writes a copy
+  with the levelling filled in — the whole two-step method as one command.
+  `--level-target` takes `even` or one weight per type; `--level-budget` caps the
+  cost in deals dealt per deal kept, relaxing exactness rather than sacrificing
+  the rarest type when a target costs more than that.
+  - `{{level-mix:22_24}}` in the stock file is replaced by that type's share of
+    the result, so the text a student reads cannot drift from the keeps.
+  - Refuses, before dealing anything: a generated file fed back in, a missing
+    placeholder, a `levelTheDeal` nothing uses, a `roll` that is not the safe
+    form, types measured on fewer than 500 deals, and types that leave a deal
+    unclassified.
 - **`--interleave`** orders the output so each hand type appears before any
   repeats, which is what turns a 500-board set from correct-in-aggregate into
   usable one hand at a time. Rare types are spread across the whole run rather

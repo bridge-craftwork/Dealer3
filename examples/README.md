@@ -8,15 +8,14 @@ method; these are what it produces.
 
 [pbs]: https://github.com/bridge-craftwork/Practice-Bidding-Scenarios
 
-**The stock file** is the one written by hand. It declares its hand types in the
-header, leaves a placeholder where the levelling goes, and marks the places in
-the player-facing text where the resulting mix belongs:
+**The stock file** is the one written by hand. Its hand types are named by the
+`HandType_` prefix, it leaves a placeholder where the levelling goes, and it
+marks the places in the player-facing text where the resulting mix belongs:
 
 ```
-# level-types: hcp12_14, hcp15_17, hcp18_19, hcp20_21, hcp22_24
-# level-target: even
+HandType_12_14 = hcp(south) >= 12 and hcp(south) <= 14
 
-• 12-14 HCP ({{level-mix:hcp12_14}}) - Open 1 of a suit, then rebid 1NT
+• 12-14 HCP ({{level-mix:12_14}}) - Open 1 of a suit, then rebid 1NT
 
 ### BEGIN GENERATED LEVELING ###
 noLeveling = 1
@@ -30,8 +29,8 @@ which is what the tool measures.
 **The levelled file** is generated and should not be edited:
 
 ```bash
-scripts/level-scenario.py examples/NT_Ladder.stock.dlr \
-    --dealer target/release/dealer -o examples/NT_Ladder.leveled.dlr
+dealer examples/NT_Ladder.stock.dlr -q -p 100000 -s 1 \
+    --write-leveled examples/NT_Ladder.leveled.dlr
 ```
 
 The measuring run is seeded, so this reproduces the committed file byte for byte

@@ -133,6 +133,40 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--write-leveled",
+        group: "Generation",
+        what: "Write a copy of the script with its hand types levelled",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Measures how often each `HandType_*` variable comes up, works out the keep rate \
+             for each, and writes them into the copy. `-p` sets the sample. See \
+             `docs/leveling-strategy.md`.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--level-target",
+        group: "Generation",
+        what: "Target mix for `--write-leveled`: even, or one weight per hand type",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: None,
+    },
+    SwitchRow {
+        short: "",
+        long: "--level-budget",
+        group: "Generation",
+        what: "Budget for `--write-leveled`, in deals dealt per deal kept",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "When a target costs more than this, exactness is relaxed rather than the rarest \
+             type sacrificed: every type moves the same fraction toward its target.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--interleave",
         group: "Output",
         what: "Order the output so each hand type appears before any repeats",
