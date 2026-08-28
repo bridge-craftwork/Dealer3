@@ -133,6 +133,18 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--interleave",
+        group: "Output",
+        what: "Order the output so each hand type appears before any repeats",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Needs `HandType_*` variables to classify against. Rare types are spread across \
+             the run rather than exhausted early. See `docs/leveling-strategy.md`.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--stats-json",
         group: "Reporting",
         what: "Report the statistics as JSON instead of tables",

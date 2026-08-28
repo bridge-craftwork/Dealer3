@@ -122,6 +122,13 @@ struct Args {
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
+    /// Order the output so each hand type appears before any repeats
+    ///
+    /// Needs `HandType_*` variables to classify against. Holds every produced
+    /// deal until the end, since the order is not known until they all are.
+    #[arg(long = "interleave")]
+    interleave: bool,
+
     /// Report the statistics as JSON instead of tables, for a tool to read
     ///
     /// Use with `-q` for a stdout that is nothing but JSON. The per-average
@@ -361,6 +368,74 @@ fn format_print_hands(deals: &[Deal], seat: Position) -> String {
         out.push('\n');
     }
     out.push('\x0c');
+    out
+}
+
+/// Reorder produced deals so a practice set walks through the categories.
+///
+/// Naive round-robin empties the small buckets first, so the last rounds lose
+/// types — exactly the lumpiness the ordering is meant to remove. Instead each
+/// bucket's deals are spread evenly across the whole run: with shares of
+/// 20/20/20/20/10/10, the four common types appear in every round and the two
+/// rare ones in alternate rounds, so every round holds five deals rather than
+/// six and then four.
+///
+/// The spreading is Bresenham's, one accumulator per bucket. Buckets of equal
+/// size are given staggered starting credit, or two half-density types would
+/// land in the same rounds and leave the others empty.
+///
+/// Deals carrying no type are dealt out last, in the order they were produced:
+/// they belong to no round, and dropping them would lose deals the script
+/// asked for.
+fn interleave(order: &[&str], mut buckets: Vec<(Option<String>, Vec<usize>)>) -> Vec<usize> {
+    // Declaration order, so the rounds read the way the script is written.
+    buckets.sort_by_key(|(name, _)| match name {
+        Some(n) => order.iter().position(|o| o == n).unwrap_or(usize::MAX),
+        None => usize::MAX,
+    });
+    let untyped = match buckets.last() {
+        Some((None, _)) => buckets.pop().map(|(_, deals)| deals).unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    if buckets.is_empty() {
+        return untyped;
+    }
+
+    let rounds = buckets.iter().map(|(_, d)| d.len()).max().unwrap_or(0);
+    // Stagger within groups of equal size: buckets of the same density
+    // otherwise share a phase and pile into the same rounds.
+    let mut credit = vec![0f64; buckets.len()];
+    let mut seen: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let sizes: Vec<usize> = buckets.iter().map(|(_, d)| d.len()).collect();
+    for (i, size) in sizes.iter().enumerate() {
+        let group = sizes.iter().filter(|s| *s == size).count();
+        let position = seen.entry(*size).or_insert(0);
+        // Half a step of credit to start with, so a bucket holding one deal
+        // lands in the middle of the run rather than at the very end.
+        credit[i] = (*position as f64 + 0.5) / group as f64;
+        *position += 1;
+    }
+
+    let mut taken = vec![0usize; buckets.len()];
+    let mut out = Vec::new();
+    for _ in 0..rounds {
+        for (i, (_, deals)) in buckets.iter().enumerate() {
+            if deals.is_empty() {
+                continue;
+            }
+            credit[i] += deals.len() as f64 / rounds as f64;
+            if credit[i] >= 1.0 - 1e-9 && taken[i] < deals.len() {
+                credit[i] -= 1.0;
+                out.push(deals[taken[i]]);
+                taken[i] += 1;
+            }
+        }
+    }
+    // Rounding can leave a deal or two behind; they follow in order.
+    for (i, (_, deals)) in buckets.iter().enumerate() {
+        out.extend(deals[taken[i]..].iter().copied());
+    }
+    out.extend(untyped);
     out
 }
 
@@ -1019,6 +1094,11 @@ fn main() {
     // unless a script asks for it.
     let mut printed_deals: Vec<Deal> = Vec::new();
 
+    // `--interleave` cannot print as it goes: the order is not known until
+    // every deal is in. Each entry is one rendered board and the type it
+    // matched.
+    let mut held: Vec<(Option<String>, String)> = Vec::new();
+
     // Verbose flag for stats output (matches dealer.exe behavior)
     // Default is true (stats shown), -v toggles it off
     // -X forces stats on (cannot be toggled off)
@@ -1035,195 +1115,201 @@ fn main() {
 
     // Helper closure to process a matching deal (averages, frequencies, output, CSV)
     #[allow(clippy::type_complexity)]
-    let process_matching_deal = |deal: &Deal,
-                                 produced: usize,
-                                 averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
-                                 frequencies: &mut Vec<(
-        Option<String>,
-        Expr,
-        HashMap<i32, usize>,
-        Option<(i32, i32)>,
-    )>,
-                                 csv_writer: &mut Option<BufWriter<std::fs::File>>,
-                                 printed_deals: &mut Vec<Deal>| {
-        if !print_hand_seats.is_empty() {
-            printed_deals.push(deal.clone());
-        }
-        // Calculate averages for this matching deal
-        if !averages.is_empty() || !frequencies.is_empty() {
-            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-
-            for (_, expr, sum, count) in averages.iter_mut() {
-                match eval(expr, &ctx) {
-                    Ok(val) => {
-                        *sum += val as f64;
-                        *count += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("Average evaluation error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+    let process_matching_deal =
+        |deal: &Deal,
+         produced: usize,
+         averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
+         frequencies: &mut Vec<(
+            Option<String>,
+            Expr,
+            HashMap<i32, usize>,
+            Option<(i32, i32)>,
+        )>,
+         csv_writer: &mut Option<BufWriter<std::fs::File>>,
+         printed_deals: &mut Vec<Deal>,
+         held: &mut Vec<(Option<String>, String)>| {
+            if !print_hand_seats.is_empty() {
+                printed_deals.push(deal.clone());
             }
+            // Calculate averages for this matching deal
+            if !averages.is_empty() || !frequencies.is_empty() {
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
-            // Calculate frequencies for this matching deal
-            for (_, expr, histogram, _) in frequencies.iter_mut() {
-                match eval(expr, &ctx) {
-                    Ok(val) => {
-                        *histogram.entry(val).or_insert(0) += 1;
-                    }
-                    Err(e) => {
-                        eprintln!("Frequency evaluation error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
-            }
-        }
-
-        // Which category of hand this is, when the script names any. Two
-        // matching is refused: the categories are meant to partition the deals,
-        // and a tag that silently picked the first would leave a practice set
-        // quietly wrong about what it contains.
-        let hand_type = if hand_type_names.is_empty() {
-            None
-        } else {
-            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-            let mut matched: Option<&str> = None;
-            for name in &hand_type_names {
-                match eval(&Expr::Variable(name.to_string()), &ctx) {
-                    Ok(0) => {}
-                    Ok(_) => match matched {
-                        None => matched = Some(name),
-                        Some(first) => {
-                            eprintln!(
-                                "Error: a deal is both `{}` and `{}`. Hand types have to \
-                                 partition the deals, so at most one may match.",
-                                first, name
-                            );
+                for (_, expr, sum, count) in averages.iter_mut() {
+                    match eval(expr, &ctx) {
+                        Ok(val) => {
+                            *sum += val as f64;
+                            *count += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("Average evaluation error: {}", e);
                             std::process::exit(1);
                         }
-                    },
-                    Err(e) => {
-                        eprintln!("Hand type `{}` could not be evaluated: {}", name, e);
-                        std::process::exit(1);
+                    }
+                }
+
+                // Calculate frequencies for this matching deal
+                for (_, expr, histogram, _) in frequencies.iter_mut() {
+                    match eval(expr, &ctx) {
+                        Ok(val) => {
+                            *histogram.entry(val).or_insert(0) += 1;
+                        }
+                        Err(e) => {
+                            eprintln!("Frequency evaluation error: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
             }
-            matched.map(hand_type_label)
-        };
 
-        // printes: the script's own formatted output, with nothing added
-        // between terms and no line ending unless the script asked for one.
-        if !printes_reports.is_empty() {
-            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-            for terms in &printes_reports {
-                for term in terms {
-                    match term {
-                        EsTerm::String(text) => print!("{}", text),
-                        EsTerm::Newline => println!(),
-                        EsTerm::Expression(expr) => match eval(expr, &ctx) {
-                            Ok(value) => print!("{}", value),
-                            Err(e) => {
-                                eprintln!("printes evaluation error: {}", e);
+            // Which category of hand this is, when the script names any. Two
+            // matching is refused: the categories are meant to partition the deals,
+            // and a tag that silently picked the first would leave a practice set
+            // quietly wrong about what it contains.
+            let hand_type = if hand_type_names.is_empty() {
+                None
+            } else {
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+                let mut matched: Option<&str> = None;
+                for name in &hand_type_names {
+                    match eval(&Expr::Variable(name.to_string()), &ctx) {
+                        Ok(0) => {}
+                        Ok(_) => match matched {
+                            None => matched = Some(name),
+                            Some(first) => {
+                                eprintln!(
+                                    "Error: a deal is both `{}` and `{}`. Hand types have to \
+                                 partition the deals, so at most one may match.",
+                                    first, name
+                                );
                                 std::process::exit(1);
                             }
                         },
+                        Err(e) => {
+                            eprintln!("Hand type `{}` could not be evaluated: {}", name, e);
+                            std::process::exit(1);
+                        }
                     }
                 }
-            }
-        }
-
-        // In quiet mode, don't print deals (only statistics)
-        if !args.quiet {
-            let output = match output_format {
-                OutputFormat::PrintAll => format_printall(deal, produced),
-                OutputFormat::PrintEW => format_printew(deal),
-                OutputFormat::PrintPBN => {
-                    let dealer_pos = dealer_position.map(|d| d.into());
-                    let vuln = vulnerability.map(|v| v.into());
-                    let event_name = args.title.as_deref();
-                    let input_file = args.input_file.as_deref();
-                    format_printpbn(
-                        deal,
-                        &PbnBoard {
-                            board_number: produced,
-                            dealer: dealer_pos,
-                            vulnerability: vuln,
-                            event_name,
-                            seed: Some(seed),
-                            input_file,
-                            hand_type,
-                        },
-                    )
-                }
-                OutputFormat::PrintCompact => format_printcompact(deal),
-                OutputFormat::PrintOneLine => format_oneline(deal),
+                matched.map(hand_type_label)
             };
-            print!("{}", output);
-        }
 
-        // Write CSV reports if any
-        if !csv_reports.is_empty() && csv_writer.is_some() {
-            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-
-            for csv_terms in &csv_reports {
-                let mut line_parts: Vec<String> = Vec::new();
-
-                for term in csv_terms {
-                    match term {
-                        CsvTerm::Expression(expr) => match eval(expr, &ctx) {
-                            Ok(val) => line_parts.push(val.to_string()),
-                            Err(e) => {
-                                eprintln!("CSV evaluation error: {}", e);
-                                std::process::exit(1);
-                            }
-                        },
-                        CsvTerm::String(s) => {
-                            line_parts.push(format!("'{}'", s));
-                        }
-                        CsvTerm::Compass(pos) => {
-                            let hand = deal.hand(*pos);
-                            line_parts.push(format_hand_pbn(hand));
-                        }
-                        CsvTerm::Side(side) => {
-                            let (pos1, pos2) = match side {
-                                Side::NS => (Position::North, Position::South),
-                                Side::EW => (Position::East, Position::West),
-                            };
-                            let hand1 = deal.hand(pos1);
-                            let hand2 = deal.hand(pos2);
-                            line_parts.push(format!(
-                                "{} {}",
-                                format_hand_pbn(hand1),
-                                format_hand_pbn(hand2)
-                            ));
-                        }
-                        CsvTerm::Deal => {
-                            let n = deal.hand(Position::North);
-                            let e = deal.hand(Position::East);
-                            let s = deal.hand(Position::South);
-                            let w = deal.hand(Position::West);
-                            line_parts.push(format!(
-                                "{} {} {} {}",
-                                format_hand_pbn(n),
-                                format_hand_pbn(e),
-                                format_hand_pbn(s),
-                                format_hand_pbn(w)
-                            ));
+            // printes: the script's own formatted output, with nothing added
+            // between terms and no line ending unless the script asked for one.
+            if !printes_reports.is_empty() {
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+                for terms in &printes_reports {
+                    for term in terms {
+                        match term {
+                            EsTerm::String(text) => print!("{}", text),
+                            EsTerm::Newline => println!(),
+                            EsTerm::Expression(expr) => match eval(expr, &ctx) {
+                                Ok(value) => print!("{}", value),
+                                Err(e) => {
+                                    eprintln!("printes evaluation error: {}", e);
+                                    std::process::exit(1);
+                                }
+                            },
                         }
                     }
                 }
+            }
 
-                // Write line with space before first item, commas between items
-                if let Some(writer) = csv_writer.as_mut() {
-                    writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
-                        eprintln!("CSV write error: {}", e);
-                        std::process::exit(1);
-                    });
+            // In quiet mode, don't print deals (only statistics)
+            if !args.quiet {
+                let output = match output_format {
+                    OutputFormat::PrintAll => format_printall(deal, produced),
+                    OutputFormat::PrintEW => format_printew(deal),
+                    OutputFormat::PrintPBN => {
+                        let dealer_pos = dealer_position.map(|d| d.into());
+                        let vuln = vulnerability.map(|v| v.into());
+                        let event_name = args.title.as_deref();
+                        let input_file = args.input_file.as_deref();
+                        format_printpbn(
+                            deal,
+                            &PbnBoard {
+                                board_number: produced,
+                                dealer: dealer_pos,
+                                vulnerability: vuln,
+                                event_name,
+                                seed: Some(seed),
+                                input_file,
+                                hand_type,
+                            },
+                        )
+                    }
+                    OutputFormat::PrintCompact => format_printcompact(deal),
+                    OutputFormat::PrintOneLine => format_oneline(deal),
+                };
+                if args.interleave {
+                    held.push((hand_type.map(str::to_string), output));
+                } else {
+                    print!("{}", output);
                 }
             }
-        }
-    };
+
+            // Write CSV reports if any
+            if !csv_reports.is_empty() && csv_writer.is_some() {
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+
+                for csv_terms in &csv_reports {
+                    let mut line_parts: Vec<String> = Vec::new();
+
+                    for term in csv_terms {
+                        match term {
+                            CsvTerm::Expression(expr) => match eval(expr, &ctx) {
+                                Ok(val) => line_parts.push(val.to_string()),
+                                Err(e) => {
+                                    eprintln!("CSV evaluation error: {}", e);
+                                    std::process::exit(1);
+                                }
+                            },
+                            CsvTerm::String(s) => {
+                                line_parts.push(format!("'{}'", s));
+                            }
+                            CsvTerm::Compass(pos) => {
+                                let hand = deal.hand(*pos);
+                                line_parts.push(format_hand_pbn(hand));
+                            }
+                            CsvTerm::Side(side) => {
+                                let (pos1, pos2) = match side {
+                                    Side::NS => (Position::North, Position::South),
+                                    Side::EW => (Position::East, Position::West),
+                                };
+                                let hand1 = deal.hand(pos1);
+                                let hand2 = deal.hand(pos2);
+                                line_parts.push(format!(
+                                    "{} {}",
+                                    format_hand_pbn(hand1),
+                                    format_hand_pbn(hand2)
+                                ));
+                            }
+                            CsvTerm::Deal => {
+                                let n = deal.hand(Position::North);
+                                let e = deal.hand(Position::East);
+                                let s = deal.hand(Position::South);
+                                let w = deal.hand(Position::West);
+                                line_parts.push(format!(
+                                    "{} {} {} {}",
+                                    format_hand_pbn(n),
+                                    format_hand_pbn(e),
+                                    format_hand_pbn(s),
+                                    format_hand_pbn(w)
+                                ));
+                            }
+                        }
+                    }
+
+                    // Write line with space before first item, commas between items
+                    if let Some(writer) = csv_writer.as_mut() {
+                        writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
+                            eprintln!("CSV write error: {}", e);
+                            std::process::exit(1);
+                        });
+                    }
+                }
+            }
+        };
 
     // Choose execution mode: input-deals, legacy, or fast (parallel)
     if let Some(ref input_deals_source) = args.input_deals {
@@ -1319,6 +1405,7 @@ fn main() {
                         &mut frequencies,
                         &mut csv_writer,
                         &mut printed_deals,
+                        &mut held,
                     );
                     produced += 1;
                     if produced >= produce_count {
@@ -1431,6 +1518,7 @@ fn main() {
                         &mut frequencies,
                         &mut csv_writer,
                         &mut printed_deals,
+                        &mut held,
                     );
                     produced += 1;
 
@@ -1448,6 +1536,36 @@ fn main() {
     // Calculate elapsed time
     let elapsed = start_time.elapsed().unwrap();
     let elapsed_secs = elapsed.as_secs_f64();
+
+    // Held output, reordered so a practice set walks through the categories
+    // rather than meeting them as they happen to fall.
+    if args.interleave && !held.is_empty() {
+        let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+        for (index, (hand_type, _)) in held.iter().enumerate() {
+            match buckets.iter_mut().find(|(name, _)| name == hand_type) {
+                Some((_, deals)) => deals.push(index),
+                None => buckets.push((hand_type.clone(), vec![index])),
+            }
+        }
+        if verbose_stats {
+            let mut sizes: Vec<String> = buckets
+                .iter()
+                .map(|(name, deals)| {
+                    format!("{} {}", name.as_deref().unwrap_or("(untyped)"), deals.len())
+                })
+                .collect();
+            sizes.sort();
+            eprintln!(
+                "Interleaved {} rounds: {}",
+                buckets.iter().map(|(_, d)| d.len()).max().unwrap_or(0),
+                sizes.join(", ")
+            );
+        }
+        let labels: Vec<&str> = hand_type_names.iter().map(|n| hand_type_label(n)).collect();
+        for index in interleave(&labels, buckets) {
+            print!("{}", held[index].1);
+        }
+    }
 
     // `print(...)` output, before the statistics as in the original. Seats come
     // out north, east, south, west whatever order the script named them, since
@@ -1679,5 +1797,104 @@ fn main() {
     // Exit with error code if timed out
     if timed_out {
         std::process::exit(2);
+    }
+}
+
+#[cfg(test)]
+mod interleave_tests {
+    use super::interleave;
+
+    fn buckets(sizes: &[(&str, usize)]) -> Vec<(Option<String>, Vec<usize>)> {
+        let mut next = 0;
+        let mut out = Vec::new();
+        for (name, n) in sizes {
+            out.push((Some((*name).to_string()), (next..next + n).collect()));
+            next += n;
+        }
+        out
+    }
+
+    /// Which bucket each position in the result came from.
+    fn shape(order: &[&str], sizes: &[(&str, usize)]) -> Vec<usize> {
+        let b = buckets(sizes);
+        let total: usize = sizes.iter().map(|(_, n)| n).sum();
+        let mut owner = vec![0usize; total];
+        for (i, (_, deals)) in b.iter().enumerate() {
+            for d in deals {
+                owner[*d] = i;
+            }
+        }
+        interleave(order, b).into_iter().map(|d| owner[d]).collect()
+    }
+
+    #[test]
+    fn equal_buckets_come_out_one_of_each_per_round() {
+        let got = shape(&["a", "b", "c"], &[("a", 3), ("b", 3), ("c", 3)]);
+        assert_eq!(got.len(), 9);
+        for round in got.chunks(3) {
+            let mut seen = round.to_vec();
+            seen.sort_unstable();
+            assert_eq!(seen, vec![0, 1, 2], "every round should hold one of each");
+        }
+    }
+
+    /// The case naive round-robin gets wrong: two half-size buckets have to
+    /// land in alternate rounds, not both in the first half, or the last
+    /// rounds lose types — the very lumpiness the ordering removes.
+    #[test]
+    fn half_size_buckets_alternate_instead_of_running_out() {
+        let got = shape(
+            &["a", "b", "c", "d"],
+            &[("a", 4), ("b", 4), ("c", 2), ("d", 2)],
+        );
+        assert_eq!(got.len(), 12);
+        for (i, round) in got.chunks(3).enumerate() {
+            assert!(round.contains(&0), "round {i} lost `a`: {round:?}");
+            assert!(round.contains(&1), "round {i} lost `b`: {round:?}");
+            assert!(
+                round.contains(&2) ^ round.contains(&3),
+                "round {i} should hold exactly one rare type: {round:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_deal_comes_out_exactly_once() {
+        for sizes in [
+            vec![("a", 7), ("b", 3), ("c", 1)],
+            vec![("a", 1), ("b", 1)],
+            vec![("a", 10)],
+            vec![("a", 5), ("b", 5), ("c", 5), ("d", 2), ("e", 1)],
+        ] {
+            let order: Vec<&str> = sizes.iter().map(|(n, _)| *n).collect();
+            let total: usize = sizes.iter().map(|(_, n)| n).sum();
+            let mut got = interleave(&order, buckets(&sizes));
+            assert_eq!(got.len(), total, "for {sizes:?}");
+            got.sort_unstable();
+            assert_eq!(got, (0..total).collect::<Vec<_>>(), "for {sizes:?}");
+        }
+    }
+
+    /// Deals the script did not classify still have to appear, or a run would
+    /// silently produce fewer boards than it reports.
+    #[test]
+    fn untyped_deals_follow_at_the_end() {
+        let b = vec![
+            (Some("a".to_string()), vec![0, 1]),
+            (None, vec![2, 3]),
+            (Some("b".to_string()), vec![4, 5]),
+        ];
+        let got = interleave(&["a", "b"], b);
+        assert_eq!(got.len(), 6);
+        assert_eq!(&got[4..], &[2, 3], "untyped deals come last, in order");
+    }
+
+    #[test]
+    fn the_rounds_follow_declaration_order() {
+        let b = vec![
+            (Some("second".to_string()), vec![10]),
+            (Some("first".to_string()), vec![20]),
+        ];
+        assert_eq!(interleave(&["first", "second"], b), vec![20, 10]);
     }
 }

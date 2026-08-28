@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     matching none is untagged, which is not an error.
   - `format_printpbn` takes a `PbnBoard` struct rather than eight positional
     arguments.
+- **`--interleave`** orders the output so each hand type appears before any
+  repeats, which is what turns a 500-board set from correct-in-aggregate into
+  usable one hand at a time. Rare types are spread across the whole run rather
+  than exhausted early: with shares of 20/20/20/20/10/10, the four common types
+  appear in every round and the two rare ones in alternate rounds, so every
+  round holds five deals rather than six and then four. Bucket sizes are
+  reported on stderr, leaving stdout pure PBN.
 - **The last three words of the original's language: `print`, `printes` and
   `rnd`** (#15). All three were reserved and refused; all three now work, and
   their output is byte-identical to dealer.exe's on the same deal.
