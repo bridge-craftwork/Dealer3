@@ -8,6 +8,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`LevelType_*`: levelling on a decomposition of its own.** Optional, and most
+  scenarios will never need it — where the categories you level are also the
+  ones you talk about, `HandType_` is both.
+  - It earns its place when the two come apart. Levelling five HCP bands leaves
+    the inside of each band as nature had it, and the fix is to level on each
+    HCP separately — but hand types are also what the deals are tagged, reported
+    and **ordered** by, so `--interleave` then walked thirteen categories and
+    put seven strong hands in the first thirteen boards. The fine split meant to
+    correct a detail became the coarse thing a student noticed.
+  - So `HandType_` stays what the deals are grouped, tagged and ordered by, and
+    `LevelType_` is used for nothing but the keeps. Measured: any five
+    consecutive boards now span three to five different bands.
+  - The two are **independent** and need not nest; nothing checks that they do,
+    because they answer different questions. Each has to partition the deals on
+    its own.
+  - `_Share` goes on whichever decomposition is being levelled. Setting both is
+    refused — only one can be the target mix, and picking one silently would
+    deliver a mix nobody asked for. So is weighting hand types when level types
+    are declared, which is the natural mistake after adding them.
+  - `{{level-mix:12_14}}` still names a band and still reports what that band
+    will deliver. Since the decompositions are independent that cannot be read
+    off the band's own rate, so the measuring pass counts the two crossed and
+    the answer follows from how the band's deals fell across the levelling
+    categories.
 - **Generation runs in a Web Worker, with progress bars and a Cancel button.**
   It was one synchronous call on the main thread, which blocked everything for
   the length of a run.

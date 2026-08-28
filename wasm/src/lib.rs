@@ -280,7 +280,9 @@ pub fn generate(
                 .map_err(|e| JsError::new(&e))?,
         )
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
-        let weights = dealer_level::hand_type_shares(&program).map_err(|e| JsError::new(&e))?;
+        let weights = dealer_level::leveling_types(&program)
+            .map_err(|e| JsError::new(&e))?
+            .shares;
 
         let opts = dealer_level::LevelOptions {
             target: &weights,
@@ -305,6 +307,18 @@ pub fn generate(
         // makes the second look slow when most of the wait was the first.
         let measure_ms = std::cell::Cell::new(0.0f64);
         let measured_passes = std::cell::Cell::new(0u32);
+        // The bars are drawn per hand type, which is not what gets levelled
+        // when a scenario declares `LevelType_`. The levelling report knows
+        // only the levelling decomposition, so the presentation one is kept
+        // from the measuring pass here: this is what `natural` means.
+        let natural_groups: std::cell::RefCell<Vec<(String, f64)>> =
+            std::cell::RefCell::new(Vec::new());
+        // And how those hand types crossed the levelling categories, which is
+        // what says where the keeps will leave each of them. It has to be the
+        // *measuring* pass: the producing run has already had the keeps
+        // applied, so weighting it by them again counts them twice.
+        let natural_joint: std::cell::RefCell<Vec<Vec<usize>>> =
+            std::cell::RefCell::new(Vec::new());
         let (run, report) = dealer_level::level_and_run(
             script,
             &opts,
@@ -347,6 +361,13 @@ pub fn generate(
                 measured_per_ms.set(outcome.produced as f64 / spent);
                 measure_ms.set(measure_ms.get() + spent);
                 measured_passes.set(measured_passes.get() + 1);
+                *natural_joint.borrow_mut() = joint_of(&outcome);
+                *natural_groups.borrow_mut() = outcome
+                    .hand_type_names
+                    .iter()
+                    .zip(&outcome.hand_type_counts)
+                    .map(|(n, c)| (n.clone(), *c as f64 / outcome.produced.max(1) as f64))
+                    .collect();
                 Ok(measurement(&outcome))
             },
             // Producing: the deals the page will show, interleaved.
@@ -374,20 +395,37 @@ pub fn generate(
             .plans
             .iter()
             .min_by(|a, b| a.natural.total_cmp(&b.natural));
+        // Per hand type, always: that is what the deals are grouped by and what
+        // the reader recognises. Where the two decompositions are the same the
+        // report already says this; where they differ, `planned` comes from how
+        // each hand type's deals crossed the levelling categories.
+        let natural = natural_groups.borrow();
+        let planned = dealer_level::group_mix(
+            &natural_joint.borrow(),
+            &report.plans.iter().map(|p| p.keep).collect::<Vec<_>>(),
+        );
+        let shares: Vec<HandTypeShare> = run
+            .hand_type_names
+            .iter()
+            .zip(&run.hand_type_counts)
+            .enumerate()
+            .map(|(i, (name, count))| HandTypeShare {
+                name: name.clone(),
+                natural: natural
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, v)| *v)
+                    .unwrap_or(0.0),
+                planned: planned.get(i).copied().unwrap_or(0.0),
+                delivered: *count as f64 / run.produced.max(1) as f64,
+                produced: *count,
+                out_of: run.produced,
+            })
+            .collect();
+
         let leveling = LevelingResult {
             script: report.script,
-            shares: report
-                .shares
-                .iter()
-                .map(|s| HandTypeShare {
-                    name: s.name.clone(),
-                    natural: s.natural,
-                    planned: s.planned,
-                    delivered: s.delivered,
-                    produced: s.produced,
-                    out_of: s.out_of,
-                })
-                .collect(),
+            shares,
             exactness: report.lambda,
             acceptance: report.acceptance,
             cost: report.cost,
@@ -549,12 +587,49 @@ fn error_text(error: &JsError) -> String {
 }
 
 /// The counts a levelling needs, taken from a run.
+/// The run's hand types crossed with its levelling categories.
+///
+/// Empty when the two are the same decomposition, in which case a hand type's
+/// planned share is simply its own plan and there is nothing to cross.
+fn joint_of(run: &RunOutcome) -> Vec<Vec<usize>> {
+    if run.level_type_names.is_empty() {
+        // One category each, so the crossing is the identity: hand type `i`
+        // draws all of its deals from levelling category `i`.
+        (0..run.hand_type_names.len())
+            .map(|i| {
+                let mut row = vec![0usize; run.hand_type_names.len()];
+                row[i] = run.hand_type_counts[i];
+                row
+            })
+            .collect()
+    } else {
+        run.joint.clone()
+    }
+}
+
 fn measurement(run: &RunOutcome) -> dealer_level::Measurement {
-    dealer_level::Measurement {
-        produced: run.produced,
-        generated: run.generated,
-        names: run.hand_type_names.clone(),
-        counts: run.hand_type_counts.clone(),
+    // The levelling decomposition when the scenario declares one, the hand
+    // types otherwise — the same rule the command line follows.
+    if run.level_type_names.is_empty() {
+        dealer_level::Measurement {
+            produced: run.produced,
+            generated: run.generated,
+            names: run.hand_type_names.clone(),
+            counts: run.hand_type_counts.clone(),
+            prefix: dealer_level::HAND_TYPE_PREFIX,
+            groups: Vec::new(),
+            joint: Vec::new(),
+        }
+    } else {
+        dealer_level::Measurement {
+            produced: run.produced,
+            generated: run.generated,
+            names: run.level_type_names.clone(),
+            counts: run.level_counts.clone(),
+            prefix: dealer_level::LEVEL_TYPE_PREFIX,
+            groups: run.hand_type_names.clone(),
+            joint: run.joint.clone(),
+        }
     }
 }
 
@@ -573,6 +648,13 @@ struct RunOutcome {
     hand_type_names: Vec<String>,
     /// How many produced deals matched each, parallel to `hand_type_names`.
     hand_type_counts: Vec<usize>,
+    /// The levelling decomposition's labels, empty unless the scenario declares
+    /// `LevelType_` variables of its own.
+    level_type_names: Vec<String>,
+    /// How many produced deals matched each, parallel to `level_type_names`.
+    level_counts: Vec<usize>,
+    /// `joint[hand type][level type]` counts, empty unless the two differ.
+    joint: Vec<Vec<usize>>,
 }
 
 /// Run a script once.
@@ -605,6 +687,20 @@ fn run_script(
         .map(|n| dealer_level::hand_type_label(n).to_string())
         .collect();
     let mut hand_type_counts = vec![0usize; hand_type_names.len()];
+
+    // What the keeps are computed from, which is the hand types unless the
+    // scenario declares `LevelType_` variables of its own. Counted separately,
+    // because the two decompositions are independent.
+    let level_type_names = dealer_level::level_types(&program);
+    let level_type_labels: Vec<String> = level_type_names
+        .iter()
+        .map(|n| dealer_level::level_type_label(n).to_string())
+        .collect();
+    let mut level_counts = vec![0usize; level_type_names.len()];
+    // `joint[hand type][level type]`, for working out what a hand type will
+    // deliver once the keeps are applied — which its own rate cannot say, the
+    // two decompositions being independent.
+    let mut joint = vec![vec![0usize; level_type_names.len()]; hand_type_names.len()];
     let mut deal_types: Vec<Option<String>> = Vec::new();
 
     let variables = extract_variables(&program);
@@ -791,6 +887,32 @@ fn run_script(
             }
         }
 
+        if !level_type_names.is_empty() {
+            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
+            let mut matched: Option<usize> = None;
+            for (i, name) in level_type_names.iter().enumerate() {
+                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
+                    JsError::new(&format!("Level type `{}` could not be evaluated: {}", name, e))
+                })?;
+                if value != 0 {
+                    if let Some(first) = matched {
+                        return Err(JsError::new(&format!(
+                            "A deal is both `{}` and `{}`. Level types have to partition the \
+                             deals, so at most one may match.",
+                            level_type_names[first], name
+                        )));
+                    }
+                    matched = Some(i);
+                }
+            }
+            if let Some(i) = matched {
+                level_counts[i] += 1;
+                if let Some(g) = matched_type {
+                    joint[g][i] += 1;
+                }
+            }
+        }
+
         // Deals are capped independently of `produced` so a large `produce` used
         // purely to gather statistics does not have to ship every deal to JS.
         if keep_deals && held.len() < MAX_RETURNED_DEALS {
@@ -892,6 +1014,9 @@ fn run_script(
         // in terms of `12_14` rather than `HandType_12_14`.
         hand_type_names: hand_type_labels.clone(),
         hand_type_counts,
+        level_type_names: level_type_labels,
+        level_counts,
+        joint,
     })
 }
 

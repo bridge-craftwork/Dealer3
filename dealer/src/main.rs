@@ -1108,6 +1108,19 @@ fn main() {
     // practice set. Empty for almost every script, and then nothing changes.
     let hand_type_names = hand_types(&program);
 
+    // What the keeps are computed from, which is not always what the deals are
+    // grouped by: a scenario may level on `LevelType_` while still being tagged,
+    // ordered and reported by `HandType_`. Resolved here so a mixed-up set of
+    // shares is refused before anything is dealt.
+    let leveling = match dealer_level::leveling_types(&program) {
+        Ok(types) => types,
+        Err(message) => {
+            eprintln!("Error: {}", message);
+            std::process::exit(1);
+        }
+    };
+    let level_type_names: Vec<&str> = dealer_level::level_types(&program);
+
     // How many deals each shuffle turns into. The three switches override one
     // another, so the last one written wins, as it does under getopt.
     let swapping = if args.swap_three {
@@ -1276,11 +1289,25 @@ fn main() {
     // unrendered because the board number depends on where it lands.
     let mut held: Vec<(Option<String>, Deal)> = Vec::new();
 
-    // How often each hand type came up, for `--level-plan`.
+    // How often each hand type came up, for the statistics and the panel.
     let mut hand_type_counts: HashMap<String, usize> = hand_type_names
         .iter()
         .map(|n| (hand_type_label(n).to_string(), 0usize))
         .collect();
+
+    // And how often each *levelling* category came up, which is the same thing
+    // unless the scenario declares `LevelType_` variables of its own.
+    let mut level_counts: HashMap<String, usize> = leveling
+        .labels
+        .iter()
+        .map(|l| (l.clone(), 0usize))
+        .collect();
+
+    // How the two decompositions crossed, when they differ. What a hand type
+    // delivers once the keeps are applied cannot be read off its own rate —
+    // only off how its deals were spread across the levelling categories — and
+    // that is what `{{level-mix:12_14}}` has to report.
+    let mut joint_counts: HashMap<(String, String), usize> = HashMap::new();
 
     // Verbose flag for stats output (matches dealer.exe behavior)
     // Default is true (stats shown), -v toggles it off
@@ -1301,7 +1328,7 @@ fn main() {
     // loop can read it while the closure below holds the counts.
     let enough_measured = std::cell::Cell::new(false);
     let measuring = args.write_leveled.is_some();
-    let hand_type_count_wanted = hand_type_names.len();
+    let level_count_wanted = leveling.labels.len();
 
     // Helper closure to process a matching deal (averages, frequencies, output, CSV)
     #[allow(clippy::type_complexity)]
@@ -1393,20 +1420,61 @@ fn main() {
                 matched.map(hand_type_label)
             };
             if let Some(label) = hand_type {
-                let count = hand_type_counts.entry(label.to_string()).or_insert(0);
-                *count += 1;
-                // A measuring run stops as soon as the rarest type is worth
-                // dividing by, and this is where that becomes knowable. The
-                // flag is a `Cell` because the counts themselves are borrowed
-                // by this closure for the whole run, so the loop outside cannot
-                // read them — and only the moment a type *reaches* the bar is
-                // worth walking the map for.
-                if measuring && *count == MEASURE_GOAL {
-                    enough_measured.set(
-                        hand_type_counts.len() == hand_type_count_wanted
-                            && hand_type_counts.values().all(|n| *n >= MEASURE_GOAL),
-                    );
+                *hand_type_counts.entry(label.to_string()).or_insert(0) += 1;
+            }
+
+            // The levelling categories, counted separately. Usually the same
+            // variables as above — `leveling.names` is the hand types unless
+            // the scenario declares `LevelType_` — but they are an independent
+            // decomposition when it does, so a deal is classified twice.
+            if !level_type_names.is_empty() {
+                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+                let mut matched: Option<&str> = None;
+                for name in &level_type_names {
+                    match eval(&Expr::Variable(name.to_string()), &ctx) {
+                        Ok(0) => {}
+                        Ok(_) => match matched {
+                            None => matched = Some(name),
+                            Some(first) => {
+                                eprintln!(
+                                    "Error: a deal is both `{}` and `{}`. Level types have to \
+                                     partition the deals, so at most one may match.\n       \
+                                     The deal:\n       {}",
+                                    first,
+                                    name,
+                                    format_oneline(deal).trim_end()
+                                );
+                                std::process::exit(1);
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("Level type `{}` could not be evaluated: {}", name, e);
+                            std::process::exit(1);
+                        }
+                    }
                 }
+                if let Some(name) = matched {
+                    let label = dealer_level::level_type_label(name).to_string();
+                    *level_counts.entry(label.clone()).or_insert(0) += 1;
+                    if let Some(group) = hand_type {
+                        *joint_counts.entry((group.to_string(), label)).or_insert(0) += 1;
+                    }
+                }
+            } else if let Some(label) = hand_type {
+                // No separate decomposition, so the hand types are what gets
+                // levelled and their counts serve for both.
+                *level_counts.entry(label.to_string()).or_insert(0) += 1;
+            }
+
+            // A measuring run stops as soon as the rarest levelling category is
+            // worth dividing by, and this is where that becomes knowable. The
+            // flag is a `Cell` because the counts are borrowed by this closure
+            // for the whole run, so the loop outside cannot read them.
+            if measuring
+                && level_counts.len() == level_count_wanted
+                && level_counts.values().all(|n| *n >= MEASURE_GOAL)
+            {
+                enough_measured.set(true);
             }
 
             // printes: the script's own formatted output, with nothing added
@@ -1779,30 +1847,59 @@ fn main() {
     // run above did the measuring — every produced deal was classified — so
     // this is arithmetic on counts already gathered.
     if let Some(ref leveled_path) = args.write_leveled {
-        let labels: Vec<String> = hand_type_names
-            .iter()
-            .map(|n| hand_type_label(n).to_string())
-            .collect();
+        // The levelling decomposition, which is the hand types unless the
+        // scenario declared `LevelType_` variables of its own.
+        let labels = leveling.labels.clone();
         let measured = Measurement {
             produced,
             generated,
-            counts: labels.iter().map(|l| hand_type_counts[l]).collect(),
+            counts: labels
+                .iter()
+                .map(|l| level_counts.get(l).copied().unwrap_or(0))
+                .collect(),
             names: labels.clone(),
+            prefix: leveling.prefix,
+            groups: if level_type_names.is_empty() {
+                Vec::new()
+            } else {
+                hand_type_names
+                    .iter()
+                    .map(|n| hand_type_label(n).to_string())
+                    .collect()
+            },
+            joint: if level_type_names.is_empty() {
+                Vec::new()
+            } else {
+                hand_type_names
+                    .iter()
+                    .map(|n| {
+                        let group = hand_type_label(n).to_string();
+                        labels
+                            .iter()
+                            .map(|l| {
+                                joint_counts
+                                    .get(&(group.clone(), l.clone()))
+                                    .copied()
+                                    .unwrap_or(0)
+                            })
+                            .collect()
+                    })
+                    .collect()
+            },
         };
 
         // The switch wins over the script, as `-s` does over `seed`. Without
-        // either, the script's own `HandType_X_Share` declarations answer —
-        // and those default to 1 each, which is an even mix.
+        // either, the script's own `_Share` declarations answer — and those
+        // default to 1 each, which is an even mix.
         let weights = match &args.level_target {
-            Some(spec) => dealer_level::parse_level_target(spec, &labels),
-            None => dealer_level::hand_type_shares(&program),
-        };
-        let weights = match weights {
-            Ok(weights) => weights,
-            Err(message) => {
-                eprintln!("Error: {}", message);
-                std::process::exit(1);
-            }
+            Some(spec) => match dealer_level::parse_level_target(spec, &labels) {
+                Ok(weights) => weights,
+                Err(message) => {
+                    eprintln!("Error: {}", message);
+                    std::process::exit(1);
+                }
+            },
+            None => leveling.shares.clone(),
         };
 
         // The prepared scenario, not the file: a placeholder written in above

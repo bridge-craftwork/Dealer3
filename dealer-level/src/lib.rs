@@ -115,6 +115,8 @@ pub fn render_leveled(
     base_rate: f64,
     measured: usize,
     seed: u32,
+    prefix: &str,
+    groups: &[(String, f64)],
 ) -> Result<String, String> {
     if source.contains(LEVEL_STAMP) {
         return Err(
@@ -246,11 +248,11 @@ pub fn render_leveled(
                 canonical_roll(scale.saturating_mul(100).max(scale))
             ));
         } else if keep >= scale {
-            block.push(format!("level_{0} = {1}_{0}", plan.name, HAND_TYPE_PREFIX));
+            block.push(format!("level_{0} = {1}_{0}", plan.name, prefix));
         } else {
             block.push(format!(
                 "level_{0} = {1}_{0} and roll < {2}",
-                plan.name, HAND_TYPE_PREFIX, keep
+                plan.name, prefix, keep
             ));
         }
     }
@@ -266,7 +268,7 @@ pub fn render_leveled(
     block.push(LEVEL_END.to_string());
 
     let generated = format!("{}{}{}", head, block.join("\n"), tail);
-    let generated = fill_mix_markers(&generated, plans)?;
+    let generated = fill_mix_markers(&generated, plans, groups)?;
 
     Ok(generated)
 }
@@ -285,8 +287,12 @@ pub fn write_leveled(
     base_rate: f64,
     measured: usize,
     seed: u32,
+    prefix: &str,
+    groups: &[(String, f64)],
 ) -> Result<String, String> {
-    let generated = render_leveled(source, plans, lambda, acceptance, base_rate, measured, seed)?;
+    let generated = render_leveled(
+        source, plans, lambda, acceptance, base_rate, measured, seed, prefix, groups,
+    )?;
     std::fs::write(path, &generated)
         .map_err(|e| format!("could not write {}: {}", path.display(), e))?;
     Ok(generated)
@@ -355,19 +361,34 @@ pub fn canonical_roll(scale: u32) -> String {
 /// The player-facing text is written by hand and drifts: one scenario in the
 /// corpus advertised 23% for a band delivering 19.3%. Filling it from the same
 /// numbers as the keeps is the only way the two cannot disagree.
-pub fn fill_mix_markers(text: &str, plans: &[LevelPlan]) -> Result<String, String> {
-    let share = |plan: &LevelPlan| {
-        let value = 100.0 * plan.mix;
+pub fn fill_mix_markers(
+    text: &str,
+    plans: &[LevelPlan],
+    groups: &[(String, f64)],
+) -> Result<String, String> {
+    let percent = |mix: f64| {
+        let value = 100.0 * mix;
         if (value - value.round()).abs() < 0.05 {
             format!("{:.0}%", value)
         } else {
             format!("{:.1}%", value)
         }
     };
-    let width = plans.iter().map(|p| p.name.len()).max().unwrap_or(0);
-    let all: String = plans
+
+    // What a marker may name. The presentation groups come first where they
+    // exist, because the text a student reads is written about those — a
+    // scenario levelling on `LevelType_12` still says "12-14 HCP" in its chat
+    // block. Where there are none, the levelled types are the groups.
+    let known: Vec<(String, f64)> = if groups.is_empty() {
+        plans.iter().map(|p| (p.name.clone(), p.mix)).collect()
+    } else {
+        groups.to_vec()
+    };
+
+    let width = known.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
+    let all: String = known
         .iter()
-        .map(|p| format!("{:<width$}  {}", p.name, share(p), width = width))
+        .map(|(n, mix)| format!("{:<width$}  {}", n, percent(*mix), width = width))
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -383,16 +404,16 @@ pub fn fill_mix_markers(text: &str, plans: &[LevelPlan]) -> Result<String, Strin
         let named = inside.strip_prefix("level-mix:").map(str::trim);
         match named {
             None => out.push_str(&all),
-            Some(name) => match plans.iter().find(|p| p.name == name) {
-                Some(plan) => out.push_str(&share(plan)),
+            Some(name) => match known.iter().find(|(n, _)| n == name) {
+                Some((_, mix)) => out.push_str(&percent(*mix)),
                 None => {
                     return Err(format!(
-                        "`{{{{level-mix:{}}}}}` names a hand type the scenario does not \
+                        "`{{{{level-mix:{}}}}}` names a category the scenario does not \
                          declare. Known: {}",
                         name,
-                        plans
+                        known
                             .iter()
-                            .map(|p| p.name.as_str())
+                            .map(|(n, _)| n.as_str())
                             .collect::<Vec<_>>()
                             .join(", ")
                     ))
@@ -700,23 +721,58 @@ fn is_share(name: &str) -> bool {
         && name[name.len() - SHARE_SUFFIX.len()..].eq_ignore_ascii_case(SHARE_SUFFIX)
 }
 
-/// The script's hand-type variables, in the order it declares them.
+/// The prefix that marks a variable as naming a category to *level* on, where
+/// that is not the same as the category to present.
 ///
-/// Declaration order, not alphabetical: it is the order the author thought in,
-/// and it is what an interleaved practice set walks through.
-pub fn hand_types(program: &Program) -> Vec<&str> {
+/// Optional, and most scenarios will never need it: where the categories you
+/// level are also the ones you talk about, `HandType_` is both.
+///
+/// It earns its place when the two come apart. Levelling five HCP bands leaves
+/// the inside of each band as nature had it — within 12-14 a 12 is far commoner
+/// than a 14 — and the fix is to level on each HCP separately. But making those
+/// the hand types would put them in the PBN tags, the bar chart and, worst,
+/// `--interleave`: thirteen categories walked one at a time means the first
+/// thirteen boards hold seven strong hands, and the fine split meant to correct
+/// a detail becomes the coarse thing a student notices.
+///
+/// So the two are separated. `HandType_` stays what the deals are grouped,
+/// tagged and ordered by; `LevelType_` is an independent decomposition used for
+/// nothing but working out the keeps. They need not nest.
+pub const LEVEL_TYPE_PREFIX: &str = "LevelType";
+
+/// The script's level-type variables, in the order it declares them.
+pub fn level_types(program: &Program) -> Vec<&str> {
+    named_with(program, LEVEL_TYPE_PREFIX)
+}
+
+/// A level type's name without its prefix, and without the separator after it.
+pub fn level_type_label(name: &str) -> &str {
+    name.trim_start_matches(LEVEL_TYPE_PREFIX)
+        .trim_start_matches(['_', '-'])
+}
+
+/// Variables with a given prefix, in declaration order, skipping shares.
+///
+/// `LevelType_` is checked before `HandType_` where both could match, but they
+/// cannot: neither prefix is a prefix of the other.
+fn named_with<'a>(program: &'a Program, prefix: &str) -> Vec<&'a str> {
     let mut found = Vec::new();
     for statement in &program.statements {
         if let Statement::Assignment { name, .. } = statement {
-            if name.starts_with(HAND_TYPE_PREFIX)
-                && !is_share(name)
-                && !found.contains(&name.as_str())
-            {
+            if name.starts_with(prefix) && !is_share(name) && !found.contains(&name.as_str()) {
                 found.push(name.as_str());
             }
         }
     }
     found
+}
+
+/// The script's hand-type variables, in the order it declares them.
+///
+/// Declaration order, not alphabetical: it is the order the author thought in,
+/// and it is what an interleaved practice set walks through.
+pub fn hand_types(program: &Program) -> Vec<&str> {
+    named_with(program, HAND_TYPE_PREFIX)
 }
 
 /// The target share each hand type asks for, in declaration order.
@@ -731,28 +787,122 @@ pub fn hand_types(program: &Program) -> Vec<&str> {
 /// need shares of 2, 2, 3, 3 and 2 — a value in a two-wide bin is wanted half
 /// again as often as one in a three-wide bin, and working that out by hand is
 /// exactly the sort of arithmetic that ends up wrong in a comment.
+/// The decomposition a scenario is levelled on, and what each part asks for.
+///
+/// `LevelType_` when the scenario declares any, `HandType_` otherwise. They are
+/// independent of each other: a level type need not sit inside one hand type,
+/// and nothing checks that it does, because the two answer different questions
+/// — one is what the keeps are computed from, the other is what the deals are
+/// grouped, tagged and ordered by.
+#[derive(Debug)]
+pub struct LevelingTypes {
+    /// Variable names as written, e.g. `LevelType_12`, in declaration order.
+    pub names: Vec<String>,
+    /// The same without their prefix, e.g. `12`.
+    pub labels: Vec<String>,
+    /// Target weight per label, defaulting to 1.
+    pub shares: Vec<f64>,
+    /// Which prefix these came from, for the generated block to write.
+    pub prefix: &'static str,
+}
+
+/// Work out which decomposition to level on, and the weights it asks for.
+pub fn leveling_types(program: &Program) -> Result<LevelingTypes, String> {
+    let level = level_types(program);
+    let prefix = if level.is_empty() {
+        HAND_TYPE_PREFIX
+    } else {
+        LEVEL_TYPE_PREFIX
+    };
+
+    // A share says which kind it weights by its own prefix, so a script that
+    // weights both has asked for two different target mixes. Picking one and
+    // ignoring the other would deliver a mix nobody asked for and say nothing.
+    let mut weights_hand = false;
+    let mut weights_level = false;
+    for statement in &program.statements {
+        if let Statement::Assignment { name, .. } = statement {
+            if !is_share(name) {
+                continue;
+            }
+            if name.starts_with(LEVEL_TYPE_PREFIX) {
+                weights_level = true;
+            } else if name.starts_with(HAND_TYPE_PREFIX) {
+                weights_hand = true;
+            }
+        }
+    }
+    if weights_hand && weights_level {
+        return Err(format!(
+            "the scenario sets both `{}_..._Share` and `{}_..._Share`.\n       Only one \
+             decomposition is levelled — `{}_` when the scenario declares any, `{}_` \
+             otherwise — so weighting both asks for two different mixes.\n       Keep the \
+             shares on the one being levelled and drop the others.",
+            HAND_TYPE_PREFIX, LEVEL_TYPE_PREFIX, LEVEL_TYPE_PREFIX, HAND_TYPE_PREFIX
+        ));
+    }
+    if weights_hand && !level.is_empty() {
+        return Err(format!(
+            "the scenario declares `{}_` variables, so those are what it levels — but the \
+             shares are on `{}_`.\n       Move them to the `{}_` they weight.",
+            LEVEL_TYPE_PREFIX, HAND_TYPE_PREFIX, LEVEL_TYPE_PREFIX
+        ));
+    }
+
+    let names: Vec<String> = named_with(program, prefix)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let labels: Vec<String> = names
+        .iter()
+        .map(|n| strip_prefix(n, prefix).to_string())
+        .collect();
+    let shares = shares_for(program, prefix, &labels)?;
+    Ok(LevelingTypes {
+        names,
+        labels,
+        shares,
+        prefix,
+    })
+}
+
+/// A name without its prefix, and without the separator after it.
+fn strip_prefix<'a>(name: &'a str, prefix: &str) -> &'a str {
+    name.trim_start_matches(prefix)
+        .trim_start_matches(['_', '-'])
+}
+
 pub fn hand_type_shares(program: &Program) -> Result<Vec<f64>, String> {
     let labels: Vec<String> = hand_types(program)
         .into_iter()
         .map(|n| hand_type_label(n).to_string())
         .collect();
+    shares_for(program, HAND_TYPE_PREFIX, &labels)
+}
+
+/// The share each label asks for, for one decomposition.
+///
+/// The prefix decides which: `LevelType_12_Share` weights a level type,
+/// `HandType_12_14_Share` a hand type. A scenario that sets both is refused by
+/// [`leveling_types`] before this is reached.
+fn shares_for(program: &Program, prefix: &str, labels: &[String]) -> Result<Vec<f64>, String> {
     let mut shares = vec![1.0; labels.len()];
 
     for statement in &program.statements {
         let Statement::Assignment { name, expr } = statement else {
             continue;
         };
-        if !name.starts_with(HAND_TYPE_PREFIX) || !is_share(name) {
+        if !name.starts_with(prefix) || !is_share(name) {
             continue;
         }
-        let label = hand_type_label(name);
+        let label = strip_prefix(name, prefix);
         let label = &label[..label.len() - SHARE_SUFFIX.len()];
 
         let index = labels.iter().position(|l| l == label).ok_or_else(|| {
             format!(
-                "`{}` sets the share of a hand type `{}` that the scenario never \
+                "`{}` sets the share of a `{}` the scenario never \
                      declares.\n       Add `{}_{} = ...`, or correct the name.",
-                name, label, HAND_TYPE_PREFIX, label
+                name, label, prefix, label
             )
         })?;
 
@@ -773,8 +923,10 @@ pub fn hand_type_shares(program: &Program) -> Result<Vec<f64>, String> {
         shares[index] = *value as f64;
     }
 
-    if shares.iter().sum::<f64>() <= 0.0 {
-        return Err("every hand type's share is 0, which asks for no deals at all.".to_string());
+    // Only when there is something to weight: a scenario with no hand types at
+    // all is the ordinary case, not a mix of nothing.
+    if !shares.is_empty() && shares.iter().sum::<f64>() <= 0.0 {
+        return Err("every share is 0, which asks for no deals at all.".to_string());
     }
     Ok(shares)
 }
@@ -826,6 +978,42 @@ pub struct Measurement {
     pub names: Vec<String>,
     /// How many produced deals matched each, parallel to `names`.
     pub counts: Vec<usize>,
+    /// Which prefix `names` came from — `HandType` normally, `LevelType` when
+    /// the scenario levels on a decomposition of its own. The generated block
+    /// has to name the same variables the script does.
+    pub prefix: &'static str,
+    /// The presentation groups — the hand types — when those are not what is
+    /// being levelled. Empty when they are, since then `names` is already them.
+    pub groups: Vec<String>,
+    /// How many produced deals fell in each `groups` × `names` pair.
+    ///
+    /// Needed because the two decompositions are independent: what a hand type
+    /// will deliver once the keeps are applied cannot be worked out from its
+    /// own rate, only from how its deals were spread across the levelling
+    /// categories. `joint[group][name]`.
+    pub joint: Vec<Vec<usize>>,
+}
+
+/// What a presentation group will deliver once the keeps are applied.
+///
+/// `joint[g][l]` deals of group `g` were also level type `l`, and each survives
+/// at `keep[l]`, so the group's share of what comes out is its weighted row
+/// against the whole weighted table.
+pub fn group_mix(joint: &[Vec<usize>], keeps: &[f64]) -> Vec<f64> {
+    let weighted: Vec<f64> = joint
+        .iter()
+        .map(|row| {
+            row.iter()
+                .zip(keeps)
+                .map(|(n, k)| *n as f64 * k)
+                .sum::<f64>()
+        })
+        .collect();
+    let total: f64 = weighted.iter().sum();
+    if total <= 0.0 {
+        return vec![0.0; joint.len()];
+    }
+    weighted.into_iter().map(|w| w / total).collect()
 }
 
 /// A levelled scenario, and what it will cost.
@@ -948,6 +1136,21 @@ pub fn level_from(
         budget_acceptance,
     );
 
+    // What each presentation group will deliver, once the keeps are applied to
+    // the categories its deals actually fell in. Empty when the hand types are
+    // themselves what is being levelled, in which case the plans already say.
+    let keeps: Vec<f64> = plans.iter().map(|p| p.keep).collect();
+    let groups: Vec<(String, f64)> = if measured.groups.is_empty() {
+        Vec::new()
+    } else {
+        measured
+            .groups
+            .iter()
+            .cloned()
+            .zip(group_mix(&measured.joint, &keeps))
+            .collect()
+    };
+
     let script = render_leveled(
         source,
         &plans,
@@ -956,6 +1159,8 @@ pub fn level_from(
         base_rate,
         measured.produced,
         seed,
+        measured.prefix,
+        &groups,
     )?;
     Ok(Leveled {
         script,

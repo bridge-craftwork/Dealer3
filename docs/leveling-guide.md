@@ -169,7 +169,9 @@ hand.
 | word | what it is |
 |---|---|
 | `HandType_NAME` | **You write this.** A variable naming a category of hand. The label is what follows the prefix, so `HandType_22_24` is the type `22_24` |
+| `LevelType_NAME` | **You write this**, optionally. A separate decomposition to level on, when what you want levelled is finer than what you want presented |
 | `HandType_NAME_Share` | **You write this**, optionally. That type's weight in the target mix. Every type defaults to 1, which is an even split |
+| `LevelType_NAME_Share` | The same, for a scenario that levels on level types. Weighting both kinds is refused |
 | `{{level-mix:NAME}}` | **You write this**, in the player-facing text. Replaced by that type's share of the result |
 | `{{level-mix}}` | The same, but writes every type and its share as a block |
 | `### BEGIN GENERATED LEVELING ###` | Optional. Marks where the generated block should go. Without it, one is written in above the condition |
@@ -272,6 +274,44 @@ Bands level, and flat within each.
 script, as `-s` overrides `seed`. Prefer the shares: a scenario then carries its
 own intended mix, the browser needs no control for it, and the two front ends
 cannot drift apart.
+
+### When levelling and presenting want different categories
+
+There is a catch in the scenario above, and it is worth seeing before you copy
+it. Making each HCP its own **hand type** does level them — but hand types are
+also what the deals are tagged, reported and **ordered** by. `--interleave`
+then walks thirteen categories one at a time, so the first thirteen boards hold
+one of each — seven of them 18 HCP or better. The fine split meant to correct a
+detail becomes the coarse thing a student notices.
+
+So declare the two separately. `HandType_` stays the five bands you talk about;
+`LevelType_` is an independent decomposition used for nothing but the keeps:
+
+```
+HandType_12_14 = hcp(south) >= 12 and hcp(south) <= 14
+HandType_15_17 = hcp(south) >= 15 and hcp(south) <= 17
+...
+
+LevelType_12 = hcp(south) == 12
+LevelType_13 = hcp(south) == 13
+...
+LevelType_12_Share = 2      # 12-14, 15-17 and 22-24 are three HCP wide
+LevelType_18_Share = 3      # 18-19 and 20-21 are two
+```
+
+The keeps are computed from the thirteen; the boards are tagged, charted and
+interleaved by the five. Any five consecutive boards then span three to five
+different bands, where before the first thirteen were one of each HCP.
+
+The two need **not** nest, and nothing checks that they do — they answer
+different questions. Each has to partition the deals on its own.
+
+`{{level-mix:12_14}}` still names a band, and still reports what that band will
+deliver: since the decompositions are independent, that is worked out from how
+the band's deals crossed the levelling categories rather than from its own rate.
+
+Shares go on whichever decomposition is being levelled. Setting both is refused,
+because only one of them can be the target mix.
 
 ---
 

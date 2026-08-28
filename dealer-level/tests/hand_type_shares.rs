@@ -129,3 +129,96 @@ fn bins_of_different_widths_are_levelled_by_their_shares() {
     // And a 12 is wanted two thirds as often as an 18.
     assert!((shares[0] / shares[6] - 2.0 / 3.0).abs() < 1e-12);
 }
+
+// --- LevelType: levelling on a decomposition of its own -------------------
+//
+// `HandType_` is what deals are grouped, tagged and ordered by; `LevelType_` is
+// what the keeps are computed from. Most scenarios need only the first.
+
+use dealer_level::{group_mix, level_type_label, level_types, leveling_types};
+
+const SPLIT: &str = "
+HandType_low = hcp(south) <= 14
+HandType_high = hcp(south) >= 15
+
+LevelType_12 = hcp(south) == 12
+LevelType_13 = hcp(south) == 13
+LevelType_14 = hcp(south) == 14
+LevelType_15 = hcp(south) >= 15
+
+condition 1
+";
+
+#[test]
+fn level_types_are_found_and_labelled() {
+    let p = program(SPLIT);
+    let found: Vec<&str> = level_types(&p).into_iter().map(level_type_label).collect();
+    assert_eq!(found, vec!["12", "13", "14", "15"]);
+}
+
+/// The two decompositions are independent, so declaring level types must not
+/// disturb the hand types the deals are still grouped by.
+#[test]
+fn hand_types_are_untouched_by_level_types() {
+    assert_eq!(labels(SPLIT), vec!["low", "high"]);
+}
+
+/// With level types declared, they are what gets levelled — and the generated
+/// block has to name them, not the hand types.
+#[test]
+fn the_leveling_decomposition_is_the_level_types_when_present() {
+    let types = leveling_types(&program(SPLIT)).unwrap();
+    assert_eq!(types.labels, vec!["12", "13", "14", "15"]);
+    assert_eq!(types.prefix, "LevelType");
+}
+
+#[test]
+fn the_leveling_decomposition_is_the_hand_types_otherwise() {
+    let types = leveling_types(&program(THREE)).unwrap();
+    assert_eq!(types.labels, vec!["a", "b", "c"]);
+    assert_eq!(types.prefix, "HandType");
+}
+
+#[test]
+fn shares_attach_to_the_level_types() {
+    let source = format!("{SPLIT}\nLevelType_15_Share = 3\n");
+    let types = leveling_types(&program(&source)).unwrap();
+    assert_eq!(types.shares, vec![1.0, 1.0, 1.0, 3.0]);
+}
+
+/// Only one decomposition is levelled, so weighting both asks for two different
+/// mixes and picking one silently would deliver a mix nobody asked for.
+#[test]
+fn shares_on_both_decompositions_are_refused() {
+    let source = format!("{SPLIT}\nLevelType_12_Share = 2\nHandType_low_Share = 2\n");
+    let err = leveling_types(&program(&source)).unwrap_err();
+    assert!(err.contains("both"), "{err}");
+}
+
+/// Shares on the decomposition that is *not* being levelled are just as
+/// ambiguous, and likelier — it is the natural mistake after adding level types.
+#[test]
+fn shares_on_hand_types_are_refused_when_level_types_exist() {
+    let source = format!("{SPLIT}\nHandType_low_Share = 2\n");
+    let err = leveling_types(&program(&source)).unwrap_err();
+    assert!(err.contains("LevelType"), "{err}");
+}
+
+/// What a hand type delivers cannot be read off its own rate once the keeps are
+/// applied to a different decomposition — only off how its deals crossed it.
+#[test]
+fn a_group_mix_follows_the_joint_distribution() {
+    // Two groups over three level types. The first group holds all of type 0
+    // and half of type 1; the second the rest.
+    let joint = vec![vec![100, 50, 0], vec![0, 50, 100]];
+    // Keep everything of the middle type, a tenth of the outer ones.
+    let mix = group_mix(&joint, &[0.1, 1.0, 0.1]);
+    // Group one: 100*0.1 + 50*1 = 60. Group two: 50*1 + 100*0.1 = 60. Even.
+    assert!((mix[0] - 0.5).abs() < 1e-9, "{mix:?}");
+    assert!((mix[1] - 0.5).abs() < 1e-9, "{mix:?}");
+}
+
+#[test]
+fn a_group_mix_of_nothing_is_zero_rather_than_a_division_by_zero() {
+    assert_eq!(group_mix(&[vec![0, 0]], &[1.0, 1.0]), vec![0.0]);
+}
