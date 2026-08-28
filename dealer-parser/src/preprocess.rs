@@ -5,6 +5,15 @@ use regex::Regex;
 ///
 /// Example: "shape(north, 5242)" becomes "shape(north, %s5242)"
 /// Example: "shape(north, any 4333 - 4333)" becomes "shape(north, any 4333 - %s4333)"
+/// Everything that happens to a script before it is parsed.
+///
+/// Two passes, and the order between them matters: the François Dellacherie
+/// shapes expand into exactly the four-digit literals the second pass exists to
+/// mark, so they have to be written before it runs.
+pub fn preprocess_all(input: &str) -> Result<String, String> {
+    Ok(preprocess(&crate::fdshape::expand(input)?))
+}
+
 pub fn preprocess(input: &str) -> String {
     // Mark all 4-digit numbers that appear inside shape() function calls
     // (except those following "any " keyword)

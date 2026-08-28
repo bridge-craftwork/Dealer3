@@ -304,7 +304,15 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         alias_of: None,
         note: Some(
             "Matching is a table lookup over all 560 shapes, so a long pattern list costs no \
-             more than a short one.",
+             more than a short one. **Braces instead of parentheses** take François \
+             Dellacherie's shape language, which says the same things far more briefly: \
+             `5+` is at least five, `2-` at most two, `[3-5]` a range, `(431)` the remaining \
+             suits in any order, `M` either major and `m` either minor, and `:` attaches a \
+             condition on the suit lengths `s h d c`, with `,` for and. So \
+             `shape{north, 4M(3+3+2+)}` is the twelve patterns above, and it is expanded \
+             before the script is parsed. A `+` or `-` joining two patterns needs a space on \
+             both sides, which is what keeps the one in `h+s>=10` inside its condition; and \
+             only one `M` and one `m` fit in a pattern, two of a colour needing `(...)`.",
         ),
     },
     FunctionDoc {

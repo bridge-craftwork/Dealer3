@@ -973,6 +973,17 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
     }
 }
 
+/// A suit length written as one character: `0`-`9`, then `:;<=` for ten to
+/// thirteen. Past `9` the digits run on through ASCII, which is what the
+/// original does internally when it fills a wildcard.
+fn shape_len(ch: char) -> Option<u8> {
+    match ch {
+        '0'..='9' => Some(ch as u8 - b'0'),
+        ':' | ';' | '<' | '=' => Some(ch as u8 - b'0'),
+        _ => None,
+    }
+}
+
 /// Parse a shape specification like "any 4333" or "54xx"
 fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
     let mut is_any = false;
@@ -1007,14 +1018,13 @@ fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
         for (i, &ch) in chars.iter().enumerate() {
             if ch == 'x' || ch == 'X' {
                 pattern[i] = None;
-            } else if ch.is_ascii_digit() {
-                let digit = ch.to_digit(10).unwrap() as u8;
-                if digit > 13 {
+            } else if let Some(length) = shape_len(ch) {
+                if length > 13 {
                     return Err(ParseError {
-                        message: format!("Shape digit {} is too large (max 13)", digit),
+                        message: format!("Shape length {} is too large (max 13)", length),
                     });
                 }
-                pattern[i] = Some(digit);
+                pattern[i] = Some(length);
             } else {
                 return Err(ParseError {
                     message: format!("Invalid character in shape: {}", ch),
@@ -1031,18 +1041,17 @@ fn parse_shape_spec(pair: Pair<Rule>) -> Result<Shape, ParseError> {
         // Exact or "any" distribution
         let mut pattern = [0u8; 4];
         for (i, &ch) in chars.iter().enumerate() {
-            if !ch.is_ascii_digit() {
+            let Some(length) = shape_len(ch) else {
                 return Err(ParseError {
                     message: format!("Invalid character in shape: {}", ch),
                 });
-            }
-            let digit = ch.to_digit(10).unwrap() as u8;
-            if digit > 13 {
+            };
+            if length > 13 {
                 return Err(ParseError {
-                    message: format!("Shape digit {} is too large (max 13)", digit),
+                    message: format!("Shape length {} is too large (max 13)", length),
                 });
             }
-            pattern[i] = digit;
+            pattern[i] = length;
         }
 
         // Validate that digits sum to 13

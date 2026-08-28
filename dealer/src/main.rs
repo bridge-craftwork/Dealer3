@@ -1331,8 +1331,14 @@ fn main() {
         }
     }
 
-    // Preprocess to mark 4-digit numbers in shape() functions
-    let preprocessed = dealer_parser::preprocess(constraint_str);
+    // Expand the `shape{...}` shapes, then mark four-digit shape literals.
+    let preprocessed = match dealer_parser::preprocess_all(constraint_str) {
+        Ok(text) => text,
+        Err(message) => {
+            eprintln!("Error: {}", message);
+            std::process::exit(1);
+        }
+    };
 
     // Parse the program (may include variable assignments and action blocks)
     let program = match dealer_parser::parse_program(&preprocessed) {

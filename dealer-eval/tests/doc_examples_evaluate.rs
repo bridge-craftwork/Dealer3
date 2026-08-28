@@ -24,7 +24,10 @@ fn reference_deal() -> Deal {
 }
 
 fn evaluate(script: &str, deal: &Deal) -> Result<i32, EvalError> {
-    let pre = dealer_parser::preprocess(script);
+    // The whole preprocessing path, so a documented `shape{...}` is expanded
+    // here exactly as it is for a script.
+    let pre = dealer_parser::preprocess_all(script)
+        .unwrap_or_else(|e| panic!("should have preprocessed: {:?}\n{}", script, e));
     let program = dealer_parser::parse_program(&pre)
         .unwrap_or_else(|e| panic!("should have parsed: {:?}\n{}", script, e));
     eval_program(&program, deal)

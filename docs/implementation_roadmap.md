@@ -283,7 +283,6 @@ Priority is derived from effort and value rather than written down beside them.
 | 🔵 Unlikely | Exhaust mode | High | Low |  | Never finished in the original either; the code is compiled out. |
 | 🔵 Unlikely | Library mode: replay deals by index | High | Low |  | `--input-deals` already covers the common case in dealer3's own way. |
 | 🔵 Unlikely | `opc(side[, strain])` and the `opener` statement | High | Low |  | Official Point Count: a whole evaluation system, not a function. `-O` has a row in the switch table already. Worth knowing that `opener west` parses today as two bare identifiers and is silently ignored, so an OPC script runs and quietly means something else. |
-| 🔵 Unlikely | `shape{ ... }`: Francois Dellacherie's shape language | High | Low |  | DealerV2_4 shells out to an `fdp` helper and re-lexes what comes back, so `shape{west, d>c or h>s}` becomes ordinary shape specs. 6 regression scripts use it. |
 | 🔵 Unlikely | `usereval(...)`: user-supplied evaluation tables | High | Low |  | Sets DealerV2_4's `userserver_reqd`, so it comes with the DealerServer that `-U` names — a second process, not a language feature. |
 <!-- END GENERATED: priority-matrix -->
 

@@ -349,12 +349,20 @@ shape_digits_any = @{ shape_char ~ shape_char ~ shape_char ~ shape_char }
 
 // Shape digits without "any" - must have %s prefix OR contain wildcards
 shape_digits_marked = @{
-    ("%s" ~ ASCII_DIGIT ~ ASCII_DIGIT ~ ASCII_DIGIT ~ ASCII_DIGIT)
+    ("%s" ~ shape_len ~ shape_len ~ shape_len ~ shape_len)
     | (shape_char_with_wildcard ~ shape_char ~ shape_char ~ shape_char)
     | (shape_char ~ shape_char_with_wildcard ~ shape_char ~ shape_char)
     | (shape_char ~ shape_char ~ shape_char_with_wildcard ~ shape_char)
     | (shape_char ~ shape_char ~ shape_char ~ shape_char_with_wildcard)
 }
 
-shape_char = { ASCII_DIGIT | "x" | "X" }
+shape_char = { shape_len | "x" | "X" }
 shape_char_with_wildcard = { "x" | "X" }
+
+// A suit length as one character, so a distribution stays four characters wide.
+// Ten to thirteen carry on past `9` into `:;<=`, which is the original's own
+// convention — `insertshape` fills a wildcard with `13-ccount+'0'` and says in
+// a comment that it "could go above '9'". It never lets a script type one,
+// having no need to; the FD shape expander does, since `5+Mxxx` means a ten-card
+// major as much as a five-card one.
+shape_len = { ASCII_DIGIT | ":" | ";" | "<" | "=" }

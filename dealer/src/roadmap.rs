@@ -253,18 +253,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "`shape{ ... }`: Francois Dellacherie's shape language",
-        done_when: None,
-        issue: None,
-        effort: Effort::High,
-        value: Value::Low,
-        note: Some(
-            "DealerV2_4 shells out to an `fdp` helper and re-lexes what comes back, so \
-             `shape{west, d>c or h>s}` becomes ordinary shape specs. 6 regression scripts \
-             use it.",
-        ),
-    },
-    WorkItem {
         what: "Two-dimensional `frequency`",
         done_when: None,
         issue: None,

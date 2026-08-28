@@ -91,7 +91,13 @@ fn main() {
     };
 
     // Preprocess and parse the filter
-    let preprocessed = dealer_parser::preprocess(&filter_content);
+    let preprocessed = match dealer_parser::preprocess_all(&filter_content) {
+        Ok(text) => text,
+        Err(message) => {
+            eprintln!("Error in filter file: {}", message);
+            std::process::exit(2);
+        }
+    };
     let program = match dealer_parser::parse_program(&preprocessed) {
         Ok(program) => program,
         Err(e) => {

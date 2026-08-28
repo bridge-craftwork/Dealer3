@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`shape{ ... }`: François Dellacherie's shape language** (his 1997 `dpp`, which
+  DealerV2_4 ships as `fdp`). `shape{north, 4M(3+3+2+)}` says what twelve
+  patterns say in `shape(...)`: `5+` is at least five, `2-` at most two,
+  `[3-5]` a range, `(431)` the remaining suits in any order, `M` either major
+  and `m` either minor, and `:` attaches a condition on the suit lengths.
+  - Expanded in the preprocessor rather than parsed, which keeps the braces out
+    of the grammar — the four-digit shape literals were trouble enough on their
+    own — and leaves the web editor's highlighter seeing an ordinary `shape`
+    call. No helper binary either, so the wasm build has it too.
+  - Where DealerV2_4 develops pattern strings, dealer3 evaluates each construct
+    over the 560 distributions and renders the answer back. That is what makes a
+    ten-card suit expressible: `5+Mxxx` means a ten-card major as much as a
+    five-card one, and `fdp` silently drops all forty such shapes because a
+    pattern is one character per suit.
+  - So suit lengths now run past `9` into `:;<=` for ten to thirteen — the
+    original's own convention, which `insertshape` uses internally and has never
+    let a script type. `shape(north, %s:111)` is a ten-card spade suit.
+  - Checked against the six worked cases in DealerV2_4's own
+    `docs/FD_Shapes_examples.txt`, comparing the distributions each denotes: the
+    two agree exactly, but for the ten-card suits dealer3 adds.
 - **`[HandType "..."]` in PBN output.** A variable whose name starts with
   `HandType` names a category of hand, and each PBN record carries the one it
   matched — so a practice set can be sorted or interleaved afterwards without

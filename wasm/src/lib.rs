@@ -174,7 +174,7 @@ pub fn generate(
     let format = Format::parse(format)?;
     let started = now_ms();
 
-    let preprocessed = dealer_parser::preprocess(script);
+    let preprocessed = dealer_parser::preprocess_all(script).map_err(|e| JsError::new(&e))?;
     let program = dealer_parser::parse_program(&preprocessed)
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
 
@@ -418,7 +418,20 @@ struct CheckResult {
 /// parser itself, so squiggles agree with the engine by construction.
 #[wasm_bindgen]
 pub fn check_script(script: &str) -> String {
-    let preprocessed = dealer_parser::preprocess(script);
+    let preprocessed = match dealer_parser::preprocess_all(script) {
+        Ok(text) => text,
+        // The editor squiggles this the same as a parse error, which is what it
+        // is from the writer's point of view.
+        Err(message) => {
+            return serde_json::to_string(&CheckResult {
+                ok: false,
+                error: Some(message),
+                line: None,
+                column: None,
+            })
+            .unwrap_or_default()
+        }
+    };
     let result = match dealer_parser::parse_program(&preprocessed) {
         Ok(_) => CheckResult {
             ok: true,
