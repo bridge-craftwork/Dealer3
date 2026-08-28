@@ -112,6 +112,28 @@
           <button class="run" :disabled="!engineReady || running || !scriptValid" @click="run">
             {{ running ? 'Running…' : runLabel }}
           </button>
+          <!-- Appears with the bars rather than the instant Run is pressed:
+               a sub-second run would otherwise flash a button nobody could
+               have used. -->
+          <button v-if="showProgress" class="cancel" @click="cancel">Cancel</button>
+        </div>
+
+        <!-- Held back for a second, so the common short run does not flash a
+             bar up and down. What it costs is that a run finishing at 1.1s
+             shows one briefly — which is the right way round, since that run
+             is long enough to wonder about. -->
+        <div v-if="showProgress" class="progress" aria-live="polite">
+          <div v-for="bar in progressBars" :key="bar.key" class="progress-row">
+            <span class="progress-label">{{ bar.label }}</span>
+            <span class="progress-track">
+              <span
+                class="progress-fill"
+                :class="{ indeterminate: bar.fraction === null }"
+                :style="bar.fraction === null ? null : { width: (100 * bar.fraction).toFixed(1) + '%' }"
+              ></span>
+            </span>
+            <span class="progress-count">{{ bar.count }}</span>
+          </div>
         </div>
 
         <ScriptEditor v-show="editorTab === 'script'" v-model="script" @validity="onValidity" />
@@ -186,6 +208,76 @@ const format = ref(restored?.format || 'oneline')
 const engineReady = ref(false)
 const engineVersion = ref('')
 const running = ref(false)
+
+// --- Progress -------------------------------------------------------------
+//
+// The engine reports from inside the worker; these hold the last report and
+// decide whether it is worth showing yet.
+
+/// The last report from each phase, keyed by phase name.
+const phases = ref({})
+/// Set a second into a run. Most runs finish first and never show a bar.
+const showProgress = ref(false)
+let progressTimer = null
+let abort = null
+
+/// A second's grace before any of it appears.
+///
+/// Most runs are well under that, and a bar that flashes up and down is worse
+/// than none — it reads as a glitch rather than as information. A run that
+/// crosses the second is one you have started to wonder about.
+const PROGRESS_DELAY_MS = 1000
+
+function startProgress() {
+  phases.value = {}
+  showProgress.value = false
+  clearTimeout(progressTimer)
+  progressTimer = setTimeout(() => {
+    // Only if it is still going: the timer outlives a run that finished early.
+    if (running.value) showProgress.value = true
+  }, PROGRESS_DELAY_MS)
+}
+
+function stopProgress() {
+  clearTimeout(progressTimer)
+  progressTimer = null
+  showProgress.value = false
+  phases.value = {}
+}
+
+/// One bar per phase the run has reached, in the order they happen.
+///
+/// The measuring bar has no total until the probe has finished — how much
+/// measuring a scenario needs depends on how rare its rarest hand type is, and
+/// that is what the probe is for. Until then it runs indeterminate rather than
+/// inventing a denominator.
+const PHASE_LABELS = {
+  probe: 'sampling',
+  measuring: 'measuring',
+  dealing: 'dealing',
+}
+const progressBars = computed(() =>
+  ['probe', 'measuring', 'dealing']
+    .filter((key) => phases.value[key])
+    .map((key) => {
+      const p = phases.value[key]
+      const target = p.target > 0 ? p.target : 0
+      return {
+        key,
+        label: PHASE_LABELS[key],
+        fraction: target ? Math.min(1, p.produced / target) : null,
+        count: target
+          ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
+          : p.produced.toLocaleString(),
+      }
+    }),
+)
+
+/// Abandon the run in flight. The worker is terminated, so this stops work
+/// already inside the wasm rather than merely ignoring its result.
+function cancel() {
+  abort?.abort()
+}
 const result = ref(null)
 const error = ref('')
 const scriptValid = ref(true)
@@ -328,7 +420,7 @@ async function onDownload(kind) {
   try {
     const name = selectedFile.value || 'dealer3'
     if (kind === 'pbn') {
-      const pbn = generate(script.value, {
+      const pbn = await generate(script.value, {
         seed: seed.value,
         produce: produce.value,
         maxGenerate: maxGenerate.value,
@@ -340,7 +432,7 @@ async function onDownload(kind) {
         'application/x-pbn',
       )
     } else {
-      const text = generate(script.value, {
+      const text = await generate(script.value, {
         seed: seed.value,
         produce: produce.value,
         maxGenerate: maxGenerate.value,
@@ -393,29 +485,38 @@ async function run() {
 
   running.value = true
   error.value = ''
+  abort = new AbortController()
+  startProgress()
   try {
-    // Generation is synchronous inside the wasm module and will block the tab.
-    // Yield a frame first so the button can paint its running state; the
-    // max-generate bound is what actually keeps the block short.
-    await new Promise((r) => requestAnimationFrame(r))
+    // Generation runs in a worker, so the tab stays responsive: the button
+    // paints its disabled state at once, a second click cannot queue up behind
+    // a frozen thread, and the engine can report how far along it is.
     // On the Leveled tab, run the generated scenario as it stands: no
     // measuring pass, no new keeps, the same script every time. So pressing Run
     // again is another sample of one levelling rather than a fresh levelling —
     // which is what you want when comparing runs, and what makes the script in
     // the pane worth reading rather than something that moves under you.
     const onLeveled = editorTab.value === 'leveled' && leveledScript.value
-    result.value = generate(onLeveled ? leveledScript.value : script.value, {
+    result.value = await generate(onLeveled ? leveledScript.value : script.value, {
       seed: seed.value,
       produce: produce.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
+      signal: abort.signal,
+      onProgress: (report) => {
+        phases.value = { ...phases.value, [report.phase]: report }
+      },
     })
     if (result.value.leveling) leveling.value = result.value.leveling
   } catch (e) {
     result.value = null
-    error.value = e?.message || String(e)
+    // Cancelling is a choice, not a fault: say what happened and leave the
+    // previous result's absence unexplained by an error box.
+    error.value = e?.cancelled ? '' : e?.message || String(e)
   } finally {
+    stopProgress()
+    abort = null
     running.value = false
   }
 }
@@ -533,6 +634,51 @@ body {
   border: 0; border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer;
 }
 .run:disabled { background: var(--line); color: var(--fg-muted); cursor: default; }
+
+/* Quieter than Run: it is the way out, not the way on. */
+.cancel {
+  margin-left: 6px;
+  padding: 5px 12px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; color: var(--fg-muted); cursor: pointer;
+}
+.cancel:hover { color: #b23b3b; border-color: #d8a9a9; }
+
+/* Between the run row and the editor, so it sits where the wait is felt
+   without pushing the script down permanently — it exists only while running. */
+.progress {
+  display: flex; flex-direction: column; gap: 3px;
+  margin: 6px 0 2px;
+}
+.progress-row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto;
+  align-items: center; gap: 8px;
+  font-size: 11px; color: var(--fg-muted); font-family: var(--mono);
+}
+.progress-track {
+  height: 5px; border-radius: 3px; background: var(--line); overflow: hidden;
+}
+.progress-fill {
+  display: block; height: 100%; border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.12s linear;
+}
+/* No total yet — the probe decides how much measuring this scenario needs, so
+   until it finishes there is no honest denominator to draw against. */
+.progress-fill.indeterminate {
+  width: 35%;
+  animation: progress-sweep 1.1s ease-in-out infinite;
+}
+@keyframes progress-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
+.progress-count { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
+}
 
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; grid-template-rows: auto 1fr 1fr; }

@@ -26,6 +26,7 @@ src/
 │   ├── dlrLanguage.js    CodeMirror language, built from the engine's vocabulary
 │   ├── reference.js      shaping the vocabulary into reference sections
 │   ├── guide.js          rendering a docs/ markdown file as a page
+│   ├── engine.worker.js  generation, off the main thread
 │   └── download.js       saving results as PBN or text
 ├── Reference.vue         the language reference page
 ├── Leveling.vue          the levelling guide, rendered from docs/
@@ -80,6 +81,35 @@ Without that the site would go stale while the repo looked current.
 Practice-Bidding-Scenarios CI builds, straight from raw.githubusercontent.com,
 which serves permissive CORS. No backend, no build-time copy, and the list is
 never stale. Vendored from `Bridge-Classroom/src/utils/pbsScenarios.js`.
+
+## Why generation runs in a worker
+
+`engine.worker.js` owns the wasm for `generate`; everything else calls the
+main-thread instance.
+
+Generation is one synchronous call that can run for many seconds, and on the
+main thread that blocks everything. The Run button never painted its disabled
+state — `requestAnimationFrame` fires *before* paint, so yielding a frame only
+let the browser reach the blocking call sooner — and a click during the freeze
+was queued by the browser and delivered the moment the tab thawed, starting a
+second run. Neither is fixable from outside the block.
+
+So the engine reports progress through a callback the worker forwards as
+messages, and **Cancel is `terminate()`**: the one form of cancellation that
+works against code already inside the wasm, since a flag would need the blocked
+thread to come back and read it. The worker is recreated on the next run.
+
+Only `generate` moved. `check_script` and `language_info` are called
+synchronously while the editor is being built and are far too fast to be worth
+an await, so they stay where they were.
+
+Progress is reported per phase, because a levelled run deals the scenario up to
+three times and one bar would appear to finish and start over. The measuring
+bar has no total until the probe finishes — how much measuring a scenario needs
+depends on how rare its rarest hand type is, and that is what the probe is for —
+so it runs indeterminate until then rather than inventing a denominator. The
+bars and Cancel are held back for a second, so the common short run does not
+flash them up and down.
 
 ## Copying a script out
 

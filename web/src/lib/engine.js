@@ -5,7 +5,6 @@
 // and no keystroke is sent anywhere.
 
 import init, {
-  generate as wasmGenerate,
   check_script as wasmCheck,
   language_info as wasmLanguageInfo,
   version as wasmVersion,
@@ -23,6 +22,95 @@ export function ready() {
 /** Whether the wasm module has finished initialising. */
 export function isReady() {
   return loaded
+}
+
+// --- The worker that does the generating ---------------------------------
+//
+// One worker, kept between runs so the wasm is loaded once. Cancelling
+// terminates it — the only thing that stops code already inside the wasm,
+// since a flag would need the blocked thread to come back and read it — and
+// the next run makes a new one.
+
+let worker = null
+let nextRunId = 1
+
+function ensureWorker() {
+  if (!worker) {
+    worker = new Worker(new URL('./engine.worker.js', import.meta.url), { type: 'module' })
+  }
+  return worker
+}
+
+/** Stop the run in flight, if any. Its promise rejects with `cancelled`. */
+export function cancelGenerate() {
+  if (!worker) return false
+  worker.terminate()
+  worker = null
+  return true
+}
+
+/// Hand one run to the worker, routing its progress messages back.
+function runInWorker(script, options) {
+  const w = ensureWorker()
+  const id = nextRunId++
+
+  return new Promise((resolve, reject) => {
+    const finish = (fn, value) => {
+      w.removeEventListener('message', onMessage)
+      w.removeEventListener('error', onError)
+      options.signal?.removeEventListener?.('abort', onAbort)
+      fn(value)
+    }
+
+    const onMessage = (event) => {
+      const data = event.data || {}
+      // A message from a run that was cancelled and replaced.
+      if (data.id !== id) return
+      if (data.type === 'progress') {
+        if (options.onProgress) {
+          try {
+            options.onProgress(JSON.parse(data.message))
+          } catch {
+            // A malformed report is not worth failing the run over.
+          }
+        }
+        return
+      }
+      if (data.type === 'done') finish(resolve, data.raw)
+      else finish(reject, new Error(data.message || 'the engine failed'))
+    }
+
+    // A worker that dies outright — out of memory, or a wasm trap — reports
+    // here rather than as a message, and without this the promise never
+    // settles and the page stays "Running…" for ever.
+    const onError = (event) => {
+      worker = null
+      finish(reject, new Error(event.message || 'the engine stopped unexpectedly'))
+    }
+
+    const onAbort = () => {
+      cancelGenerate()
+      const error = new Error('cancelled')
+      error.cancelled = true
+      finish(reject, error)
+    }
+
+    w.addEventListener('message', onMessage)
+    w.addEventListener('error', onError)
+    options.signal?.addEventListener?.('abort', onAbort, { once: true })
+
+    w.postMessage({
+      id,
+      script,
+      options: {
+        seed: options.seed,
+        produce: options.produce,
+        maxGenerate: options.maxGenerate,
+        format: options.format,
+        autoLevel: options.autoLevel,
+      },
+    })
+  })
 }
 
 /**
@@ -55,9 +143,29 @@ function assertReady(fn) {
  *
  * Throws with the engine's message on a parse or evaluation error.
  */
-export function generate(script, { seed = 1, produce = 20, maxGenerate = 1000000, format = 'oneline', autoLevel = false } = {}) {
-  assertReady('generate')
-  const raw = JSON.parse(wasmGenerate(script, seed, produce, maxGenerate, format, autoLevel))
+export async function generate(
+  script,
+  {
+    seed = 1,
+    produce = 20,
+    maxGenerate = 1000000,
+    format = 'oneline',
+    autoLevel = false,
+    /// Called with `{ phase, produced, generated, target }` as the run goes.
+    onProgress = null,
+    /// Resolves — or rejects — if the caller abandons the run.
+    signal = null,
+  } = {},
+) {
+  const raw = JSON.parse(await runInWorker(script, {
+    seed,
+    produce,
+    maxGenerate,
+    format,
+    autoLevel,
+    onProgress,
+    signal,
+  }))
   return {
     deals: raw.deals,
     generated: raw.generated,

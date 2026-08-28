@@ -237,9 +237,20 @@ pub fn generate(
     max_generate: usize,
     format: &str,
     auto_level: bool,
+    on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
     let format = Format::parse(format)?;
     let started = now_ms();
+
+    // Progress, for a caller that can paint it — which means a worker, since
+    // nothing repaints while this runs on the main thread.
+    //
+    // Time-based rather than every N deals: how long a deal takes varies by
+    // orders of magnitude between a bare `hcp` condition and one calling
+    // `tricks()`, so a fixed deal count is either a flood or a silence. The
+    // phase travels with it because a levelled run deals the scenario more
+    // than once and a single bar would appear to restart.
+    let progress = Progress::new(on_progress);
 
     let shares_of = |run: &RunOutcome| -> Vec<HandTypeShare> {
         run.hand_type_names
@@ -293,6 +304,7 @@ pub fn generate(
         // — once to find out what it does, once to do it — and a single total
         // makes the second look slow when most of the wait was the first.
         let measure_ms = std::cell::Cell::new(0.0f64);
+        let measured_passes = std::cell::Cell::new(0u32);
         let (run, report) = dealer_level::level_and_run(
             script,
             &opts,
@@ -313,18 +325,45 @@ pub fn generate(
 
                 let started = now_ms();
                 let outcome =
-                    run_script(script, seed, asked, max_generate, format, false, false)
-                        .map_err(|e| error_text(&e))?;
+                    run_script(
+                        script,
+                        seed,
+                        asked,
+                        max_generate,
+                        format,
+                        false,
+                        false,
+                        &progress,
+                        // The first call is the probe; anything after it is
+                        // the real measurement, whose size the probe decided.
+                        if measured_passes.get() == 0 {
+                            Phase::Probe
+                        } else {
+                            Phase::Measuring
+                        },
+                    )
+                    .map_err(|e| error_text(&e))?;
                 let spent = (now_ms() - started).max(1.0);
                 measured_per_ms.set(outcome.produced as f64 / spent);
                 measure_ms.set(measure_ms.get() + spent);
+                measured_passes.set(measured_passes.get() + 1);
                 Ok(measurement(&outcome))
             },
             // Producing: the deals the page will show, interleaved.
             |script| {
                 let outcome =
-                    run_script(script, seed, produce, max_generate, format, true, true)
-                        .map_err(|e| error_text(&e))?;
+                    run_script(
+                        script,
+                        seed,
+                        produce,
+                        max_generate,
+                        format,
+                        true,
+                        true,
+                        &progress,
+                        Phase::Dealing,
+                    )
+                    .map_err(|e| error_text(&e))?;
                 let measured = measurement(&outcome);
                 Ok((outcome, measured))
             },
@@ -360,7 +399,17 @@ pub fn generate(
         };
         (run, Some(leveling))
     } else {
-        let run = run_script(script, seed, produce, max_generate, format, true, false)?;
+        let run = run_script(
+            script,
+            seed,
+            produce,
+            max_generate,
+            format,
+            true,
+            false,
+            &progress,
+            Phase::Dealing,
+        )?;
         (run, None)
     };
 
@@ -401,6 +450,76 @@ pub fn generate(
 /// The rarest hand type sets the precision of the whole thing, so this is the
 /// number that matters. Ten thousand is a second or two and pins a type of a
 /// few percent to within a point; the page reports where it actually landed.
+/// Reports how far a run has got, for a caller that can paint it.
+///
+/// Throttled by the clock rather than by a deal count: a bare `hcp` condition
+/// and one calling `tricks()` differ by orders of magnitude in how long a deal
+/// takes, so any fixed count is either a flood of messages or a long silence.
+struct Progress {
+    to: Option<js_sys::Function>,
+    /// When the last report went out, so they arrive at a readable rate.
+    last_ms: std::cell::Cell<f64>,
+}
+
+/// Which pass a report belongs to.
+///
+/// A levelled run deals the scenario up to three times, and without this the
+/// one bar would appear to finish and start over.
+#[derive(Clone, Copy)]
+enum Phase {
+    /// Finding out how rare the rarest hand type is.
+    Probe,
+    /// Measuring it properly, now that we know how much that takes.
+    Measuring,
+    /// Producing the deals that were actually asked for.
+    Dealing,
+}
+
+impl Phase {
+    fn name(self) -> &'static str {
+        match self {
+            Phase::Probe => "probe",
+            Phase::Measuring => "measuring",
+            Phase::Dealing => "dealing",
+        }
+    }
+}
+
+/// Shortest gap between reports. Fast enough to look live, slow enough that
+/// posting them is never the expensive part.
+const PROGRESS_EVERY_MS: f64 = 100.0;
+
+impl Progress {
+    fn new(to: Option<js_sys::Function>) -> Self {
+        Self {
+            to,
+            last_ms: std::cell::Cell::new(0.0),
+        }
+    }
+
+    /// Report, unless one went out too recently. `force` overrides that, for
+    /// the end of a phase — otherwise a bar can stop short of its own total.
+    fn report(&self, phase: Phase, produced: usize, generated: usize, target: usize, force: bool) {
+        let Some(to) = &self.to else { return };
+        let now = now_ms();
+        if !force && now - self.last_ms.get() < PROGRESS_EVERY_MS {
+            return;
+        }
+        self.last_ms.set(now);
+
+        let message = format!(
+            r#"{{"phase":"{}","produced":{},"generated":{},"target":{}}}"#,
+            phase.name(),
+            produced,
+            generated,
+            target
+        );
+        // A caller that throws is not worth stopping the run for: the deals are
+        // the point and the bar is decoration.
+        let _ = to.call1(&wasm_bindgen::JsValue::NULL, &message.into());
+    }
+}
+
 const PROBE_PRODUCE: usize = 10_000;
 
 /// How long the browser will go on measuring after the probe.
@@ -461,6 +580,7 @@ struct RunOutcome {
 /// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
 /// filter must not be able to hang it.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn run_script(
     script: &str,
     seed: u32,
@@ -469,6 +589,8 @@ fn run_script(
     format: Format,
     keep_deals: bool,
     interleave: bool,
+    progress: &Progress,
+    phase: Phase,
 ) -> Result<RunOutcome, JsError> {
 
     let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
@@ -593,6 +715,7 @@ fn run_script(
     while produced < produce && generated < max_generate {
         let deal = generator.next_deal();
         generated += 1;
+        progress.report(phase, produced, generated, produce, false);
 
         let matched = match constraint {
             Some(expr) => {
@@ -749,6 +872,11 @@ fn run_script(
         deals.push(format.render(deal, position, &output, label));
         deal_types.push(label.map(str::to_string));
     }
+
+    // Forced, so a bar reaches its own total. The throttle otherwise leaves the
+    // last hundred milliseconds of a phase unreported, and a bar frozen at 76%
+    // as the next one starts reads as something having gone wrong.
+    progress.report(phase, produced, generated, produce, true);
 
     Ok(RunOutcome {
         hit_limit: produced < produce && generated >= max_generate,

@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Generation runs in a Web Worker, with progress bars and a Cancel button.**
+  It was one synchronous call on the main thread, which blocked everything for
+  the length of a run.
+  - The Run button never painted its disabled state, because
+    `requestAnimationFrame` fires *before* paint — yielding a frame only let the
+    browser reach the blocking call sooner. And a click during the freeze was
+    queued by the browser and delivered the moment the tab thawed, starting a
+    second run. Neither is fixable from outside the block.
+  - **Cancel is `terminate()`**, which is the only thing that stops code already
+    inside the wasm: a flag would need the blocked thread to come back and read
+    it. The worker is recreated for the next run.
+  - Progress is reported per phase, since a levelled run deals the scenario up
+    to three times and one bar would appear to finish and start over. The
+    measuring bar has no total until the probe finishes — that is what the probe
+    is for — so it runs indeterminate rather than inventing a denominator.
+  - Reports are throttled by the clock rather than by a deal count: a bare `hcp`
+    condition and one calling `tricks()` differ by orders of magnitude per deal,
+    so any fixed count is a flood or a silence. One is forced at the end of each
+    phase, or a bar freezes short of its own total as the next one starts.
+  - The bars and Cancel wait a second before appearing, so a short run does not
+    flash them up and down.
+  - Only `generate` moved. `check_script` and `language_info` are called while
+    the editor is being built and are far too fast to be worth an await.
 - **The browser reports the measuring pass and the run separately**, as
   `5.71 sec = 5.00 measuring + 0.72 dealing`. A levelled run deals the scenario
   twice — once to find out what it does, once to do it — and a single total made
