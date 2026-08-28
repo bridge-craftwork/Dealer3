@@ -93,11 +93,34 @@ fn the_types_found_are_reported_by_name() {
 
 #[test]
 fn the_types_are_in_the_json_too() {
-    let (out, _, status) = run(&["-q", "--stats-json", "-p", "5", "-s", "1"], BANDS);
+    // With their shares: checking a levelled scenario delivered its mix is why
+    // a build step reads this at all, and the run has already counted them.
+    let (out, _, status) = run(&["-q", "--stats-json", "-p", "200", "-s", "1"], BANDS);
     assert_eq!(status, 0);
+    for label in ["12_14", "15_17", "18_up"] {
+        assert!(
+            out.contains(&format!(r#"{{ "name": "{label}", "produced": "#)),
+            "got:\n{out}"
+        );
+    }
+    // Declaration order, and the shares add to one over the produced deals.
+    let at = |label: &str| out.find(&format!(r#""name": "{label}""#)).expect(label);
+    assert!(at("12_14") < at("15_17") && at("15_17") < at("18_up"));
+    let shares: f64 = out
+        .split(r#""share": "#)
+        .skip(1)
+        .map(|piece| {
+            piece
+                .split(&[',', ' ', '}'][..])
+                .next()
+                .expect("a share")
+                .parse::<f64>()
+                .expect("a number")
+        })
+        .sum();
     assert!(
-        out.contains(r#""hand_types": ["12_14", "15_17", "18_up"]"#),
-        "got:\n{out}"
+        (shares - 1.0).abs() < 1e-9,
+        "the types partition these deals, so the shares should sum to 1, got {shares}"
     );
 }
 

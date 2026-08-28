@@ -90,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/leveling-strategy.md`, where a build step measures a scenario's natural
   mix and computes keep rates from it — dividing by a rate parsed out of `%g`
   output, from a label that might contain a colon, is not a foundation.
+  - `hand_types` carries each type's name, the number of deals that matched it
+    and its share of the run, in declaration order. Verifying that a levelled
+    scenario delivered its mix is the reason to read this at all, and the run
+    has already counted them — a scenario should not have to carry an `average`
+    statement per type to be told what it produced.
 - **`docs/leveling-strategy.md`**, describing how to level a scenario in one
   measurement and one calculation, the portable `roll` construct `rnd()` needs,
   and the closed-form cost of a target mix.

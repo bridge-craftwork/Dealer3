@@ -114,7 +114,16 @@ $ dealer -q --stats-json -g 2000000 -p 200000 scenario.dlr
 
 `--stats-json` reports the same numbers as the tables, at full precision and
 with the sample size each was measured over, which is what a build script should
-read rather than parsing `%g` out of a text table.
+read rather than parsing `%g` out of a text table. Its `hand_types` gives each
+type's count and share directly, so verifying a levelled run needs no `average`
+statement per type:
+
+```json
+"hand_types": [
+  { "name": "weak",   "produced": 40213, "share": 0.201065 },
+  { "name": "invite", "produced": 39902, "share": 0.19951 }
+]
+```
 
 ```
 weak     0.4525

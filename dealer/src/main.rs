@@ -2275,14 +2275,31 @@ fn main() {
         }
         out.push_str(&format!("  \"seconds\": {},\n", json_number(elapsed_secs)));
         out.push_str(&format!("  \"timed_out\": {},\n", timed_out));
+        // Names and shares together: checking a levelled scenario delivered
+        // its mix is the point of running one, and reading it off here saves
+        // every scenario carrying an `average` statement per type to say what
+        // the run already counted.
         out.push_str("  \"hand_types\": [");
-        out.push_str(
-            &hand_type_names
-                .iter()
-                .map(|n| json_string(hand_type_label(n)))
-                .collect::<Vec<_>>()
-                .join(", "),
-        );
+        for (i, name) in hand_type_names.iter().enumerate() {
+            let label = hand_type_label(name);
+            let count = hand_type_counts.get(label).copied().unwrap_or(0);
+            let share = if produced > 0 {
+                count as f64 / produced as f64
+            } else {
+                0.0
+            };
+            out.push_str(if i == 0 { "\n" } else { ",\n" });
+            out.push_str(&format!(
+                "    {{ \"name\": {}, \"produced\": {}, \"share\": {} }}",
+                json_string(label),
+                count,
+                json_number(share)
+            ));
+        }
+        if !hand_type_names.is_empty() {
+            out.push('\n');
+            out.push_str("  ");
+        }
         out.push_str("],\n");
 
         out.push_str("  \"averages\": [");
