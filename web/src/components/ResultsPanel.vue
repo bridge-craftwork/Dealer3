@@ -41,27 +41,29 @@
                  delivered share, so the blue edges line up down the column and
                  it is the orange that is ragged. -->
             <span class="ht-track">
-              <template v-if="t.planned >= t.natural">
+              <template v-if="t.delivered >= t.natural">
                 <span class="ht-bar natural" :style="{ width: pct(t.natural) }"></span>
-                <span class="ht-bar delivered" :style="{ width: pct(t.planned - t.natural) }"></span>
+                <span class="ht-bar delivered" :style="{ width: pct(t.delivered - t.natural) }"></span>
               </template>
               <template v-else>
-                <span class="ht-bar delivered" :style="{ width: pct(t.planned) }"></span>
-                <span class="ht-bar natural" :style="{ width: pct(t.natural - t.planned) }"></span>
+                <span class="ht-bar delivered" :style="{ width: pct(t.delivered) }"></span>
+                <span class="ht-bar natural" :style="{ width: pct(t.natural - t.delivered) }"></span>
               </template>
             </span>
-            <span class="ht-value">{{ (100 * t.planned).toFixed(1) }}%</span>
-            <!-- What this run actually dealt, which over a short set is lumpy
-                 however even the keeps are — twenty-four boards across five
-                 bands carry a standard deviation of eight points. Worth showing
-                 next to the share it was aiming at rather than instead of it. -->
-            <span class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
+            <span class="ht-value">{{ (100 * t.delivered).toFixed(1) }}%</span>
+            <span v-if="leveling" class="ht-was">was {{ (100 * t.natural).toFixed(1) }}%</span>
+            <span v-else class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
           </div>
         </div>
+        <!-- The blue is what this run dealt, not the share it was aiming at.
+             Over a short set that is lumpy however even the keeps are — 24
+             boards across 5 bands carry a standard deviation of 8 points — and
+             hiding that behind the target would be drawing the intention rather
+             than the result. -->
         <p v-if="leveling" class="ht-key">
           <span class="ht-swatch natural"></span> natural
-          <span class="ht-swatch delivered"></span> levelled — and what this run of
-          {{ handTypes[0]?.out_of }} dealt, which is lumpy at this length however even the keeps are
+          <span class="ht-swatch delivered"></span> this run of {{ handTypes[0]?.out_of }},
+          levelled toward {{ (100 * handTypes[0]?.planned).toFixed(0) }}% each
         </p>
       </section>
 
@@ -206,10 +208,23 @@ const plainAverages = computed(() =>
   (props.result?.averages || []).filter((a) => !a.is_hand_type),
 )
 
-/// A share of the deals as a CSS width. Shares, not a scale set by the largest,
-/// because they are shares: a band at 20% should look like a fifth.
+/// The longest bar in the table, which every row is drawn against.
+///
+/// A natural mix runs from a couple of percent to nearly sixty, so a 0-100
+/// scale leaves the interesting end squashed into the first inch. Scaling to
+/// the longest row spends the width on the rows rather than on the empty space
+/// past them.
+const htScale = computed(() => {
+  const longest = Math.max(
+    ...handTypes.value.map((t) => Math.max(t.natural, t.delivered)),
+    0.01,
+  )
+  return longest
+})
+
+/// A share of the deals as a CSS width, against the longest row.
 function pct(share) {
-  return `${Math.max(0, Math.min(1, share)) * 100}%`
+  return `${Math.max(0, share / htScale.value) * 100}%`
 }
 
 // Only the one-line format can be laid out as hands: printall is already a

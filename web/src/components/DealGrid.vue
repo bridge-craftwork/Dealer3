@@ -11,6 +11,7 @@
           class="board-type"
           :style="{ color: palette.get(types[i]).color, background: palette.get(types[i]).tint }"
         >{{ types[i] }}</span>
+        <span class="board-gap"></span>
         <span class="board-hcp">
           NS {{ deal.north.hcp + deal.south.hcp }} · EW {{ deal.east.hcp + deal.west.hcp }}
         </span>
@@ -79,6 +80,9 @@ Hand.props = ['label', 'hand']
   display: flex; justify-content: space-between; align-items: baseline;
   font-size: 11px; color: var(--fg-muted); margin-bottom: 4px;
 }
+/* Beside the board number, not adrift between it and the point count: the two
+   are read together, "board 1, a 12_14". */
+.board-gap { flex: 1; }
 .board-type {
   font-family: var(--mono);
   font-size: 0.7rem;
