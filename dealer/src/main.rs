@@ -554,8 +554,28 @@ fn write_leveled(
     }
     block.push(String::new());
     for plan in plans {
-        let keep = ((plan.keep * scale as f64).round() as u32).clamp(1, scale);
-        if keep >= scale {
+        let keep = (plan.keep * scale as f64).round() as u32;
+        if plan.keep <= 0.0 {
+            // A weight of zero asks for none of this type, and `roll < 0`
+            // reads as a mistake. Rounding up to one in `scale` instead would
+            // deliver a share the header beside it says is nothing.
+            block.push(format!("level_{} = 0", plan.name));
+        } else if keep == 0 {
+            // Under half of one in `scale`, so no threshold expresses it. The
+            // header would go on claiming the mix while the file delivered
+            // either nothing or twice what was asked, depending on which way
+            // it was rounded.
+            return Err(format!(
+                "`{}` wants to be kept {:.6} of the time, which is less than one deal in \
+                 {}.\n       No threshold on this roll says that. Give `{}` more of the \
+                 target, or define\n       a finer roll before the block: {}",
+                plan.name,
+                plan.keep,
+                scale,
+                plan.name,
+                canonical_roll(scale.saturating_mul(100).max(scale))
+            ));
+        } else if keep >= scale {
             block.push(format!("level_{0} = {1}_{0}", plan.name, HAND_TYPE_PREFIX));
         } else {
             block.push(format!(

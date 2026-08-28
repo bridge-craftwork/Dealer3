@@ -344,6 +344,12 @@ than a warning.
   draw assumed uniform over `0..N-1` and a bare `rnd` is neither on every build.
   An existing `roll` also sets the denominator, so thresholds are written
   against the draw that actually happens.
+- **A keep too small for the roll to express.** Under half of one in the roll's
+  range there is no threshold that says it, and rounding it either way makes the
+  file disagree with the header above it — the one failure this whole
+  arrangement exists to prevent. A weight of `0` is different and is honoured
+  exactly: the type is written `level_X = 0`, never kept, rather than rounded up
+  to one deal in a thousand.
 
 ### What it stamps into the generated file
 

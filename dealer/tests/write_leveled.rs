@@ -313,3 +313,55 @@ fn it_needs_the_scenario_as_a_file() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("file argument"));
 }
+
+#[test]
+fn a_type_targeted_at_nothing_is_written_as_nothing() {
+    // A zero weight asks for none of the type. Rounding its keep up to one in
+    // a thousand — the least a threshold can express — would leave the file
+    // delivering a share the header above it calls zero, which is the one
+    // thing this whole arrangement exists to prevent.
+    let run = level(STOCK, &["--level-target", "1,1,1,1,0"], "zero-weight");
+    assert_eq!(run.status, 0, "stderr was: {}", run.stderr);
+    let written = run.written.expect("a generated file");
+    assert!(
+        written.contains("level_22_24 = 0"),
+        "the excluded band should be written as nothing, got:\n{written}"
+    );
+    assert!(
+        !written.contains("level_22_24 = HandType_22_24 and roll < 1"),
+        "the excluded band must not be kept one time in a thousand"
+    );
+    // And the header agrees.
+    assert!(written.contains("# 22_24"));
+
+    let shares = mix(&written, "zero-weight-mix");
+    assert_eq!(shares.len(), 2, "the fixture reports two bands");
+    assert_eq!(
+        shares[1], 0.0,
+        "the excluded band should never appear, got {shares:?}"
+    );
+}
+
+#[test]
+fn a_keep_too_small_for_the_roll_is_refused() {
+    // Under half of one in the roll's range there is no threshold to write.
+    // Rounding either way makes the file disagree with its own header, so it
+    // is an error and says what to do about it.
+    let script = STOCK.replace(
+        "### BEGIN GENERATED LEVELING ###",
+        "roll = (rnd(10) % 10 + 10) % 10\n\n### BEGIN GENERATED LEVELING ###",
+    );
+    let run = level(&script, &[], "coarse-roll");
+    assert_eq!(run.status, 1, "stderr was: {}", run.stderr);
+    assert!(
+        run.stderr.contains("less than one deal in 10"),
+        "stderr was: {}",
+        run.stderr
+    );
+    assert!(
+        run.stderr.contains("finer roll"),
+        "the message should say what to do: {}",
+        run.stderr
+    );
+    assert!(run.written.is_none(), "nothing should have been written");
+}
