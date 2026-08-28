@@ -475,6 +475,40 @@ So a levelled twelve-board set shows the complete range about two thirds of the
 time. Twenty-four gets it to 98%. Nothing gets it to certainty, because twelve
 draws from an even distribution are lumpy however even the distribution is.
 
+### Dealing them out in an order, with `--interleave`
+
+Levelling fixes the proportions. It says nothing about the sequence, and a
+levelled run still deals its types in whatever order they happened to fall — so
+a twenty-board set can open with four `22-24` hands and finish with none.
+
+`--interleave` reorders the produced deals so every type appears before any type
+repeats, each spread evenly across the whole run rather than round-robined until
+the small buckets run dry:
+
+```
+$ dealer NT_Ladder.leveled.dlr -p 20 -f pbn --interleave
+```
+
+It is a reordering and nothing more. The same deals come out, the mix is
+untouched, and the probability tables above still apply — what changes is that
+any prefix of the file is a fair walk through the types, which is what matters
+when a table plays the first twelve of twenty-four.
+
+Two consequences are worth stating, because both were wrong at first:
+
+- **Boards are numbered by where they land, not by when they were dealt.** The
+  order lives in the file, and `[Board]` is the only thing most readers sort or
+  index on; numbering in production order would leave a file that any such
+  reader silently puts back the way it was. Dealer and vulnerability rotate with
+  the number, so they follow the emitted sequence too.
+- **It does not combine with `--write-leveled`.** That run measures the scenario
+  as it stands, at its natural mix, so there is no practice set to walk through.
+  Asking for both is refused rather than ignored. Level first, then interleave
+  the generated file.
+
+Deals matching no type — possible here, since only levelling requires the types
+to partition — come out last, in the order they were produced.
+
 ### Three ways a scenario reaches a student, and how much levelling each needs
 
 **Randomly, in order, with no way to skip** — a BBO practice table. Levelling is

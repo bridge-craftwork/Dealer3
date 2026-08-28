@@ -850,6 +850,45 @@ fn level_plan(
     (plans, lambda, acceptance)
 }
 
+/// Render one board, in whichever format the run asked for.
+///
+/// `board_number` is the deal's place in the output rather than in the run, so
+/// that `--interleave` — which does not know the order until every deal is in —
+/// still numbers its boards 1, 2, 3. It also drives the dealer and
+/// vulnerability rotation when the script names neither, and a practice set
+/// whose rotation disagreed with its own numbering would be a puzzle.
+#[allow(clippy::too_many_arguments)]
+fn render_board(
+    deal: &Deal,
+    board_number: usize,
+    hand_type: Option<&str>,
+    format: OutputFormat,
+    dealer: Option<Position>,
+    vulnerability: Option<Vulnerability>,
+    event_name: Option<&str>,
+    seed: u32,
+    input_file: Option<&str>,
+) -> String {
+    match format {
+        OutputFormat::PrintAll => format_printall(deal, board_number),
+        OutputFormat::PrintEW => format_printew(deal),
+        OutputFormat::PrintPBN => format_printpbn(
+            deal,
+            &PbnBoard {
+                board_number,
+                dealer,
+                vulnerability,
+                event_name,
+                seed: Some(seed),
+                input_file,
+                hand_type,
+            },
+        ),
+        OutputFormat::PrintCompact => format_printcompact(deal),
+        OutputFormat::PrintOneLine => format_oneline(deal),
+    }
+}
+
 /// Reorder produced deals so a practice set walks through the categories.
 ///
 /// Naive round-robin empties the small buckets first, so the last rounds lose
@@ -1262,6 +1301,18 @@ fn main() {
             );
             std::process::exit(1);
         }
+        if args.interleave {
+            // The measuring run deals the natural mix, so there is nothing
+            // worth walking through, and the deals would be held for an
+            // ordering that never happens — silently swallowed. Level first,
+            // then interleave the generated scenario.
+            eprintln!(
+                "Error: --interleave has nothing to order during --write-leveled: that run \
+                 measures the\n       scenario as it stands. Level it first, then run the \
+                 generated file with --interleave."
+            );
+            std::process::exit(1);
+        }
         if let Err(message) = check_leveling_source(constraint_str) {
             eprintln!("Error: {}", message);
             std::process::exit(1);
@@ -1591,9 +1642,9 @@ fn main() {
     let mut printed_deals: Vec<Deal> = Vec::new();
 
     // `--interleave` cannot print as it goes: the order is not known until
-    // every deal is in. Each entry is one rendered board and the type it
-    // matched.
-    let mut held: Vec<(Option<String>, String)> = Vec::new();
+    // every deal is in. Each entry is one deal and the type it matched, held
+    // unrendered because the board number depends on where it lands.
+    let mut held: Vec<(Option<String>, Deal)> = Vec::new();
 
     // How often each hand type came up, for `--level-plan`.
     let mut hand_type_counts: HashMap<String, usize> = hand_type_names
@@ -1724,34 +1775,26 @@ fn main() {
 
             // In quiet mode, don't print deals (only statistics)
             if !args.quiet {
-                let output = match output_format {
-                    OutputFormat::PrintAll => format_printall(deal, produced),
-                    OutputFormat::PrintEW => format_printew(deal),
-                    OutputFormat::PrintPBN => {
-                        let dealer_pos = dealer_position.map(|d| d.into());
-                        let vuln = vulnerability.map(|v| v.into());
-                        let event_name = args.title.as_deref();
-                        let input_file = args.input_file.as_deref();
-                        format_printpbn(
-                            deal,
-                            &PbnBoard {
-                                board_number: produced,
-                                dealer: dealer_pos,
-                                vulnerability: vuln,
-                                event_name,
-                                seed: Some(seed),
-                                input_file,
-                                hand_type,
-                            },
-                        )
-                    }
-                    OutputFormat::PrintCompact => format_printcompact(deal),
-                    OutputFormat::PrintOneLine => format_oneline(deal),
-                };
+                // `--interleave` holds the deal rather than the rendered
+                // board: the board number belongs to the position a deal ends
+                // up in, which is not known until every deal is in.
                 if args.interleave {
-                    held.push((hand_type.map(str::to_string), output));
+                    held.push((hand_type.map(str::to_string), deal.clone()));
                 } else {
-                    print!("{}", output);
+                    print!(
+                        "{}",
+                        render_board(
+                            deal,
+                            produced,
+                            hand_type,
+                            output_format,
+                            dealer_position.map(|d| d.into()),
+                            vulnerability.map(|v| v.into()),
+                            args.title.as_deref(),
+                            seed,
+                            args.input_file.as_deref(),
+                        )
+                    );
                 }
             }
 
@@ -2163,8 +2206,25 @@ fn main() {
             );
         }
         let labels: Vec<&str> = hand_type_names.iter().map(|n| hand_type_label(n)).collect();
-        for index in interleave(&labels, buckets) {
-            print!("{}", held[index].1);
+        // Numbered by where a board lands, not by when it was produced. The
+        // order is the whole point of the switch, and a reader that sorts or
+        // renumbers by `[Board]` would otherwise undo it without saying so.
+        for (position, index) in interleave(&labels, buckets).into_iter().enumerate() {
+            let (hand_type, deal) = &held[index];
+            print!(
+                "{}",
+                render_board(
+                    deal,
+                    position,
+                    hand_type.as_deref(),
+                    output_format,
+                    dealer_position.map(|d| d.into()),
+                    vulnerability.map(|v| v.into()),
+                    args.title.as_deref(),
+                    seed,
+                    args.input_file.as_deref(),
+                )
+            );
         }
     }
 
