@@ -1463,3 +1463,98 @@ mod tests {
         );
     }
 }
+
+/// Where the script's condition is written, as byte offsets into the source.
+///
+/// The last one wins, as in the original: `def: expr` sets the decision tree
+/// afresh each time it reduces, so a script with two of them is filtered by the
+/// second. Both spellings count — `condition <expr>` and a bare expression, the
+/// form every practice scenario uses.
+///
+/// Wanted so that levelling can add `and levelTheDeal` to a script that has no
+/// placeholder for it, without guessing where the condition ends by looking for
+/// the next keyword.
+pub fn condition_span(input: &str) -> Option<(usize, usize)> {
+    let pairs = ConstraintParser::parse(Rule::program, input).ok()?;
+    let mut found = None;
+    for pair in pairs {
+        if pair.as_rule() == Rule::EOI {
+            continue;
+        }
+        for statement in pair.into_inner() {
+            if statement.as_rule() != Rule::dealer_statement {
+                continue;
+            }
+            let Some(inner) = statement.into_inner().next() else {
+                continue;
+            };
+            match inner.as_rule() {
+                // `condition <expr>`: the expression alone, so the keyword stays.
+                Rule::condition_stmt => {
+                    if let Some(expr) = inner.into_inner().next() {
+                        let span = expr.as_span();
+                        found = Some(trimmed(input, span.start(), span.end()));
+                    }
+                }
+                // A bare expression is a condition too.
+                Rule::expr => {
+                    let span = inner.as_span();
+                    found = Some(trimmed(input, span.start(), span.end()));
+                }
+                _ => {}
+            }
+        }
+    }
+    found
+}
+
+/// An expression is not an atomic rule, so its span swallows the whitespace
+/// that follows it. Anything appended wants to land against the expression
+/// rather than after a newline.
+fn trimmed(input: &str, start: usize, end: usize) -> (usize, usize) {
+    let end = input[start..end].trim_end().len() + start;
+    (start, end)
+}
+
+#[cfg(test)]
+mod condition_span_tests {
+    use super::condition_span;
+
+    fn text(source: &str) -> &str {
+        let (start, end) = condition_span(source).expect("a condition");
+        &source[start..end]
+    }
+
+    #[test]
+    fn it_finds_the_keyword_form_without_the_keyword() {
+        assert_eq!(text("condition hcp(north) > 10\n"), "hcp(north) > 10");
+    }
+
+    #[test]
+    fn it_finds_a_bare_expression() {
+        // What every practice scenario writes.
+        assert_eq!(
+            text("nt = 1\nnt and hcp(south) > 5\n"),
+            "nt and hcp(south) > 5"
+        );
+    }
+
+    #[test]
+    fn it_spans_several_lines() {
+        let source = "condition\n  hcp(north) > 10\n  and hcp(south) > 10\naction printall\n";
+        assert_eq!(text(source), "hcp(north) > 10\n  and hcp(south) > 10");
+    }
+
+    #[test]
+    fn the_last_one_wins() {
+        assert_eq!(
+            text("condition hcp(north) > 1\ncondition hcp(south) > 2\n"),
+            "hcp(south) > 2"
+        );
+    }
+
+    #[test]
+    fn a_script_with_no_condition_has_no_span() {
+        assert!(condition_span("produce 5\naction printall\n").is_none());
+    }
+}

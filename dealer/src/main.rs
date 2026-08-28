@@ -398,6 +398,52 @@ fn format_print_hands(deals: &[Deal], seat: Position) -> String {
     out
 }
 
+/// A scenario ready to receive a levelling block, writing one in if it has none.
+///
+/// The placeholder is a convenience for a script written to be levelled, not a
+/// requirement. A script that names its hand types has already said everything
+/// the levelling needs to know, so asking it to also carry three lines of
+/// boilerplate is asking twice. When they are missing they are written in: the
+/// block just above the condition, where it reads, and `and levelTheDeal` on
+/// the end of the condition itself.
+///
+/// The condition is the one part that cannot be guessed, since the original's
+/// grammar lets it be a bare expression and half the scenarios in the wild
+/// write it that way. So it is found with the parser rather than by hunting for
+/// a keyword.
+fn insert_leveling_block(source: &str) -> Result<String, String> {
+    if source.contains(LEVEL_BEGIN) {
+        return Ok(source.to_string());
+    }
+    let (start, end) = dealer_parser::condition_span(source).ok_or_else(|| {
+        "the scenario has no condition, so there is nothing for the levelling to \
+         gate.\n       Add one, or a `### BEGIN GENERATED LEVELING ###` placeholder saying \
+         where the block belongs."
+            .to_string()
+    })?;
+    let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+
+    let block = format!(
+        "{LEVEL_BEGIN}\n# Written in because the scenario named hand types and left no \
+         placeholder.\nnoLeveling = 1\nlevelTheDeal = noLeveling\n{LEVEL_END}\n\n"
+    );
+    // A scenario may already gate on the verdict without having marked where the
+    // block goes, in which case the condition is left alone.
+    let gate = if source.contains("levelTheDeal") || source.contains("keepTheDeal") {
+        ""
+    } else {
+        " and levelTheDeal"
+    };
+    Ok(format!(
+        "{}{}{}{}{}",
+        &source[..line_start],
+        block,
+        &source[line_start..end],
+        gate,
+        &source[end..]
+    ))
+}
+
 /// Check a scenario can take a generated levelling block, before anything is
 /// dealt. Returns the verdict variable's name and the scale of any `roll` it
 /// already defines.
@@ -1309,11 +1355,15 @@ fn main() {
             .expect("Failed to read constraint from stdin");
     }
 
+    // Kept as read for `--write-leveled`, which writes a copy: trimming would
+    // silently drop the file's last newline from the generated one.
+    let untrimmed = constraint_str.clone();
     let constraint_str = constraint_str.trim();
 
     // Refuse a scenario that cannot receive a levelling block before dealing
     // anything: measuring is a hundred thousand deals, and none of it is worth
     // doing if the answer has nowhere to go.
+    let mut leveling_source: Option<String> = None;
     if args.write_leveled.is_some() {
         if args.input_file.is_none() {
             eprintln!(
@@ -1334,11 +1384,23 @@ fn main() {
             );
             std::process::exit(1);
         }
-        if let Err(message) = check_leveling_source(constraint_str) {
+        match insert_leveling_block(&untrimmed) {
+            Ok(prepared) => leveling_source = Some(prepared),
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        }
+        if let Err(message) =
+            check_leveling_source(leveling_source.as_deref().unwrap_or(constraint_str))
+        {
             eprintln!("Error: {}", message);
             std::process::exit(1);
         }
     }
+    // Measuring runs the prepared scenario, so a placeholder written in above is
+    // the one the keeps are computed against.
+    let constraint_str: &str = leveling_source.as_deref().unwrap_or(constraint_str);
 
     // Fill the script parameters, expand the `shape{...}` shapes, then mark
     // four-digit shape literals.
@@ -2249,20 +2311,9 @@ fn main() {
         let (plans, lambda, acceptance) =
             level_plan(&labels, &natural, &target, &seen, budget_acceptance);
 
-        let source = match args.input_file.as_ref().map(std::fs::read_to_string) {
-            Some(Ok(text)) => text,
-            Some(Err(e)) => {
-                eprintln!("Error: could not re-read the scenario: {}", e);
-                std::process::exit(1);
-            }
-            None => {
-                eprintln!(
-                    "Error: --write-leveled needs the scenario as a file argument, since it \
-                     writes a copy of it."
-                );
-                std::process::exit(1);
-            }
-        };
+        // The prepared scenario, not the file: a placeholder written in above
+        // belongs in the copy as well, or the two would disagree.
+        let source = leveling_source.clone().unwrap_or_default();
         match write_leveled(
             &source,
             leveled_path,

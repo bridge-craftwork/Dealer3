@@ -207,18 +207,26 @@ fn a_generated_file_is_refused_as_input() {
 }
 
 #[test]
-fn a_scenario_that_cannot_take_the_block_is_refused_before_dealing() {
+fn a_missing_placeholder_is_written_in_rather_than_refused() {
+    // The markers are where the block goes, not permission for it to exist. A
+    // scenario that already gates on `levelTheDeal` but never said where the
+    // definition belongs gets one, and its condition is left alone.
     let no_marker = STOCK
         .replace("### BEGIN GENERATED LEVELING ###\n", "")
+        .replace("noLeveling = 1\n", "")
+        .replace("levelTheDeal = noLeveling\n", "")
         .replace("### END GENERATED LEVELING ###\n", "");
+    assert!(!no_marker.contains("### BEGIN"));
     let run = level(&no_marker, &[], "nomarker");
-    assert_eq!(run.status, 1);
-    assert!(run.stderr.contains("needs a placeholder"), "{}", run.stderr);
-
-    let unused = STOCK.replace("      and levelTheDeal\n", "");
-    let run = level(&unused, &[], "unused");
-    assert_eq!(run.status, 1);
-    assert!(run.stderr.contains("would\nhave no effect") || run.stderr.contains("no effect"));
+    assert_eq!(run.status, 0, "stderr was: {}", run.stderr);
+    let written = run.written.expect("a generated file");
+    assert!(written.contains("### BEGIN GENERATED LEVELING ###"));
+    // Not gated twice: the condition already had it.
+    assert_eq!(
+        written.matches("and levelTheDeal").count(),
+        1,
+        "got:\n{written}"
+    );
 }
 
 /// A scenario may share `roll` through an include. It is used as it stands if
@@ -372,4 +380,67 @@ fn a_keep_too_small_for_the_roll_is_refused() {
         run.stderr
     );
     assert!(run.written.is_none(), "nothing should have been written");
+}
+
+#[test]
+fn a_scenario_with_no_placeholder_gets_one() {
+    // Naming hand types says everything the levelling needs; the three lines of
+    // placeholder are a convenience for a script written to be levelled, not a
+    // second way of asking. So they are written in, and `and levelTheDeal` goes
+    // on the end of the condition.
+    let bare = "\
+HandType_low = hcp(south) <= 11
+HandType_high = hcp(south) >= 12
+
+condition shape(south, any 4333 + any 4432 + any 5332)
+action printoneline
+";
+    let run = level(bare, &[], "no-placeholder");
+    assert_eq!(run.status, 0, "stderr was: {}", run.stderr);
+    let written = run.written.expect("a generated file");
+    assert!(written.contains("### BEGIN GENERATED LEVELING ###"));
+    assert!(
+        written.contains("+ any 5332) and levelTheDeal"),
+        "the condition should be gated, got:\n{written}"
+    );
+    // And the block reads above the condition rather than after the action.
+    let block_at = written.find("### BEGIN").expect("a block");
+    let condition_at = written.find("condition ").expect("a condition");
+    assert!(block_at < condition_at);
+
+    let shares = mix(&written, "no-placeholder-mix");
+    assert!(shares.is_empty() || shares.len() == 2);
+}
+
+#[test]
+fn a_bare_expression_condition_is_gated_too() {
+    // What every practice scenario in the wild writes: no `condition` keyword,
+    // just the expression. The parser finds it; looking for the keyword would
+    // not.
+    let bare = "\
+HandType_low = hcp(south) <= 11
+HandType_high = hcp(south) >= 12
+
+shape(south, any 4333 + any 4432 + any 5332)
+
+action printoneline
+";
+    let run = level(bare, &[], "bare-condition");
+    assert_eq!(run.status, 0, "stderr was: {}", run.stderr);
+    let written = run.written.expect("a generated file");
+    assert!(
+        written.contains("+ any 5332) and levelTheDeal"),
+        "got:\n{written}"
+    );
+}
+
+#[test]
+fn a_scenario_with_no_condition_at_all_is_refused() {
+    let run = level(
+        "HandType_low = hcp(south) <= 11\nHandType_high = hcp(south) >= 12\naction printall\n",
+        &[],
+        "no-condition",
+    );
+    assert_eq!(run.status, 1);
+    assert!(run.stderr.contains("no condition"), "{}", run.stderr);
 }

@@ -64,10 +64,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the rarest type when a target costs more than that.
   - `{{level-mix:22_24}}` in the stock file is replaced by that type's share of
     the result, so the text a student reads cannot drift from the keeps.
-  - Refuses, before dealing anything: a generated file fed back in, a missing
-    placeholder, a `levelTheDeal` nothing uses, a `roll` that is not the safe
-    form, types measured on fewer than 500 deals, and types that leave a deal
-    unclassified.
+  - The `### BEGIN GENERATED LEVELING ###` placeholder is optional. Naming the
+    hand types says everything the levelling needs, so a scenario without one
+    gets the block written in above its condition and `and levelTheDeal` added
+    to the condition — which is found with the parser, since the original's
+    grammar lets it be a bare expression and most scenarios write it that way.
+  - Refuses, before dealing anything: a generated file fed back in, a scenario
+    with no condition to gate, a `levelTheDeal` nothing uses, a `roll` that is
+    not the safe form, types measured on fewer than 500 deals, and types that
+    leave a deal unclassified.
   - A target weight of `0` excludes its type exactly — written `level_X = 0`,
     not rounded up to the one-in-a-thousand a threshold can express. A keep that
     is genuinely too small for the roll's range is refused, since rounding it

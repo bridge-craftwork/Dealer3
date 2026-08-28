@@ -246,8 +246,8 @@ written by hand, and a *levelled* one generated from it that should never be
 edited.
 
 The stock file names its types with the `HandType_` prefix — a naming
-convention rather than syntax, so the script still parses on BBO — and leaves a
-placeholder where the levelling goes:
+convention rather than syntax, so the script still parses on BBO — and may leave
+a placeholder saying where the levelling goes:
 
 ```
 HandType_12_14 = hcp(south) >= 12 and hcp(south) <= 14
@@ -271,6 +271,15 @@ true.
 That also means the stock file runs and can be measured exactly as it stands,
 which is what the tool does first. (`keepTheDeal` is accepted as the verdict's
 name too, for anyone who prefers the predicate reading.)
+
+**The placeholder is optional.** Naming the hand types has already said
+everything the levelling needs, so a scenario without one gets it written in —
+the block just above the condition, and `and levelTheDeal` on the end of the
+condition itself. The condition is the part that cannot be guessed, since the
+original's grammar lets it be a bare expression and most scenarios in the wild
+write it that way, so it is found with the parser rather than by hunting for the
+keyword. Leaving a placeholder still says where you want the block, and a
+scenario that already gates on `levelTheDeal` keeps its own wiring.
 
 ```
 $ dealer stock.dlr -q -p 100000 -s 1 --write-leveled leveled.dlr
@@ -340,8 +349,9 @@ than a warning.
 - **Types that overlap**, or that **leave a gap**. They have to partition the
   produced deals or the keeps will not add up, and the tool checks that the
   measured rates sum to 1.
-- **A missing placeholder, or a `levelTheDeal` nothing uses**, either of which
-  would produce a file that looks levelled and is not.
+- **A `levelTheDeal` nothing uses**, which would produce a file that looks
+  levelled and is not. (A missing *placeholder* is not refused; one is written
+  in. A missing condition is, since there would be nothing to gate.)
 - **A generated file given as the stock one.** Levelling an already-levelled
   scenario measures the levelled mix, computes keeps of roughly 1, and quietly
   writes a scenario with no levelling at all. The generated files carry a stamp
