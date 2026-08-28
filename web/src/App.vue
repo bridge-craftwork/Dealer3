@@ -473,10 +473,10 @@ body {
 /* Wide enough for a ten-digit seed, which is the longest thing any of them
    holds. Produce is a board count and never needs half of that. */
 .controls input[type="number"] { width: 7em; }
-/* Two digits narrower than it was: the spinner takes a chunk of the box, and a
-   board count is two or three digits nearly always. Five figures still fit the
-   field, they just scroll. */
-.controls input.narrow { width: 3.25em; }
+/* Two digits narrower than the seed's seven ems, which is sized for a
+   ten-figure seed. A board count is two or three digits nearly always, and the
+   spinner takes a good part of a small box. */
+.controls input.narrow { width: 4.5em; }
 .check {
   display: inline-flex;
   align-items: center;

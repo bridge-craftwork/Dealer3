@@ -3,11 +3,14 @@
   <div class="print-only print-doc">
     <header class="p-head">
       <h1>{{ title }}</h1>
+      <!-- Same order as the controls on screen, and for the same reason: the
+           seed is the one to read rather than set, and it is what identifies
+           this sheet if anyone wants to deal it again. -->
       <dl class="p-params">
-        <div><dt>Seed</dt><dd>{{ params.seed }}</dd></div>
         <div><dt>Produce</dt><dd>{{ params.produce }}</dd></div>
         <div><dt>Max generate</dt><dd>{{ params.maxGenerate.toLocaleString() }}</dd></div>
         <div><dt>Format</dt><dd>{{ params.format }}</dd></div>
+        <div class="p-seed"><dt>Seed</dt><dd>{{ params.seed }}</dd></div>
       </dl>
     </header>
 

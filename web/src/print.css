@@ -32,6 +32,9 @@
   .p-head h1 { font-size: 15pt; margin: 0 0 5pt; }
   .p-params { display: flex; flex-wrap: wrap; gap: 0 18pt; margin: 0; font-size: 9pt; }
   .p-params div { display: flex; gap: 4pt; }
+  /* Hard right, away from the parameters. It is not one of the knobs — it is
+     what names this sheet, for anyone wanting to deal it again. */
+  .p-seed { margin-left: auto; }
   .p-params dt { color: #555; margin: 0; }
   .p-params dd { margin: 0; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
 
