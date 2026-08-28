@@ -1,12 +1,15 @@
 # Levelling a scenario: a guide
 
-A practice scenario deals the hands nature offers. A balanced South is weak far
-more often than strong, so a script asking for "the whole notrump range" spends
-most of a session on 12-14 and shows 22-24 about once a fortnight.
+When scripts generate hands, the natural distribution results in many examples
+of some types of hands and few of others. For example, asking for balanced hands
+in the range 12-24 HCP will yield 45x more 12-14 hands than 22-24. But for
+practicing bidding for balanced hands, it is more desirable to test each of the
+ranges equally.
 
-**Levelling** discards some of the common hands so the mix comes out as
-intended. It takes one extra line per category of hand, and the tool writes the
-rest.
+This is where **levelling** comes into play. We can tweak the script to generate
+equal numbers of each of the desired hand types. That way the student or teacher
+will have consistent variety in the hands presented. In the 12-24 scenario, now
+there will be roughly equal numbers of 12-14 hands as 22-24 hands.
 
 ---
 
@@ -145,8 +148,8 @@ roughly the same
 place.](images/hand-types-panel.png "Natural against delivered, for the scenario above")
 
 Orange is what nature offers, blue what the run delivered. Read down the orange
-and you see the problem: 57.4% against 1.6%, a forty-fold spread. Read down the
-blue and you see the fix — every band ending in the same place, near 20%.
+and you see the problem: 57.4% at the top against 1.6% at the bottom. Read down
+the blue and you see the fix — every band ending in the same place, near 20%.
 
 The bands that shrank show a long orange tail past the blue; the bands that grew
 show blue running past a short orange stub. Levelling is that redistribution,
