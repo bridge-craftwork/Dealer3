@@ -294,9 +294,28 @@ fn types_measured_on_too_few_deals_warn_but_still_write() {
 /// The measuring run sizes itself by the rarest type rather than by `-p`, and
 /// stops on the exact deal that finishes the job — so the same scenario
 /// measures the same number of deals however many cores are available.
+///
+/// Deliberately a cheap scenario rather than `STOCK`, whose rarest band is
+/// about 1.3% of qualifying deals and so needs six figures of them. This runs
+/// in a debug build on CI, where that was slow enough to hit the measuring
+/// timeout — and a run stopped by the clock stops wherever the clock caught it,
+/// which is exactly the reproducibility this is checking for. The timeout is
+/// pinned high as well, so a slow machine cannot turn this into a flake.
 #[test]
 fn the_measuring_run_sizes_itself_and_is_reproducible() {
-    let source = temp("sized", STOCK);
+    let cheap = "\
+HandType_low = hcp(south) <= 9
+HandType_mid = hcp(south) >= 10 and hcp(south) <= 14
+HandType_high = hcp(south) >= 15
+
+### BEGIN GENERATED LEVELING ###
+noLeveling = 1
+levelTheDeal = noLeveling
+### END GENERATED LEVELING ###
+
+condition levelTheDeal
+";
+    let source = temp("sized", cheap);
     let mut first = source.clone();
     first.set_extension("one.dlr");
     let mut second = source.clone();
@@ -311,6 +330,8 @@ fn the_measuring_run_sizes_itself_and_is_reproducible() {
                 "1",
                 "--threads",
                 threads,
+                "--level-timeout",
+                "3600",
                 "--write-leveled",
                 &out.display().to_string(),
             ])
@@ -325,8 +346,7 @@ fn the_measuring_run_sizes_itself_and_is_reproducible() {
     let _ = std::fs::remove_file(&source);
 
     // `-p` was never given, so anything measured at all is the run sizing
-    // itself. The stock scenario's rarest band is about 1.3% of qualifying
-    // deals, so reaching the goal takes six figures.
+    // itself.
     assert!(one.contains("measured over"), "{one}");
     assert!(
         !one.contains("Warning:"),

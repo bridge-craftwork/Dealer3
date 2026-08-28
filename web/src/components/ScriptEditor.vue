@@ -1,5 +1,6 @@
 <template>
   <div class="editor">
+    <CopyButton :text="currentText" title="Copy the script" />
     <div ref="host" class="editor-host"></div>
     <div class="editor-status" :class="{ 'is-error': !!diagnostic }">
       <span v-if="diagnostic">
@@ -30,6 +31,7 @@ import { linter, lintGutter } from '@codemirror/lint'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { dlrLanguage, dlrCompletion } from '@/lib/dlrLanguage.js'
 import { checkScript, languageInfo, ready } from '@/lib/engine.js'
+import CopyButton from './CopyButton.vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -38,6 +40,13 @@ const emit = defineEmits(['update:modelValue', 'validity'])
 
 const host = ref(null)
 const view = shallowRef(null)
+
+/// The document as it stands, read at click time by the copy button.
+///
+/// From the view rather than the `modelValue` prop, so what is copied is what
+/// is on screen even between a keystroke and the update it emits.
+const currentText = () => view.value?.state.doc.toString() ?? props.modelValue ?? ''
+
 const diagnostic = ref(null)
 
 // pest errors are several lines: a location, the offending source, a caret, and
@@ -155,7 +164,8 @@ defineExpose({ focus: () => view.value?.focus() })
 </script>
 
 <style scoped>
-.editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* `position: relative` so the copy button can sit inset in the top-right. */
+.editor { position: relative; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .editor-host {
   flex: 1; min-height: 0; overflow: hidden;
   border: 1px solid var(--editor-line); border-radius: 4px 4px 0 0;

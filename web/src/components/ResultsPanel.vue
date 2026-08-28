@@ -8,7 +8,18 @@
       <div class="stats">
         <span><strong>{{ result.generated.toLocaleString() }}</strong> generated</span>
         <span><strong>{{ result.produced.toLocaleString() }}</strong> produced</span>
-        <span><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
+        <!-- Split when levelling, because the run then deals the scenario
+             twice — once to find out what it does, once to do it — and a
+             single total makes the second look slow when most of the wait was
+             the first. -->
+        <span v-if="leveling" :title="timingHint">
+          <strong>{{ result.seconds.toFixed(2) }}</strong> sec
+          <span class="stats-split">
+            = {{ leveling.measure_seconds.toFixed(2) }} measuring
+            + {{ producedSeconds.toFixed(2) }} dealing
+          </span>
+        </span>
+        <span v-else><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
       </div>
 
       <p v-if="result.hitLimit" class="results-warn">
@@ -216,6 +227,21 @@ const handTypes = computed(() => {
 
 const leveling = computed(() => props.leveling)
 
+/// What the run itself cost, once the measuring pass is taken off.
+///
+/// Subtracted rather than timed separately: the two together are the number on
+/// the clock, and a reader comparing this against a re-run of the levelled
+/// scenario on its own should find the second figure, not the total.
+const producedSeconds = computed(() =>
+  Math.max(0, (props.result?.seconds || 0) - (props.leveling?.measure_seconds || 0)),
+)
+
+const timingHint = computed(
+  () =>
+    'Levelling deals the scenario twice: once to measure how often each hand type comes up, ' +
+    'then again to produce the deals. Running the levelled scenario on its own costs only the second.',
+)
+
 // One palette for the whole panel, so a type is the same colour in its row, on
 // its board and behind its line — which is what shows the run walking through
 // the types rather than meeting them as they fall.
@@ -365,6 +391,13 @@ const formatValue = formatAverage
 .ht-key .ht-swatch:first-child { margin-left: 0; }
 /* Amber rather than red: the levelling ran and its numbers are on screen —
    this is about how much to trust them, not about a failure. */
+/* Quieter than the numbers it explains: the total is the figure, the split is
+   the reason. */
+.stats-split {
+  color: var(--muted, #777);
+  font-size: 0.86em;
+}
+
 .ht-warn {
   margin: 0.35rem 0 0.6rem;
   padding: 0.45rem 0.6rem;

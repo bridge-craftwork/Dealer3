@@ -1,5 +1,8 @@
 <template>
-  <div ref="host" class="viewer"></div>
+  <div class="viewer-wrap">
+    <CopyButton :text="() => props.script" title="Copy the levelled scenario" />
+    <div ref="host" class="viewer"></div>
+  </div>
 </template>
 
 <script setup>
@@ -16,6 +19,7 @@ import { EditorView, lineNumbers } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { dlrLanguage } from '@/lib/dlrLanguage.js'
 import { languageInfo, ready } from '@/lib/engine.js'
+import CopyButton from './CopyButton.vue'
 
 const props = defineProps({
   script: { type: String, default: '' },
@@ -70,6 +74,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* Positions the copy button, which is absolute. */
+.viewer-wrap {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
 .viewer {
   height: 100%;
   min-height: 0;

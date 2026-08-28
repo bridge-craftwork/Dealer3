@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **The browser reports the measuring pass and the run separately**, as
+  `5.71 sec = 5.00 measuring + 0.72 dealing`. A levelled run deals the scenario
+  twice — once to find out what it does, once to do it — and a single total made
+  the second look slow when nearly all of the wait was the first: re-running the
+  levelled scenario on its own took 4.6s against the 9s reported for levelling
+  it.
+- **A Copy button on both script panes**, inset top-right. Selecting the text by
+  hand does not work: CodeMirror draws only the lines on screen, so Ctrl-A takes
+  the whole page and dragging takes only what has been rendered. The generated
+  scenario is the one most worth copying — it is what gets pasted into BBO — and
+  being read-only it has no caret to select from either. Falls back to a hidden
+  `<textarea>` where `navigator.clipboard` is missing or refused, and says so
+  rather than flashing "Copied" when it fails.
 - **`HandType_X_Share = N`: the target mix, written in the scenario.** A weight
   per hand type, defaulting to 1 — so a scenario that says nothing still gets an
   even split, and one that says something carries its own intended mix wherever
@@ -44,6 +57,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the batch it fell in. Batches are 200 deals per thread, so a batch boundary
     would make the measurement — and the file generated from it — depend on how
     many cores the machine has, and CI regenerates and diffs `examples/`.
+  - A run that reaches the goal is reproducible — same seed, same file, whatever
+    the machine — but one stopped by the *clock* stops wherever the clock caught
+    it. Pin `--level-measure` where a build has to produce the same file every
+    time. This is not hypothetical: the determinism test caught it on Windows
+    CI, where a debug build was slow enough for the default timeout to fire.
   - In the browser the same thing happens against a clock rather than a deal
     count, since a page blocks while it deals: a 10,000-deal probe to find out
     how rare the rarest type is, then as long as that suggests within a few

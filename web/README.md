@@ -34,6 +34,7 @@ src/
     ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
     ├── DealGrid.vue        deals as bridge hands, with HCP
     ├── RichText.vue        backticked spans in descriptions, as code
+    ├── CopyButton.vue      copy a pane's script, inset top-right
     └── ResultsPanel.vue    deals, averages, frequency charts
 ```
 
@@ -79,6 +80,20 @@ Without that the site would go stale while the repo looked current.
 Practice-Bidding-Scenarios CI builds, straight from raw.githubusercontent.com,
 which serves permissive CORS. No backend, no build-time copy, and the list is
 never stale. Vendored from `Bridge-Classroom/src/utils/pbsScenarios.js`.
+
+## Copying a script out
+
+Both script panes carry a **Copy** button, inset in the top-right. It is there
+because selecting the text by hand does not work: CodeMirror draws only the
+lines currently on screen, so Ctrl-A takes the whole page and dragging takes
+only what has been rendered. The generated levelled scenario is the one most
+worth copying — it is what gets pasted into BBO — and it is read-only, so there
+is no caret to select from either.
+
+`CopyButton.vue` reads the document from the editor at click time rather than
+holding its own copy, and falls back to a hidden `<textarea>` when
+`navigator.clipboard` is missing or refused, which it is on an insecure origin.
+A failure says so rather than flashing "Copied".
 
 ## Deploying
 

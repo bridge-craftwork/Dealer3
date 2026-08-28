@@ -574,6 +574,12 @@ it:
 - **`--level-measure`** caps the deals produced (default 2,000,000).
 - **`--level-timeout`** caps the seconds (default 60).
 
+One consequence worth knowing if you keep generated files under version
+control: a run that reaches the goal is reproducible — same seed, same file,
+whatever the machine — but a run stopped by the *clock* stops wherever the clock
+caught it, so it is not. Pin `--level-measure` if you need a build to produce
+the same file every time.
+
 **In the browser** there is nothing to set. It probes with 10,000 deals to find
 out how rare the rarest type is, then measures for as long as that suggests —
 bounded by a few seconds, because a page blocks while it deals. If it falls

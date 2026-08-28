@@ -168,6 +168,9 @@ struct LevelingResult {
     /// a relative error — the precision of the whole levelling rests on it.
     rarest: String,
     rarest_seen: usize,
+    /// Wall-clock seconds spent measuring, which is the pass the reader did not
+    /// ask for and cannot otherwise account for.
+    measure_seconds: f64,
     /// Anything worth saying out loud that does not make the levelling wrong —
     /// a measurement thinner than the goal, above all.
     warnings: Vec<String>,
@@ -286,6 +289,10 @@ pub fn generate(
         // seconds, and the same request would mean very different waits.
         let measure_deadline = now_ms() + MEASURE_BUDGET_MS;
         let measured_per_ms = std::cell::Cell::new(0.0f64);
+        // Reported apart from the run itself. Levelling deals a scenario twice
+        // — once to find out what it does, once to do it — and a single total
+        // makes the second look slow when most of the wait was the first.
+        let measure_ms = std::cell::Cell::new(0.0f64);
         let (run, report) = dealer_level::level_and_run(
             script,
             &opts,
@@ -310,6 +317,7 @@ pub fn generate(
                         .map_err(|e| error_text(&e))?;
                 let spent = (now_ms() - started).max(1.0);
                 measured_per_ms.set(outcome.produced as f64 / spent);
+                measure_ms.set(measure_ms.get() + spent);
                 Ok(measurement(&outcome))
             },
             // Producing: the deals the page will show, interleaved.
@@ -347,6 +355,7 @@ pub fn generate(
             measured: report.measured,
             rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
             rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
+            measure_seconds: measure_ms.get() / 1000.0,
             warnings: report.warnings.clone(),
         };
         (run, Some(leveling))
