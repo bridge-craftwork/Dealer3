@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { dlrStreamParser, dlrCompletion } from './dlrLanguage.js'
+import { tags } from '@lezer/highlight'
+import { dlrStreamParser, dlrCompletion, DLR_TOKENS } from './dlrLanguage.js'
 
 // Shaped like the engine's language_info() output.
 const info = {
@@ -150,5 +151,35 @@ describe('dlr completion', () => {
 
   it('returns nothing on an empty implicit request', () => {
     expect(complete(context(''))).toBeNull()
+  })
+})
+
+describe('the token table', () => {
+  // The tokeniser returning a name is only half of it: CodeMirror has to be
+  // able to resolve that name to a highlight tag, and it silently styles
+  // nothing when it cannot. `function` is a modifier in @lezer/highlight
+  // rather than a tag, so it needs saying explicitly — which is why every
+  // function in every script rendered as plain text while the test above,
+  // asserting `hcp` tokenises as `function`, passed.
+  it('maps every token name the parser emits', () => {
+    const emitted = new Set()
+    const parser = dlrStreamParser(info)
+    const lines = [
+      'x = hcp(north) >= 15 and shape(south, any 4333)',
+      '# a comment',
+      'action average "label" cccc(west), printall',
+      'predeal north SAKQ, HT62',
+      'condition top2(north, spades) == 2 ? 1 : 0',
+    ]
+    for (const line of lines) {
+      for (const [token] of tokenize(line, parser)) if (token) emitted.add(token)
+    }
+    for (const name of emitted) {
+      const resolvable = tags[name] !== undefined || DLR_TOKENS[name] !== undefined
+      expect(resolvable, `\`${name}\` resolves to no highlight tag, so it is styled as nothing`)
+        .toBe(true)
+    }
+    // And the one that caught this.
+    expect(emitted.has('function')).toBe(true)
   })
 })

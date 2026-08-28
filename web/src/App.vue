@@ -88,7 +88,7 @@
         </div>
 
         <ScriptEditor v-show="editorTab === 'script'" v-model="script" @validity="onValidity" />
-        <pre v-if="editorTab === 'leveled'" class="leveled">{{ leveledScript }}</pre>
+        <ScriptViewer v-if="editorTab === 'leveled'" :script="leveledScript" />
       </section>
 
       <section class="col col-results">
@@ -119,6 +119,7 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
 import ScriptEditor from '@/components/ScriptEditor.vue'
+import ScriptViewer from '@/components/ScriptViewer.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import PrintView from '@/components/PrintView.vue'
 import { ready, generate, version } from '@/lib/engine.js'
@@ -438,23 +439,6 @@ body {
   cursor: pointer;
 }
 .tabs button.on { background: var(--editor-bg); color: #fff; border-color: var(--editor-line); }
-
-/* Read-only, and it looks it: this is what ran, not something to edit. Editing
-   it would be editing a copy that the next run overwrites. */
-.leveled {
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--editor-bg);
-  color: #d7dae0;
-  border: 1px solid var(--editor-line);
-  border-radius: 0 4px 4px 4px;
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  line-height: 1.45;
-  overflow: auto;
-  max-height: 60vh;
-  white-space: pre;
-}
 
 .reseed {
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg);

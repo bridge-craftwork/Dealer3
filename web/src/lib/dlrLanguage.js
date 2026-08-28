@@ -13,6 +13,7 @@
 // by anyone remembering to update two places.
 
 import { StreamLanguage, LanguageSupport } from '@codemirror/language'
+import { tags } from '@lezer/highlight'
 
 /** Longest first, so `spades` matches before `spade`. */
 const byLengthDesc = (a, b) => b.length - a.length || a.localeCompare(b)
@@ -188,7 +189,22 @@ export function tokenizeLine(parser, line, state = parser.startState()) {
 
 /** The full language extension. */
 export function dlrLanguage(info) {
-  return new LanguageSupport(StreamLanguage.define(dlrStreamParser(info)))
+  return new LanguageSupport(
+    StreamLanguage.define({ ...dlrStreamParser(info), tokenTable: DLR_TOKENS }),
+  )
+}
+
+/// Token names the parser emits that CodeMirror cannot resolve on its own.
+///
+/// It looks a name up in `@lezer/highlight`'s `tags`, and most of what the
+/// parser returns — `keyword`, `atom`, `number`, `operator`, `variableName` —
+/// is there. `function` is not: it is a modifier there, applied to something
+/// else, so returning it as a bare name silently produced no styling at all.
+/// Every function in every script was the colour of plain text for as long as
+/// the highlighter has existed, and the unit test asserting `hcp` tokenises as
+/// `function` passed throughout, because that much was true.
+export const DLR_TOKENS = {
+  function: tags.function(tags.variableName),
 }
 
 export const LANGUAGE_ID = 'dlr'
