@@ -519,6 +519,15 @@ untouched, and the probability tables above still apply — what changes is that
 any prefix of the file is a fair walk through the types, which is what matters
 when a table plays the first twelve of twenty-four.
 
+Within a round the order is shuffled rather than fixed. Dealing the types in
+declaration order every round reads as the natural frequency the levelling
+exists to remove — the NT ladder declares its bands commonest first, so a set
+that always opened `12_14, 15_17, 18_19` looked exactly like an unlevelled one —
+and a student meeting the same sequence in every round learns the sequence
+instead of the hands. The shuffle is derived from the run's seed and the round
+number, so a seed still reproduces its set exactly and no two rounds share a
+permutation.
+
 Two consequences are worth stating, because both were wrong at first:
 
 - **Boards are numbered by where they land, not by when they were dealt.** The

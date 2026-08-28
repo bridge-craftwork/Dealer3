@@ -544,8 +544,40 @@ pub fn level_plan(
 /// Deals carrying no type are dealt out last, in the order they were produced:
 /// they belong to no round, and dropping them would lose deals the script
 /// asked for.
-pub fn interleave(order: &[&str], mut buckets: Vec<(Option<String>, Vec<usize>)>) -> Vec<usize> {
-    // Declaration order, so the rounds read the way the script is written.
+/// The buckets of one round, in a shuffled order.
+///
+/// Fisher-Yates over a splitmix64 stream keyed by the run's seed and the round
+/// number. Small and self-contained rather than reaching for the deal
+/// generator's RNG: this decides a reading order, not a hand, and mixing the
+/// two streams would make the deals depend on how many hand types a script
+/// happens to declare.
+fn round_order(seed: u64, round: usize, count: usize) -> Vec<usize> {
+    let mut state = seed
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add(round as u64)
+        .wrapping_add(0x8ebc_6af0_9c88_c6e3);
+    let mut next = || {
+        state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    };
+    let mut order: Vec<usize> = (0..count).collect();
+    for i in (1..count).rev() {
+        let j = (next() % (i as u64 + 1)) as usize;
+        order.swap(i, j);
+    }
+    order
+}
+
+pub fn interleave(
+    order: &[&str],
+    mut buckets: Vec<(Option<String>, Vec<usize>)>,
+    seed: u64,
+) -> Vec<usize> {
+    // Declaration order, which decides which bucket is which and where the
+    // untyped one goes. It is not the order the round is dealt in — see below.
     buckets.sort_by_key(|(name, _)| match name {
         Some(n) => order.iter().position(|o| o == n).unwrap_or(usize::MAX),
         None => usize::MAX,
@@ -575,8 +607,19 @@ pub fn interleave(order: &[&str], mut buckets: Vec<(Option<String>, Vec<usize>)>
 
     let mut taken = vec![0usize; buckets.len()];
     let mut out = Vec::new();
-    for _ in 0..rounds {
-        for (i, (_, deals)) in buckets.iter().enumerate() {
+    for round in 0..rounds {
+        // Shuffled within the round, not dealt in declaration order. A set that
+        // walks 12_14, 15_17, 18_19, 20_21, 22_24 and then does it again reads
+        // as the natural frequency it was levelled away from — commonest first,
+        // every time — and a student meeting the same sequence in every round
+        // learns the sequence. Which bucket contributes to a round is settled
+        // above and unaffected; only the order they come out in changes.
+        //
+        // Derived from the run's seed, so a seed still reproduces its set
+        // exactly, and from the round number, so two rounds do not share a
+        // permutation.
+        for i in round_order(seed, round, buckets.len()) {
+            let (_, deals) = &buckets[i];
             if deals.is_empty() {
                 continue;
             }
@@ -940,7 +983,10 @@ mod interleave_tests {
                 owner[*d] = i;
             }
         }
-        interleave(order, b).into_iter().map(|d| owner[d]).collect()
+        interleave(order, b, 1)
+            .into_iter()
+            .map(|d| owner[d])
+            .collect()
     }
 
     #[test]
@@ -984,7 +1030,7 @@ mod interleave_tests {
         ] {
             let order: Vec<&str> = sizes.iter().map(|(n, _)| *n).collect();
             let total: usize = sizes.iter().map(|(_, n)| n).sum();
-            let mut got = interleave(&order, buckets(&sizes));
+            let mut got = interleave(&order, buckets(&sizes), 1);
             assert_eq!(got.len(), total, "for {sizes:?}");
             got.sort_unstable();
             assert_eq!(got, (0..total).collect::<Vec<_>>(), "for {sizes:?}");
@@ -1000,17 +1046,66 @@ mod interleave_tests {
             (None, vec![2, 3]),
             (Some("b".to_string()), vec![4, 5]),
         ];
-        let got = interleave(&["a", "b"], b);
+        let got = interleave(&["a", "b"], b, 1);
         assert_eq!(got.len(), 6);
         assert_eq!(&got[4..], &[2, 3], "untyped deals come last, in order");
     }
 
+    /// One of each per round is the point; which order they come out in inside
+    /// that round is not, and holding it fixed does harm. A set that walks the
+    /// types in declaration order every round reads as the natural frequency it
+    /// was levelled away from — for the NT ladder that order is also commonest
+    /// first — and a student meeting the same sequence every round learns the
+    /// sequence rather than the hands.
     #[test]
-    fn the_rounds_follow_declaration_order() {
-        let b = vec![
-            (Some("second".to_string()), vec![10]),
-            (Some("first".to_string()), vec![20]),
-        ];
-        assert_eq!(interleave(&["first", "second"], b), vec![20, 10]);
+    fn the_order_within_a_round_varies() {
+        let five = || {
+            (0..5)
+                .map(|i| (Some(format!("t{i}")), (0..4).map(|d| i * 10 + d).collect()))
+                .collect::<Vec<_>>()
+        };
+        let names: Vec<String> = (0..5).map(|i| format!("t{i}")).collect();
+        let order: Vec<&str> = names.iter().map(String::as_str).collect();
+
+        // Rounds of five, each holding one of every type.
+        let got = interleave(&order, five(), 7);
+        assert_eq!(got.len(), 20);
+        for round in got.chunks(5) {
+            let mut types: Vec<usize> = round.iter().map(|d| d / 10).collect();
+            types.sort_unstable();
+            assert_eq!(types, vec![0, 1, 2, 3, 4], "every round holds one of each");
+        }
+
+        // Two rounds of the same run do not share a permutation.
+        let first: Vec<usize> = got[..5].iter().map(|d| d / 10).collect();
+        let differs = got
+            .chunks(5)
+            .skip(1)
+            .any(|r| r.iter().map(|d| d / 10).collect::<Vec<_>>() != first);
+        assert!(
+            differs,
+            "every round dealt the types in the same order: {got:?}"
+        );
+
+        // And two seeds do not share one either.
+        let other = interleave(&order, five(), 8);
+        assert_ne!(got, other, "the seed should change the order");
+    }
+
+    #[test]
+    fn a_seed_still_reproduces_its_set() {
+        // The shuffle is derived from the seed, so a run is as repeatable as it
+        // was before — which is the whole basis of quoting one.
+        let b = || {
+            vec![
+                (Some("a".to_string()), vec![1, 2, 3]),
+                (Some("b".to_string()), vec![4, 5, 6]),
+                (Some("c".to_string()), vec![7, 8, 9]),
+            ]
+        };
+        assert_eq!(
+            interleave(&["a", "b", "c"], b(), 42),
+            interleave(&["a", "b", "c"], b(), 42)
+        );
     }
 }

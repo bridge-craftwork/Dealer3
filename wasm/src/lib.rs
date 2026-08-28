@@ -691,7 +691,7 @@ fn run_script(
             }
         }
         let labels: Vec<&str> = hand_type_labels.iter().map(String::as_str).collect();
-        dealer_level::interleave(&labels, buckets)
+        dealer_level::interleave(&labels, buckets, seed as u64)
     } else {
         (0..held.len()).collect()
     };

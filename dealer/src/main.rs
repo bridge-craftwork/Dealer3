@@ -1749,7 +1749,10 @@ fn main() {
         // Numbered by where a board lands, not by when it was produced. The
         // order is the whole point of the switch, and a reader that sorts or
         // renumbers by `[Board]` would otherwise undo it without saying so.
-        for (position, index) in interleave(&labels, buckets).into_iter().enumerate() {
+        for (position, index) in interleave(&labels, buckets, seed as u64)
+            .into_iter()
+            .enumerate()
+        {
             let (hand_type, deal) = &held[index];
             print!(
                 "{}",

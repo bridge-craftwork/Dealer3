@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appear in every round and the two rare ones in alternate rounds, so every
   round holds five deals rather than six and then four. Bucket sizes are
   reported on stderr, leaving stdout pure PBN.
+  - Within a round the types come out in a shuffled order, derived from the
+    seed and the round number. Declaration order every round reads as the
+    natural frequency the levelling exists to remove, and is something a
+    student learns rather than something they practise against.
   - Boards are numbered by where they land, not by when they were dealt, in
     every format that carries a number. The ordering lives in the file, and
     `[Board]` is what a reader sorts or indexes on; numbering in production
