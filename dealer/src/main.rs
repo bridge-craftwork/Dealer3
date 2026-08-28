@@ -17,10 +17,10 @@ use dealer_eval::{
     eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
     extract_variables, EvalContext,
 };
-use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
+use dealer_parser::{ActionType, Expr, Program, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
-    format_printpbn, Vulnerability,
+    format_printpbn, PbnBoard, Vulnerability,
 };
 use fast_parallel::{FastParallelConfig, FastSupervisor};
 use std::fs::OpenOptions;
@@ -362,6 +362,37 @@ fn format_print_hands(deals: &[Deal], seat: Position) -> String {
     }
     out.push('\x0c');
     out
+}
+
+/// The prefix that marks a variable as naming a category of hand.
+///
+/// A convention rather than syntax, so a script using it still parses
+/// everywhere the original does — which matters, because these scenarios run on
+/// BBO. The cost is that a misspelled name is silently not a category, so the
+/// count found is always reported.
+const HAND_TYPE_PREFIX: &str = "HandType";
+
+/// The script's hand-type variables, in the order it declares them.
+///
+/// Declaration order, not alphabetical: it is the order the author thought in,
+/// and it is what an interleaved practice set walks through.
+fn hand_types(program: &Program) -> Vec<&str> {
+    let mut found = Vec::new();
+    for statement in &program.statements {
+        if let Statement::Assignment { name, .. } = statement {
+            if name.starts_with(HAND_TYPE_PREFIX) && !found.contains(&name.as_str()) {
+                found.push(name.as_str());
+            }
+        }
+    }
+    found
+}
+
+/// What goes in the `[HandType "..."]` tag: the name without its prefix, and
+/// without the separator someone will have written after it.
+fn hand_type_label(name: &str) -> &str {
+    name.trim_start_matches(HAND_TYPE_PREFIX)
+        .trim_start_matches(['_', '-'])
 }
 
 /// Name a set of seats for a message: "East and West", "East, South and West".
@@ -821,6 +852,10 @@ fn main() {
 
     dealer_eval::rnd::set_seed(args.rnd_seed);
 
+    // Categories of hand the script names, for the PBN tag and for ordering a
+    // practice set. Empty for almost every script, and then nothing changes.
+    let hand_type_names = hand_types(&program);
+
     // How many deals each shuffle turns into. The three switches override one
     // another, so the last one written wins, as it does under getopt.
     let swapping = if args.swap_three {
@@ -1045,6 +1080,38 @@ fn main() {
             }
         }
 
+        // Which category of hand this is, when the script names any. Two
+        // matching is refused: the categories are meant to partition the deals,
+        // and a tag that silently picked the first would leave a practice set
+        // quietly wrong about what it contains.
+        let hand_type = if hand_type_names.is_empty() {
+            None
+        } else {
+            let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+            let mut matched: Option<&str> = None;
+            for name in &hand_type_names {
+                match eval(&Expr::Variable(name.to_string()), &ctx) {
+                    Ok(0) => {}
+                    Ok(_) => match matched {
+                        None => matched = Some(name),
+                        Some(first) => {
+                            eprintln!(
+                                "Error: a deal is both `{}` and `{}`. Hand types have to \
+                                 partition the deals, so at most one may match.",
+                                first, name
+                            );
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Hand type `{}` could not be evaluated: {}", name, e);
+                        std::process::exit(1);
+                    }
+                }
+            }
+            matched.map(hand_type_label)
+        };
+
         // printes: the script's own formatted output, with nothing added
         // between terms and no line ending unless the script asked for one.
         if !printes_reports.is_empty() {
@@ -1078,12 +1145,15 @@ fn main() {
                     let input_file = args.input_file.as_deref();
                     format_printpbn(
                         deal,
-                        produced,
-                        dealer_pos,
-                        vuln,
-                        event_name,
-                        Some(seed),
-                        input_file,
+                        &PbnBoard {
+                            board_number: produced,
+                            dealer: dealer_pos,
+                            vulnerability: vuln,
+                            event_name,
+                            seed: Some(seed),
+                            input_file,
+                            hand_type,
+                        },
                     )
                 }
                 OutputFormat::PrintCompact => format_printcompact(deal),
@@ -1406,6 +1476,15 @@ fn main() {
         }
         out.push_str(&format!("  \"seconds\": {},\n", json_number(elapsed_secs)));
         out.push_str(&format!("  \"timed_out\": {},\n", timed_out));
+        out.push_str("  \"hand_types\": [");
+        out.push_str(
+            &hand_type_names
+                .iter()
+                .map(|n| json_string(hand_type_label(n)))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        out.push_str("],\n");
 
         out.push_str("  \"averages\": [");
         for (i, (label, _, sum, count)) in averages.iter().enumerate() {
@@ -1573,6 +1652,20 @@ fn main() {
     // verbose_stats starts true and is toggled by PBN output
     // So: PBN with odd count = no stats, PBN with even count = stats, other formats = always stats
     if verbose_stats {
+        // Named rather than merely counted: the prefix is a convention the
+        // parser cannot check, so a misspelling shows up as a missing name
+        // instead of a set that is quietly short of a category.
+        if !hand_type_names.is_empty() {
+            println!(
+                "Hand types {}: {}",
+                hand_type_names.len(),
+                hand_type_names
+                    .iter()
+                    .map(|n| hand_type_label(n))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
         println!("Generated {} hands", generated);
         println!("Produced {} hands", produced);
         if let Some(ref source) = args.input_deals {

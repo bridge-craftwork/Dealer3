@@ -123,25 +123,44 @@ pub fn format_printew(deal: &Deal) -> String {
     result
 }
 
-/// Format a deal in PBN (Portable Bridge Notation) format
+/// Everything a PBN record carries besides the cards themselves.
 ///
-/// This includes all standard PBN tags with metadata:
-/// - Event, Site, Date
-/// - Board number
-/// - Player names (placeholders)
-/// - Dealer position
-/// - Vulnerability
-/// - Deal string
-/// - Contract info (placeholders)
-pub fn format_printpbn(
-    deal: &Deal,
-    board_number: usize,
-    dealer: Option<Position>,
-    vulnerability: Option<Vulnerability>,
-    event_name: Option<&str>,
-    seed: Option<u32>,
-    input_file: Option<&str>,
-) -> String {
+/// A struct rather than seven more parameters: the list had outgrown what
+/// anyone can read at a call site, and every field is optional in the sense
+/// that a sensible record exists without it.
+#[derive(Debug, Default, Clone)]
+pub struct PbnBoard<'a> {
+    /// Zero-based; the tag is written one higher.
+    pub board_number: usize,
+    /// Rotates with the board number when absent, as the original does.
+    pub dealer: Option<Position>,
+    /// Rotates with the board number when absent.
+    pub vulnerability: Option<Vulnerability>,
+    /// Fills the `[Event]` tag; otherwise it describes the run.
+    pub event_name: Option<&'a str>,
+    pub seed: Option<u32>,
+    pub input_file: Option<&'a str>,
+    /// The category this deal matched, from the script's `HandType_*`
+    /// variables. Written as `[HandType "..."]`, which is not a standard tag —
+    /// readers ignore what they do not know, so the file stays a PBN file.
+    pub hand_type: Option<&'a str>,
+}
+
+/// Format a deal in PBN (Portable Bridge Notation) format.
+///
+/// Writes the standard tags — Event, Site, Date, Board, the four player
+/// placeholders, Dealer, Vulnerable, Deal and the contract placeholders — plus
+/// `[HandType]` when [`PbnBoard::hand_type`] is set.
+pub fn format_printpbn(deal: &Deal, board: &PbnBoard) -> String {
+    let PbnBoard {
+        board_number,
+        dealer,
+        vulnerability,
+        event_name,
+        seed,
+        input_file,
+        hand_type,
+    } = *board;
     let mut result = String::new();
 
     // Event tag - title takes precedence over seed/file
@@ -172,6 +191,13 @@ pub fn format_printpbn(
     ));
 
     result.push_str(&format!("[Board \"{}\"]\n", board_number + 1));
+
+    // Which category of hand this is, when the script named its types. Not a
+    // standard PBN tag, but readers ignore tags they do not know, so a file
+    // carrying it stays a PBN file everywhere else.
+    if let Some(name) = hand_type {
+        result.push_str(&format!("[HandType \"{}\"]\n", name));
+    }
 
     // Player names (placeholders)
     result.push_str("[West \"-\"]\n");
@@ -396,7 +422,14 @@ mod tests {
     fn test_format_printpbn() {
         let mut gen = FastDealGenerator::new(1);
         let deal = gen.next_deal();
-        let output = format_printpbn(&deal, 0, None, None, None, Some(1), None);
+        let output = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 0,
+                seed: Some(1),
+                ..Default::default()
+            },
+        );
 
         // Should contain standard PBN tags
         assert!(output.contains("[Event "));
@@ -412,19 +445,43 @@ mod tests {
         let deal = gen.next_deal();
 
         // Board 0 -> North dealer
-        let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
+        let output0 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 0,
+                ..Default::default()
+            },
+        );
         assert!(output0.contains("[Dealer \"N\"]"));
 
         // Board 1 -> East dealer
-        let output1 = format_printpbn(&deal, 1, None, None, None, None, None);
+        let output1 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 1,
+                ..Default::default()
+            },
+        );
         assert!(output1.contains("[Dealer \"E\"]"));
 
         // Board 2 -> South dealer
-        let output2 = format_printpbn(&deal, 2, None, None, None, None, None);
+        let output2 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 2,
+                ..Default::default()
+            },
+        );
         assert!(output2.contains("[Dealer \"S\"]"));
 
         // Board 3 -> West dealer
-        let output3 = format_printpbn(&deal, 3, None, None, None, None, None);
+        let output3 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 3,
+                ..Default::default()
+            },
+        );
         assert!(output3.contains("[Dealer \"W\"]"));
     }
 
@@ -434,20 +491,75 @@ mod tests {
         let deal = gen.next_deal();
 
         // Board 0 -> None
-        let output0 = format_printpbn(&deal, 0, None, None, None, None, None);
+        let output0 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 0,
+                ..Default::default()
+            },
+        );
         assert!(output0.contains("[Vulnerable \"None\"]"));
 
         // Board 1 -> NS
-        let output1 = format_printpbn(&deal, 1, None, None, None, None, None);
+        let output1 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 1,
+                ..Default::default()
+            },
+        );
         assert!(output1.contains("[Vulnerable \"NS\"]"));
 
         // Board 2 -> EW
-        let output2 = format_printpbn(&deal, 2, None, None, None, None, None);
+        let output2 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 2,
+                ..Default::default()
+            },
+        );
         assert!(output2.contains("[Vulnerable \"EW\"]"));
 
         // Board 3 -> All
-        let output3 = format_printpbn(&deal, 3, None, None, None, None, None);
+        let output3 = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 3,
+                ..Default::default()
+            },
+        );
         assert!(output3.contains("[Vulnerable \"All\"]"));
+    }
+
+    /// The tag a script's `HandType_*` variables produce. Not standard PBN, so
+    /// it has to sit where a reader that does not know it will skip it, and be
+    /// absent entirely when the script names no types.
+    #[test]
+    fn test_printpbn_hand_type_tag() {
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
+
+        let tagged = format_printpbn(
+            &deal,
+            &PbnBoard {
+                hand_type: Some("22_24"),
+                ..Default::default()
+            },
+        );
+        assert!(tagged.contains("[HandType \"22_24\"]"), "{}", tagged);
+        // Right after the board number, where a reader scanning headers finds it.
+        let board = tagged.find("[Board ").expect("a board tag");
+        let hand_type = tagged.find("[HandType ").expect("a hand type tag");
+        assert!(hand_type > board);
+
+        let untagged = format_printpbn(
+            &deal,
+            &PbnBoard {
+                board_number: 0,
+                ..Default::default()
+            },
+        );
+        assert!(!untagged.contains("HandType"));
     }
 
     #[test]
@@ -457,12 +569,12 @@ mod tests {
 
         let output = format_printpbn(
             &deal,
-            0,
-            Some(Position::South),
-            Some(Vulnerability::All),
-            Some("Test Event"),
-            None,
-            None,
+            &PbnBoard {
+                dealer: Some(Position::South),
+                vulnerability: Some(Vulnerability::All),
+                event_name: Some("Test Event"),
+                ..Default::default()
+            },
         );
 
         assert!(output.contains("[Dealer \"S\"]"));

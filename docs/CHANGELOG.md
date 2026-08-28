@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`[HandType "..."]` in PBN output.** A variable whose name starts with
+  `HandType` names a category of hand, and each PBN record carries the one it
+  matched — so a practice set can be sorted or interleaved afterwards without
+  the categories being reimplemented outside the script, which is how a
+  definition and its description drift apart.
+  - A naming convention rather than new syntax, deliberately: a script using it
+    still parses on the original dealer, and these scenarios run on BBO. The
+    cost is that the parser cannot catch a misspelling, so the names found are
+    reported in the statistics and in `--stats-json`.
+  - Types have to partition the deals. Two matching one deal is refused; a deal
+    matching none is untagged, which is not an error.
+  - `format_printpbn` takes a `PbnBoard` struct rather than eight positional
+    arguments.
 - **The last three words of the original's language: `print`, `printes` and
   `rnd`** (#15). All three were reserved and refused; all three now work, and
   their output is byte-identical to dealer.exe's on the same deal.

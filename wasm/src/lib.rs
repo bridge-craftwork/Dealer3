@@ -23,7 +23,7 @@ use dealer_eval::{
 };
 use dealer_parser::vocabulary;
 use dealer_parser::{EsTerm, Expr, Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printpbn, Vulnerability};
+use dealer_pbn::{format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability};
 use serde::Serialize;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -68,14 +68,18 @@ impl Format {
             Format::PrintAll => format_printall(deal, index),
             // Board numbers, dealer and vulnerability all belong in the PBN
             // tags; a file without them is far less useful to whatever opens it.
+            // Hand types are left out: they are a generation-time notion, and
+            // the bindings render one deal at a time with nothing to classify
+            // it against.
             Format::Pbn => format_printpbn(
                 deal,
-                index,
-                ctx.dealer,
-                ctx.vulnerability,
-                None,
-                Some(ctx.seed),
-                None,
+                &PbnBoard {
+                    board_number: index,
+                    dealer: ctx.dealer,
+                    vulnerability: ctx.vulnerability,
+                    seed: Some(ctx.seed),
+                    ..Default::default()
+                },
             ),
         }
     }
