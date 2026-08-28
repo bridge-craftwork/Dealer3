@@ -293,15 +293,22 @@ const formatValue = formatAverage
 .avg { display: flex; flex-direction: column; gap: 3px; }
 .avg-row { display: grid; grid-template-columns: minmax(6em, 14em) 1fr 5em; align-items: center; gap: 8px; font-size: 12px; }
 .avg-label { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-/* Hand types. The track is a share of the whole, not a scale set by the largest
-   row, so a band at 20% looks like a fifth. */
-.ht { display: grid; gap: 6px; }
-.ht-row {
+/* Hand types. Every column but the bar sizes to its own content, so the label
+   sits against its bar rather than across a gap of reserved space, and the
+   count on the right never has to wrap — the bar gives up the width instead,
+   being the one thing here that can lose some and still say what it says. */
+/* One grid for the whole table, the rows `display: contents`, so the four
+   columns are shared tracks rather than each row sizing its own. A row-level
+   grid let a shorter count on one line widen that row's bar by eight pixels,
+   and bars that start and end in slightly different places are worse than
+   bars that are slightly narrower. */
+.ht {
   display: grid;
-  grid-template-columns: minmax(5.5rem, auto) 1fr 3.5rem 5.5rem;
+  grid-template-columns: auto minmax(4rem, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
 }
+.ht-row { display: contents; }
 .ht-label { font-family: var(--mono); font-size: 0.86rem; font-weight: 600; }
 .ht-track {
   display: flex;
@@ -313,11 +320,18 @@ const formatValue = formatAverage
 .ht-bar { display: block; height: 100%; }
 .ht-bar.natural { background: var(--natural); }
 .ht-bar.delivered { background: var(--accent); }
-.ht-value { font-variant-numeric: tabular-nums; text-align: right; font-size: 0.85rem; }
+.ht-value {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
 .ht-was {
   font-variant-numeric: tabular-nums;
   color: var(--fg-muted);
   font-size: 0.78rem;
+  white-space: nowrap;
+  text-align: right;
 }
 .ht-note { color: var(--fg-muted); font-size: 0.8rem; margin: 0 0 8px; }
 .ht-key { color: var(--fg-muted); font-size: 0.78rem; margin: 8px 0 0; }
