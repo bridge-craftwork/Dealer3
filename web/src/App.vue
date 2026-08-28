@@ -61,35 +61,45 @@
               <option value="pbn">PBN</option>
             </select>
           </label>
+        </div>
+
+        <!-- Tabs, the levelling switch and Run share a row: three things that
+             all decide what the pane below shows, and one row rather than two
+             leaves that much more script on screen. -->
+        <div class="run-row">
+          <!-- Two views of the same run. The generated scenario is worth
+               reading: the keeps, the header recording what they were measured
+               over, and the chat text filled in from the same numbers. -->
+          <div v-if="leveledScript" class="tabs" role="tablist">
+            <button
+              role="tab"
+              :aria-selected="editorTab === 'script'"
+              :class="{ on: editorTab === 'script' }"
+              @click="editorTab = 'script'"
+            >Script</button>
+            <button
+              role="tab"
+              :aria-selected="editorTab === 'leveled'"
+              :class="{ on: editorTab === 'leveled' }"
+              @click="editorTab = 'leveled'"
+            >Leveled</button>
+          </div>
+          <span v-else></span>
+
           <!-- Ticks itself when a script names hand types, since that is the
                only thing levelling needs and the reason to want it. Untouched
                after that: turning it back off is a choice, and re-ticking it on
-               the next edit would take that away. -->
-          <label class="check" :class="{ off: !hasHandTypes }" :title="levelHint">
-            <input v-model="autoLevel" type="checkbox" :disabled="!hasHandTypes" />
+               the next edit would take that away. Greyed while the levelled
+               scenario is on screen, because that run has nothing left to
+               decide — see `run`. -->
+          <label class="check" :class="{ off: !levelBoxLive }" :title="levelHint">
+            <input v-model="autoLevel" type="checkbox" :disabled="!levelBoxLive" />
             Auto-level
           </label>
-          <button class="run" :disabled="!engineReady || running || !scriptValid" @click="run">
-            {{ running ? 'Running…' : 'Run' }}
-          </button>
-        </div>
 
-        <!-- Two views of the same run. The generated scenario is worth reading:
-             the keeps, the header recording what they were measured over, and
-             the chat text filled in from the same numbers. -->
-        <div v-if="leveledScript" class="tabs" role="tablist">
-          <button
-            role="tab"
-            :aria-selected="editorTab === 'script'"
-            :class="{ on: editorTab === 'script' }"
-            @click="editorTab = 'script'"
-          >Script</button>
-          <button
-            role="tab"
-            :aria-selected="editorTab === 'leveled'"
-            :class="{ on: editorTab === 'leveled' }"
-            @click="editorTab = 'leveled'"
-          >Leveled</button>
+          <button class="run" :disabled="!engineReady || running || !scriptValid" @click="run">
+            {{ running ? 'Running…' : runLabel }}
+          </button>
         </div>
 
         <ScriptEditor v-show="editorTab === 'script'" v-model="script" @validity="onValidity" />
@@ -99,6 +109,7 @@
       <section class="col col-results">
         <ResultsPanel
           :result="result"
+          :leveling="leveling"
           :error="error"
           :requested="produce"
           :downloading="downloading"
@@ -189,13 +200,28 @@ const hasHandTypes = computed(() =>
   /^[ \t]*HandType[A-Za-z0-9_]*[ \t]*=/m.test(script.value),
 )
 
-const levelHint = computed(() =>
-  hasHandTypes.value
+const levelHint = computed(() => {
+  if (editorTab.value === 'leveled') {
+    return 'The levelled scenario runs as it stands here — press Run for another sample of the same keeps.'
+  }
+  return hasHandTypes.value
     ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even.'
-    : 'Name some categories of hand with variables beginning HandType_ to level them.',
-)
+    : 'Name some categories of hand with variables beginning HandType_ to level them.'
+})
 
-const leveledScript = computed(() => result.value?.leveling?.script || '')
+// Held rather than read off the last result, because running the levelled
+// scenario on its own returns no levelling — that is the point of it. The
+// report stays until the script changes or the box is unticked.
+const leveling = ref(null)
+const leveledScript = computed(() => leveling.value?.script || '')
+
+/// Whether the box still has anything to decide.
+///
+/// On the Leveled tab it does not: that run takes the generated scenario as it
+/// stands.
+const levelBoxLive = computed(() => hasHandTypes.value && editorTab.value !== 'leveled')
+
+const runLabel = computed(() => (editorTab.value === 'leveled' ? 'Run leveled' : 'Run'))
 
 // Ticked for you the first time a script with hand types appears, and left
 // alone afterwards.
@@ -204,8 +230,15 @@ watch(hasHandTypes, (has) => {
   if (!has) autoLevel.value = false
 }, { immediate: true })
 
-watch(autoLevel, () => {
+watch(autoLevel, (on) => {
   autoLevelTouched.value = true
+  if (!on) leveling.value = null
+})
+
+// The keeps belong to the script they were measured from; an edit makes them
+// somebody else's numbers.
+watch(script, () => {
+  leveling.value = null
 })
 
 // A levelled run has a second tab; without one there is nothing to show there.
@@ -353,13 +386,20 @@ async function run() {
     // Yield a frame first so the button can paint its running state; the
     // max-generate bound is what actually keeps the block short.
     await new Promise((r) => requestAnimationFrame(r))
-    result.value = generate(script.value, {
+    // On the Leveled tab, run the generated scenario as it stands: no
+    // measuring pass, no new keeps, the same script every time. So pressing Run
+    // again is another sample of one levelling rather than a fresh levelling —
+    // which is what you want when comparing runs, and what makes the script in
+    // the pane worth reading rather than something that moves under you.
+    const onLeveled = editorTab.value === 'leveled' && leveledScript.value
+    result.value = generate(onLeveled ? leveledScript.value : script.value, {
       seed: seed.value,
       produce: produce.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
-      autoLevel: autoLevel.value && hasHandTypes.value,
+      autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
     })
+    if (result.value.leveling) leveling.value = result.value.leveling
   } catch (e) {
     result.value = null
     error.value = e?.message || String(e)
@@ -438,7 +478,19 @@ body {
 .check.off { color: var(--fg-muted); }
 .check input { margin: 0; }
 
-/* At the level of Run, because it switches what the pane below is showing. */
+/* Tabs left, the levelling switch centred, Run right. A grid rather than
+   space-between so the middle is actually centred: with three flex items of
+   unequal width it drifts, and it drifts differently depending on whether the
+   tabs are there at all. */
+.run-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 10px;
+}
+.run-row > .check { justify-self: center; }
+.run-row > .run { justify-self: end; }
+
 .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
 .tabs button {
   font: inherit;
@@ -465,7 +517,7 @@ body {
   border: 1px solid var(--line); border-radius: 4px;
 }
 .run {
-  margin-left: auto; padding: 5px 16px; font: inherit; font-size: 13px; font-weight: 500;
+  padding: 5px 16px; font: inherit; font-size: 13px; font-weight: 500;
   border: 0; border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer;
 }
 .run:disabled { background: var(--line); color: var(--fg-muted); cursor: default; }

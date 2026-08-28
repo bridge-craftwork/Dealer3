@@ -182,6 +182,10 @@ import { handTypePalette } from '@/lib/handTypes.js'
 
 const props = defineProps({
   result: { type: Object, default: null },
+  /// The levelling behind the run, held by the page rather than read off the
+  /// result: running the levelled scenario on its own returns none, and the
+  /// natural rates it measured are still what the orange bars mean.
+  leveling: { type: Object, default: null },
   error: { type: String, default: '' },
   requested: { type: Number, default: 0 },
   downloading: { type: Boolean, default: false },
@@ -193,9 +197,16 @@ const view = ref('grid')
 
 // The script's hand types, in the order it declares them, which is the order
 // their colours follow.
-const handTypes = computed(() => props.result?.handTypes || [])
+// This run's counts, with the natural rates taken from the levelling that
+// produced the script. A re-run of the levelled scenario measures nothing, so
+// its own idea of "natural" is just what it delivered.
+const handTypes = computed(() => {
+  const run = props.result?.handTypes || []
+  const measured = new Map((props.leveling?.shares || []).map((s) => [s.name, s.natural]))
+  return run.map((t) => (measured.has(t.name) ? { ...t, natural: measured.get(t.name) } : t))
+})
 
-const leveling = computed(() => props.result?.leveling || null)
+const leveling = computed(() => props.leveling)
 
 // One palette for the whole panel, so a type is the same colour in its row, on
 // its board and behind its line — which is what shows the run walking through

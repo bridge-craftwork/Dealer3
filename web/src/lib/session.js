@@ -41,6 +41,12 @@ export function loadSession() {
       maxGenerate: Number.isFinite(v.maxGenerate) ? v.maxGenerate : 1000000,
       format: typeof v.format === 'string' ? v.format : 'oneline',
       scenario: typeof v.scenario === 'string' ? v.scenario : '',
+      // Left undefined rather than defaulted, so the caller can tell "never
+      // chosen" from "chosen false" — auto-level ticks itself the first time a
+      // script names hand types, and only until someone has had an opinion.
+      autoLevel: typeof v.autoLevel === 'boolean' ? v.autoLevel : undefined,
+      newSeedEachRun:
+        typeof v.newSeedEachRun === 'boolean' ? v.newSeedEachRun : undefined,
     }
   } catch {
     // Malformed: drop it rather than tripping over it on every load.

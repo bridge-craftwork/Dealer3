@@ -84,3 +84,27 @@ describe('resilience', () => {
     expect(loadSession()).toBeNull()
   })
 })
+
+describe('the checkbox settings', () => {
+  // Both were dropped by the whitelist when they were added: `autoLevel`
+  // invisibly, because it re-ticks itself whenever a script names hand types,
+  // and `newSeedEachRun` by quietly turning itself off on every page load.
+  it('come back as they were left', () => {
+    saveSession({ ...session, autoLevel: true, newSeedEachRun: true })
+    expect(loadSession().autoLevel).toBe(true)
+    expect(loadSession().newSeedEachRun).toBe(true)
+
+    saveSession({ ...session, autoLevel: false, newSeedEachRun: false })
+    expect(loadSession().autoLevel).toBe(false)
+    expect(loadSession().newSeedEachRun).toBe(false)
+  })
+
+  it('are undefined when never chosen, which is not the same as false', () => {
+    // Auto-level ticks itself the first time it sees hand types, and stops
+    // doing that once someone has had an opinion. It cannot tell the two apart
+    // from a bare `false`.
+    saveSession(session)
+    expect(loadSession().autoLevel).toBeUndefined()
+    expect(loadSession().newSeedEachRun).toBeUndefined()
+  })
+})
