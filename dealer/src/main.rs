@@ -19,7 +19,7 @@ use dealer_eval::{
 };
 use dealer_level::{
     check_leveling_source, hand_type_label, hand_types, insert_leveling_block, interleave,
-    level_plan, parse_level_target, write_leveled, HAND_TYPE_PREFIX, MIN_HAND_TYPE_SAMPLE,
+    level_from, Measurement, MIN_HAND_TYPE_SAMPLE,
 };
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
@@ -1618,96 +1618,38 @@ fn main() {
     // run above did the measuring — every produced deal was classified — so
     // this is arithmetic on counts already gathered.
     if let Some(ref leveled_path) = args.write_leveled {
-        if hand_type_names.is_empty() {
-            eprintln!(
-                "Error: --level-plan needs hand types to level. Name them with variables \
-                 beginning `{}`.",
-                HAND_TYPE_PREFIX
-            );
-            std::process::exit(1);
-        }
-        if produced == 0 {
-            eprintln!("Error: nothing was produced, so there is nothing to measure.");
-            std::process::exit(1);
-        }
-
         let labels: Vec<String> = hand_type_names
             .iter()
             .map(|n| hand_type_label(n).to_string())
             .collect();
-        let seen: Vec<usize> = labels.iter().map(|l| hand_type_counts[l]).collect();
-        let classified: usize = seen.iter().sum();
-        if classified != produced {
-            // Usually the base condition is simply wider than the types, which
-            // happens whenever the old spot-card block was doing the filtering
-            // as well as the levelling: the deals it dropped were never in a
-            // category to begin with. Naming the remedy saves working that out
-            // from first principles.
-            eprintln!(
-                "Error: {} of {} deals matched no hand type. They have to partition what \
-                 the scenario produces,\n       or the keeps will not add up — a rate is \
-                 only a rate if it is a share of something.\n       Either widen the types, \
-                 or narrow the condition to the deals they cover:\n\n           and ({})\n",
-                produced - classified,
-                produced,
-                hand_type_names
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<_>>()
-                    .join(" or ")
-            );
-            std::process::exit(1);
-        }
-        let thin: Vec<String> = labels
-            .iter()
-            .zip(&seen)
-            .filter(|(_, n)| **n < MIN_HAND_TYPE_SAMPLE)
-            .map(|(l, n)| format!("{} seen {} times", l, n))
-            .collect();
-        if !thin.is_empty() {
-            eprintln!(
-                "Error: measured on too few deals to divide by: {}.\n       Raise -p above \
-                 {}, or widen the rare types.",
-                thin.join("; "),
-                produced
-            );
-            std::process::exit(1);
-        }
-
-        let natural: Vec<f64> = seen.iter().map(|n| *n as f64 / produced as f64).collect();
-        let target = match parse_level_target(&args.level_target, &labels) {
-            Ok(t) => t,
+        let measured = Measurement {
+            produced,
+            generated,
+            counts: labels.iter().map(|l| hand_type_counts[l]).collect(),
+            names: labels,
+        };
+        // The prepared scenario, not the file: a placeholder written in above
+        // belongs in the copy as well, or the two would disagree.
+        let source = leveling_source.clone().unwrap_or_default();
+        let leveled = match level_from(
+            &source,
+            &measured,
+            &args.level_target,
+            args.level_budget,
+            seed,
+            MIN_HAND_TYPE_SAMPLE,
+        ) {
+            Ok(leveled) => leveled,
             Err(message) => {
                 eprintln!("Error: {}", message);
                 std::process::exit(1);
             }
         };
-        let base_rate = produced as f64 / generated as f64;
-        let budget_acceptance = args
-            .level_budget
-            .map(|budget| ((1.0 / budget) / base_rate).min(1.0));
-        let (plans, lambda, acceptance) =
-            level_plan(&labels, &natural, &target, &seen, budget_acceptance);
-
-        // The prepared scenario, not the file: a placeholder written in above
-        // belongs in the copy as well, or the two would disagree.
-        let source = leveling_source.clone().unwrap_or_default();
-        match write_leveled(
-            &source,
-            leveled_path,
-            &plans,
-            lambda,
-            acceptance,
-            base_rate,
-            produced,
-            seed,
-        ) {
-            Ok(summary) => eprintln!("{}", summary),
-            Err(message) => {
-                eprintln!("Error: {}", message);
-                std::process::exit(1);
-            }
+        if let Err(e) = std::fs::write(leveled_path, &leveled.script) {
+            eprintln!("Error: could not write {}: {}", leveled_path.display(), e);
+            std::process::exit(1);
         }
+        eprintln!("{}\n\nwrote {}", leveled.summary, leveled_path.display());
         return;
     }
 

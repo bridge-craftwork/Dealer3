@@ -158,25 +158,50 @@ fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
-/// Generate deals matching `script`, returning JSON.
+/// One pass over the deals: what a run produces, before any levelling.
+struct RunOutcome {
+    deals: Vec<String>,
+    /// The hand type each returned deal matched, parallel to `deals`.
+    deal_types: Vec<Option<String>>,
+    generated: usize,
+    produced: usize,
+    averages: Vec<AverageResult>,
+    frequencies: Vec<FrequencyResult>,
+    printes: String,
+    hit_limit: bool,
+    /// The script's `HandType_*` variables, in declaration order.
+    hand_type_names: Vec<String>,
+    /// How many produced deals matched each, parallel to `hand_type_names`.
+    hand_type_counts: Vec<usize>,
+}
+
+/// Run a script once.
 ///
 /// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
-/// filter must not be able to hang it. Callers should surface `hit_limit` rather
-/// than silently showing a short result.
-#[wasm_bindgen]
-pub fn generate(
+/// filter must not be able to hang it.
+#[allow(clippy::too_many_arguments)]
+fn run_script(
     script: &str,
     seed: u32,
     produce: usize,
     max_generate: usize,
-    format: &str,
-) -> Result<String, JsError> {
-    let format = Format::parse(format)?;
-    let started = now_ms();
+    format: Format,
+    keep_deals: bool,
+) -> Result<RunOutcome, JsError> {
 
     let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
     let program = dealer_parser::parse_program(&preprocessed)
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+
+    // The script's categories of hand. A naming convention rather than syntax,
+    // so a script using it still parses on BBO.
+    let hand_type_names = dealer_level::hand_types(&program);
+    let hand_type_labels: Vec<String> = hand_type_names
+        .iter()
+        .map(|n| dealer_level::hand_type_label(n).to_string())
+        .collect();
+    let mut hand_type_counts = vec![0usize; hand_type_names.len()];
+    let mut deal_types: Vec<Option<String>> = Vec::new();
 
     let variables = extract_variables(&program);
     let constraint = extract_constraint(&program);
@@ -333,10 +358,37 @@ pub fn generate(
             }
         }
 
+        // Which category of hand this is. Two matching is refused, as in the
+        // CLI: the types are meant to partition the deals, and a tag that
+        // silently picked the first would leave a set wrong about what it holds.
+        let mut matched_type: Option<usize> = None;
+        if !hand_type_names.is_empty() {
+            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
+            for (i, name) in hand_type_names.iter().enumerate() {
+                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
+                    JsError::new(&format!("Hand type `{}` could not be evaluated: {}", name, e))
+                })?;
+                if value != 0 {
+                    if let Some(first) = matched_type {
+                        return Err(JsError::new(&format!(
+                            "A deal is both `{}` and `{}`. Hand types have to partition the \
+                             deals, so at most one may match.",
+                            hand_type_names[first], name
+                        )));
+                    }
+                    matched_type = Some(i);
+                }
+            }
+            if let Some(i) = matched_type {
+                hand_type_counts[i] += 1;
+            }
+        }
+
         // Deals are capped independently of `produced` so a large `produce` used
         // purely to gather statistics does not have to ship every deal to JS.
-        if deals.len() < MAX_RETURNED_DEALS {
+        if keep_deals && deals.len() < MAX_RETURNED_DEALS {
             deals.push(format.render(&deal, produced, &output));
+            deal_types.push(matched_type.map(|i| hand_type_labels[i].clone()));
         }
         produced += 1;
     }
@@ -389,17 +441,18 @@ pub fn generate(
         })
         .collect();
 
-    let result = GenerateResult {
+    Ok(RunOutcome {
         hit_limit: produced < produce && generated >= max_generate,
         printes: printes_output,
         produced,
         deals,
+        deal_types,
         generated,
         averages,
         frequencies,
-        seconds: (now_ms() - started) / 1000.0,
-    };
-    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
+        hand_type_names: hand_type_names.iter().map(|n| n.to_string()).collect(),
+        hand_type_counts,
+    })
 }
 
 #[derive(Serialize)]

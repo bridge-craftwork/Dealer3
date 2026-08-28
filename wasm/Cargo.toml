@@ -16,6 +16,7 @@ dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-eval = { path = "../dealer-eval" }
 dealer-pbn = { path = "../dealer-pbn" }
+dealer-level = { path = "../dealer-level" }
 
 wasm-bindgen = "0.2"
 # For a wall-clock reading: std::time::SystemTime::now() panics on
