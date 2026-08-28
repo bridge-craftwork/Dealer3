@@ -126,3 +126,32 @@ hr {
   border-top: 1px solid #ddd;
   margin: 1.8rem 0;
 }
+
+/* Screenshots of the app. Bordered because they have white grounds and would
+   otherwise bleed into the page, and kept whole across a break. */
+figure {
+  margin: 1.2rem 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+/* `img`, not `figure img`: the web page wraps these in a <figure>, but the PDF
+ * is rendered by md-to-pdf's own marked renderer, which emits a bare <img>
+ * inside a <p>. A selector written for the other surface silently matches
+ * nothing here.
+ *
+ * An explicit width rather than `max-width: 100%` alone, because Chrome lays
+ * the page out in a viewport and only then fits it to paper: A4 less 18mm each
+ * side is 174mm, and these screenshots are 2x for the web. */
+img {
+  display: block;
+  width: 100%;
+  max-width: 174mm;
+  height: auto;
+  border: 1px solid #e2e2e2;
+  border-radius: 4px;
+}
+figcaption {
+  margin-top: 0.4rem;
+  font-size: 8.5pt;
+  color: #666;
+}

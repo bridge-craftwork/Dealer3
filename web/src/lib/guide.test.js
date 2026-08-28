@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 
-import { renderGuide, resolveLink, slug } from './guide.js'
+import { renderGuide, resolveImage, resolveLink, slug } from './guide.js'
 
 const GUIDE = readFileSync(
   fileURLToPath(new URL('../../../docs/leveling-guide.md', import.meta.url)),
   'utf8',
+)
+
+// Stands in for the Vite glob over `docs/images/`, which only exists inside a
+// build. Keyed the way the markdown writes the paths.
+const IMAGES = Object.fromEntries(
+  readdirSync(fileURLToPath(new URL('../../../docs/images', import.meta.url))).map((name) => [
+    `images/${name}`,
+    `/assets/${name}`,
+  ]),
 )
 
 describe('resolveLink', () => {
@@ -47,6 +56,26 @@ describe('resolveLink', () => {
   })
 })
 
+describe('resolveImage', () => {
+  it('resolves a docs image to the bundled asset', () => {
+    expect(resolveImage('images/hand-types-panel.png', IMAGES)).toBe(
+      '/assets/hand-types-panel.png',
+    )
+  })
+
+  it('leaves an absolute or data URL alone', () => {
+    expect(resolveImage('https://example.com/a.png', IMAGES)).toBe('https://example.com/a.png')
+    expect(resolveImage('data:image/png;base64,AAAA', IMAGES)).toBe('data:image/png;base64,AAAA')
+  })
+
+  // A picture that silently fails to load is the fault that survives every
+  // unit test, so a missing one is an error at render rather than a broken box
+  // in the page.
+  it('throws on an image the bundle does not have', () => {
+    expect(() => resolveImage('images/not-there.png', IMAGES)).toThrow(/not in docs\/images/)
+  })
+})
+
 describe('slug', () => {
   // GitHub's rules, so the document's own contents list lands in both places.
   it('matches what GitHub would anchor a heading to', () => {
@@ -61,11 +90,12 @@ describe('slug', () => {
 })
 
 describe('renderGuide', () => {
-  const html = renderGuide(GUIDE)
+  const html = renderGuide(GUIDE, IMAGES)
 
   it('gives headings the anchors the contents list points at', () => {
-    expect(html).toContain('id="the-one-thing-to-get-right"')
-    expect(html).toContain('id="naming-the-hand-types"')
+    expect(html).toContain('id="a-worked-example"')
+    expect(html).toContain('id="the-magic-words"')
+    expect(html).toContain('id="how-good-is-the-result"')
   })
 
   it('puts tables in their own scroll box', () => {
@@ -75,6 +105,19 @@ describe('renderGuide', () => {
   it('renders fenced code without escaping it into prose', () => {
     expect(html).toContain('<pre>')
     expect(html).toContain('HandType_12_14')
+  })
+
+  it('renders an image as a figure with alt text and a caption', () => {
+    expect(html).toContain('<figure><img src="/assets/hand-types-panel.png"')
+    expect(html).toMatch(/<img [^>]*alt="[^"]{20,}"/)
+    expect(html).toContain('<figcaption>')
+  })
+
+  // Rendering the whole guide is itself the check that every picture it
+  // references exists, since resolveImage throws on one that does not.
+  it('references only images the repo has', () => {
+    const srcs = [...html.matchAll(/<img [^>]*src="([^"]+)"/g)].map((m) => m[1])
+    expect(srcs.length).toBeGreaterThan(0)
   })
 
   it('sends every link somewhere that resolves', () => {

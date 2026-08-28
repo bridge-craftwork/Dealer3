@@ -19,6 +19,24 @@ const REPO = 'https://github.com/bridge-craftwork/Dealer3'
 /// The directory the rendered document lives in, so `../examples/` resolves.
 const DOC_DIR = 'docs'
 
+/// Every image in `docs/images/`, bundled and content-hashed by Vite.
+///
+/// Bundled rather than fetched from raw.githubusercontent: the guide's pictures
+/// are screenshots of this app, and a URL pointing at `main` would show the
+/// image that is on `main` — so a new one 404s until it is pushed, and an
+/// edited one serves the old copy to anyone whose cache has it. Going through
+/// the bundler keeps the picture and the page it explains in the same build.
+///
+/// Keyed by path relative to `docs/`, which is how the markdown writes them.
+/// (Three levels up, not two: this file is `web/src/lib/`, one deeper than
+/// `Leveling.vue`. `../../docs` from here is `web/docs`, which does not exist —
+/// and a glob that matches nothing is silent.)
+const IMAGES = Object.fromEntries(
+  Object.entries(
+    import.meta.glob('../../../docs/images/*', { eager: true, query: '?url', import: 'default' }),
+  ).map(([path, url]) => [path.replace('../../../docs/', ''), url]),
+)
+
 /// Resolve a link written for the repo into one that works from a web page.
 ///
 /// The markdown is written to be read in the repo, where `leveling-strategy.md`
@@ -48,6 +66,36 @@ export function resolveLink(href) {
   return `${REPO}/${kind}/main/${out.join('/')}${fragment}`
 }
 
+/// Resolve an image written for the repo into the bundled asset.
+///
+/// Separate from `resolveLink` because the answer is a different kind of thing:
+/// a link wants a page a reader can browse, an image wants the file itself.
+///
+/// `images` is injected in tests; the default is the bundle. An image the
+/// bundle does not have throws rather than rendering a broken box, since a
+/// picture that silently fails to load is exactly the fault that survives
+/// every unit test.
+export function resolveImage(src, images = IMAGES) {
+  if (!src) return src
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('//')) return src
+
+  const out = []
+  for (const part of `${DOC_DIR}/${src}`.split('/')) {
+    if (part === '.' || part === '') continue
+    if (part === '..') out.pop()
+    else out.push(part)
+  }
+  const key = out.slice(1).join('/')
+  const url = images[key]
+  if (!url) {
+    throw new Error(
+      `the guide references ${src}, which is not in docs/images/ — ` +
+        `add the file, or fix the path`,
+    )
+  }
+  return url
+}
+
 /// The anchor GitHub would give a heading of this text.
 ///
 /// GitHub's rules rather than anything of our own, because the document is
@@ -63,7 +111,10 @@ export function slug(text) {
 }
 
 /// Render a docs/ markdown document to HTML for this site.
-export function renderGuide(markdown) {
+///
+/// `images` is injected by the tests, which run outside the bundler and so have
+/// no glob to resolve against.
+export function renderGuide(markdown, images = IMAGES) {
   const renderer = new marked.Renderer()
 
   renderer.heading = ({ tokens, depth }) => {
@@ -84,6 +135,14 @@ export function renderGuide(markdown) {
       .filter(Boolean)
       .join(' ')
     return `<a ${attrs}>${text}</a>`
+  }
+
+  // A figure rather than a bare image: these are screenshots of the app, and
+  // the alt text is doing real work for anyone who cannot see them.
+  renderer.image = ({ href, title, text }) => {
+    const caption = title ? `<figcaption>${title}</figcaption>` : ''
+    const alt = (text || '').replace(/\s+/g, ' ').replace(/"/g, '&quot;')
+    return `<figure><img src="${resolveImage(href, images)}" alt="${alt}" loading="lazy">${caption}</figure>`
   }
 
   // Wide tables scroll inside their own box rather than pushing the page out.

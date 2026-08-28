@@ -154,6 +154,25 @@ body {
   margin: 3rem 0;
 }
 
+/* Screenshots of the app. Bordered because several have white grounds and
+   would otherwise bleed into the page. */
+.doc figure {
+  margin: 1.4rem 0;
+}
+.doc figure img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: #fff;
+}
+.doc figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
 /* Tables carry most of the measurements, so they get the most attention. */
 .table-scroll {
   overflow-x: auto;
