@@ -1,5 +1,13 @@
 [workspace]
-members = ["dealer-core", "dealer-parser", "dealer-pbn", "dealer-eval", "dealer", "dealer-dds"]
+members = [
+    "dealer-core",
+    "dealer-parser",
+    "dealer-pbn",
+    "dealer-eval",
+    "dealer-level",
+    "dealer",
+    "dealer-dds",
+]
 resolver = "2"
 
 # Built only for wasm32, with its own lockfile. Excluded so `cargo test

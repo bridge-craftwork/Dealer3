@@ -1,0 +1,8 @@
+[package]
+name = "dealer-level"
+version = "1.0.0"
+edition = "2021"
+license = "Unlicense"
+
+[dependencies]
+dealer-parser = { path = "../dealer-parser" }
