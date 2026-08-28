@@ -112,16 +112,19 @@ pub const REMAINING: &[WorkItem] = &[
     // DealerV2_4's own words, from reading its lexer and yacc rather than a
     // summary of them, and measured against its 61-script Regression suite.
     WorkItem {
-        what: "`predeal` naming more than one seat",
+        what: "Defaults for script parameters, and a way to enter them",
         done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::High,
+        issue: Some(17),
+        effort: Effort::Medium,
+        value: Value::Medium,
         note: Some(
-            "dealer.exe's, not DealerV2_4's: its grammar is `predealargs: predealarg | \
-             predealargs predealarg`, so `predeal north SAKQ south SJ32` sets both, and \
-             the reference binary does. dealer3 takes one compass per statement and reads \
-             the second seat's holdings as undefined names.",
+            "A `$n` nothing supplies is an error naming the line, which is right — \
+             DealerV2_4 scans an empty buffer instead, so `average $2 controls(west)` \
+             quietly loses its label. But it also means a parameterised script cannot run \
+             at all without the invocation that goes with it, and nothing in the file says \
+             what `$3` was meant to be. The browser has no way to supply one, so such a \
+             scenario fails to parse there on a line the reader cannot act on. A default \
+             would have to survive the trip to BBO, so a comment pragma rather than syntax.",
         ),
     },
     WorkItem {

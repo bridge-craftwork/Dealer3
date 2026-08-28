@@ -152,10 +152,16 @@ The seed defaults to a **random** value, matching the CLI where `-s` defaults to
 the clock. Most of the time the question is "show me hands like this", not "show
 me these exact hands", and a fixed default quietly answers the second.
 
-**Run does not re-roll it.** The seed on screen has to be the seed that produced
-what is shown, or reproducing a result becomes guesswork. The ⟳ button beside the
-field asks for a new one, and a restored session keeps its seed so a reload
-reproduces what was on screen.
+**The seed on screen is always the seed that produced what is shown**, or
+reproducing a result becomes guesswork. That is the guarantee, and the
+**Random** checkbox beside the field keeps it while saving the click: when it is
+ticked, Run rolls a new seed *before* the run and writes it into the field, so
+what is on screen still describes what is on screen. Unticked, Run reuses the
+seed as it stands and the same deals come back.
+
+Rolling before rather than after is what made a separate "new seed" button
+unnecessary — there is no other reason to want one. A restored session keeps its
+seed, so a reload reproduces what was there.
 
 ## Session persistence
 

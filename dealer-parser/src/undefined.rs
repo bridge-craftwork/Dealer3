@@ -50,6 +50,29 @@ pub fn undefined_variables(program: &Program) -> Vec<String> {
     found
 }
 
+/// Seats left standing on their own as statements.
+///
+/// A bare expression is a legal statement, so a compass with nothing done to it
+/// parses and is discarded — which is how `predeal north SAKQ south` reads once
+/// the `predeal` has taken every seat that came with holdings. dealer.exe
+/// answers `syntax error` there, because a seat is its own token in its grammar
+/// and `predealarg: COMPASS holdings` requires the holdings.
+///
+/// Reported after `undefined_variables` rather than at parse time, and this is
+/// the reason: `dealr west` is *also* a bare compass, and what is wrong with it
+/// is the misspelled `dealer`, not the seat. Naming the seat first would bury
+/// the useful half.
+pub fn dangling_seats(program: &Program) -> Vec<String> {
+    program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Expression(Expr::Position(seat)) => Some(seat.to_string().to_lowercase()),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Every expression a statement holds, whether or not the run will evaluate it.
 fn statement_exprs(statement: &Statement) -> Vec<&Expr> {
     match statement {
@@ -130,6 +153,33 @@ mod tests {
     fn names(source: &str) -> Vec<String> {
         let program = crate::parse_program(&crate::preprocess(source)).expect("parses");
         undefined_variables(&program)
+    }
+
+    fn seats(source: &str) -> Vec<String> {
+        let program = crate::parse_program(&crate::preprocess(source)).expect("parses");
+        dangling_seats(&program)
+    }
+
+    /// The way a multi-seat `predeal` gets mistyped: the last seat given no
+    /// holdings falls out of the statement and reads as a bare compass.
+    #[test]
+    fn a_predeal_seat_without_holdings_is_left_dangling() {
+        assert_eq!(seats("predeal north SAKQ south"), vec!["south"]);
+    }
+
+    /// A seat that was given holdings is part of the `predeal` and not dangling.
+    #[test]
+    fn a_predeal_that_names_its_holdings_leaves_nothing_dangling() {
+        assert!(seats("predeal north SAKQ south SJ32").is_empty());
+        assert!(seats("predeal north S,HAKQ south SJ32").is_empty());
+    }
+
+    /// `dealr west` is a bare seat too, and there the misspelling is the thing
+    /// worth reporting — which is why the caller asks for the names first.
+    #[test]
+    fn a_misspelled_keyword_leaves_a_seat_dangling_as_well() {
+        assert_eq!(names("dealr west"), vec!["dealr"]);
+        assert_eq!(seats("dealr west"), vec!["west"]);
     }
 
     #[test]

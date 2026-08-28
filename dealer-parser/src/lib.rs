@@ -13,4 +13,4 @@ pub use parser::{
 };
 pub use preprocess::{preprocess, preprocess_all};
 pub use script_params::ScriptParams;
-pub use undefined::undefined_variables;
+pub use undefined::{dangling_seats, undefined_variables};

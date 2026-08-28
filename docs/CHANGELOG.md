@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`predeal` may name more than one seat**, as dealer.exe's does:
+  `predeal north SAKQ south SJ32` sets both. Its grammar is
+  `predealargs: predealarg | predealargs predealarg`, and the reference binary
+  does it; dealer3 took one compass per statement and read the second seat's
+  holdings as undefined names.
+  - What separates the seats is that the holdings of one are comma-separated
+    and the seats are not. That matters more than it sounds, because `S` is
+    both a void in spades and an abbreviation for South — matching the
+    comma-list before trying another seat is what keeps
+    `predeal north S,HAKQ south SJ32` at two seats rather than three.
+  - Each seat becomes its own `Statement::Predeal` rather than the AST growing
+    a list, so every consumer that walks the statements is unchanged. Naming a
+    seat twice accumulates, as the original's repeated
+    `predeal_holding(compass, ...)` does.
+  - A seat given no holdings — `predeal north SAKQ south` — is now refused.
+    It reads as a bare compass once the `predeal` has taken every seat that
+    came with cards, and the original answers `syntax error`. Reported after
+    the undefined names rather than at parse time, because `dealr west` is a
+    bare compass too and there the misspelled `dealer` is the thing worth
+    saying.
+  - Checked against all 1,051 scripts in the Practice-Bidding-Scenarios
+    corpus, which still parse.
 - **`--param N=TEXT`: DealerV2_4's script parameters, `$0` to `$9`.** One script
   can then be several — `NTscripted.dls` in that project's own examples is a
   notrump opener whose range, seats and shape all come from the command line.

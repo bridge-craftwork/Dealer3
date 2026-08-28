@@ -54,7 +54,17 @@ vulnerable_stmt = { &kw_vulnerable ~ ^"vulnerable" ~ vulnerability }
 title_stmt = { &kw_title ~ ^"title" ~ string_literal }
 // Also DealerV2_4's, and also a switch here: `-s` wins.
 seed_stmt = { &kw_seed ~ ^"seed" ~ literal }
-predeal_stmt = { &kw_predeal ~ ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
+// One `predeal` may name more than one seat, as dealer.exe's does:
+// `predealargs: predealarg | predealargs predealarg`, so
+// `predeal north SAKQ south SJ32` sets both.
+//
+// What separates one seat from the next is that holdings within a seat are
+// comma-separated and seats are not — the original's grammar is
+// `holdings: HOLDING | holdings ',' HOLDING`. So the comma-list is matched
+// greedily before another group is tried, and `predeal north S,HAKQ` stays one
+// seat rather than reading the `S` as South.
+predeal_stmt = { &kw_predeal ~ ^"predeal" ~ predeal_group+ }
+predeal_group = { compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { &kw_csvrpt ~ ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
 // printes(expr | string, ...) - the original's formatted per-deal output.

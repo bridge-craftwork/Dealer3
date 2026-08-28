@@ -960,10 +960,12 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
     },
     StatementDoc {
         keyword: Some("predeal"),
-        form: "predeal <compass> <holding>, <holding>, ...",
+        form: "predeal <compass> <holding>, <holding>, ... [<compass> <holding>, ...]",
         summary: "Places cards in a hand before shuffling; the rest of the deal is dealt around \
-                  them. A holding is a suit letter followed by its ranks, using T for the ten.",
-        example: "predeal north SAKQ,HT98",
+                  them. A holding is a suit letter followed by its ranks, using T for the ten. \
+                  One statement may name several seats: the holdings of a seat are separated by \
+                  commas and the seats are not.",
+        example: "predeal north SAKQ,HT98 south SJ32",
         note: Some(
             "The original dealer also restricts a suit's length by writing \
              `spades(north) == 5` in a `predeal`; dealer3 does not, so put that in the \

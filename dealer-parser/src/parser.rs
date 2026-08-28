@@ -55,7 +55,7 @@ pub fn parse_program(input: &str) -> Result<Program, ParseError> {
 
         for statement_pair in pair.into_inner() {
             if statement_pair.as_rule() == Rule::dealer_statement {
-                statements.push(build_statement(statement_pair)?);
+                build_statements(statement_pair, &mut statements)?;
             }
         }
     }
@@ -144,6 +144,55 @@ fn build_print_hands(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Position>,
         }
     }
     Ok(seats)
+}
+
+/// Append the statements one written statement stands for.
+///
+/// Almost always exactly one. `predeal` is the exception: it may name several
+/// seats, and each becomes its own `Statement::Predeal` rather than the AST
+/// growing a list. That keeps every consumer — which all walk the statements
+/// and act on each `Predeal` they meet — working unchanged, and it is what the
+/// statement means anyway, since the original's parser calls
+/// `predeal_holding(compass, ...)` once per holding as it reduces.
+fn build_statements(pair: Pair<Rule>, out: &mut Vec<Statement>) -> Result<(), ParseError> {
+    let inner = match pair.clone().into_inner().next() {
+        Some(inner) => inner,
+        None => return Ok(()),
+    };
+    if inner.as_rule() == Rule::predeal_stmt {
+        for group in inner.into_inner() {
+            out.push(build_predeal_group(group)?);
+        }
+        return Ok(());
+    }
+    out.push(build_statement(pair)?);
+    Ok(())
+}
+
+/// One seat of a `predeal`, and the cards it names.
+fn build_predeal_group(group: Pair<Rule>) -> Result<Statement, ParseError> {
+    let mut parts = group.into_inner();
+
+    let compass_str = parts.next().unwrap().as_str().to_lowercase();
+    let position = match compass_str.as_str() {
+        "north" | "n" => Position::North,
+        "south" | "s" => Position::South,
+        "east" | "e" => Position::East,
+        "west" | "w" => Position::West,
+        _ => {
+            return Err(ParseError {
+                message: format!("Invalid predeal position: {}", compass_str),
+            })
+        }
+    };
+
+    // Each holding may name several cards: `ST62` is three of them.
+    let mut cards = Vec::new();
+    for card_pair in parts {
+        cards.extend(parse_cards(card_pair.as_str())?);
+    }
+
+    Ok(Statement::Predeal { position, cards })
 }
 
 fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
@@ -368,33 +417,9 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })
         }
 
-        Rule::predeal_stmt => {
-            let mut parts = inner.into_inner();
-
-            // Parse position
-            let compass_str = parts.next().unwrap().as_str().to_lowercase();
-            let position = match compass_str.as_str() {
-                "north" | "n" => Position::North,
-                "south" | "s" => Position::South,
-                "east" | "e" => Position::East,
-                "west" | "w" => Position::West,
-                _ => {
-                    return Err(ParseError {
-                        message: format!("Invalid predeal position: {}", compass_str),
-                    })
-                }
-            };
-
-            // Parse cards - each card_pair may contain multiple cards (e.g., "ST62" = 3 cards)
-            let mut cards = Vec::new();
-            for card_pair in parts {
-                let card_str = card_pair.as_str();
-                let parsed_cards = parse_cards(card_str)?;
-                cards.extend(parsed_cards);
-            }
-
-            Ok(Statement::Predeal { position, cards })
-        }
+        // `predeal` is handled by `build_statements`, which is the only thing
+        // that can turn one written statement into several. Reaching here means
+        // something called `build_statement` directly with one.
         Rule::csvrpt_stmt => {
             let mut csv_terms = Vec::new();
 
@@ -1325,6 +1350,96 @@ mod tests {
         assert_eq!(*pos, Position::South);
         // SAK = 2, HQ = 1, D = 0, CAKQJT = 5
         assert_eq!(cards.len(), 8);
+    }
+
+    /// One `predeal` naming several seats, which is dealer.exe's
+    /// `predealargs: predealarg | predealargs predealarg`.
+    ///
+    /// Each seat becomes its own statement rather than the AST growing a list,
+    /// so every consumer that walks the statements keeps working.
+    #[test]
+    fn predeal_may_name_more_than_one_seat() {
+        let program = parse_program("predeal north SAKQ south SJ32").unwrap();
+        let seats: Vec<_> = program
+            .statements
+            .iter()
+            .filter_map(|s| match s {
+                Statement::Predeal { position, cards } => Some((*position, cards.len())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(seats, vec![(Position::North, 3), (Position::South, 3)]);
+    }
+
+    /// The holdings of one seat are comma-separated and the seats are not,
+    /// which is the only thing telling them apart.
+    #[test]
+    fn each_seat_keeps_its_own_comma_separated_holdings() {
+        let program = parse_program("predeal north SAKQ,HT98 east DA south SJ32").unwrap();
+        let seats: Vec<_> = program
+            .statements
+            .iter()
+            .filter_map(|s| match s {
+                Statement::Predeal { position, cards } => Some((*position, cards.len())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            seats,
+            vec![
+                (Position::North, 6),
+                (Position::East, 1),
+                (Position::South, 3)
+            ]
+        );
+    }
+
+    /// The case the grammar has to get right: `S` is both a void in spades and
+    /// an abbreviation for South. Matching the comma-list before trying another
+    /// seat is what keeps this one seat rather than two.
+    #[test]
+    fn a_void_holding_is_not_read_as_the_south_seat() {
+        let program = parse_program("predeal north S,HAKQ south SJ32").unwrap();
+        let seats: Vec<_> = program
+            .statements
+            .iter()
+            .filter_map(|s| match s {
+                Statement::Predeal { position, cards } => Some((*position, cards.len())),
+                _ => None,
+            })
+            .collect();
+        // North: nothing in spades, three hearts. South: three spades.
+        assert_eq!(seats, vec![(Position::North, 3), (Position::South, 3)]);
+    }
+
+    /// Naming a seat twice accumulates, as the original's repeated reduction of
+    /// `predeal_holding(compass, ...)` does.
+    #[test]
+    fn a_seat_may_be_named_more_than_once() {
+        let program = parse_program("predeal north SAKQ north HAK").unwrap();
+        let seats: Vec<_> = program
+            .statements
+            .iter()
+            .filter_map(|s| match s {
+                Statement::Predeal { position, cards } => Some((*position, cards.len())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(seats, vec![(Position::North, 3), (Position::North, 2)]);
+    }
+
+    /// Still one statement when only one seat is named.
+    #[test]
+    fn one_seat_is_still_one_statement() {
+        let program = parse_program("predeal north SAKQ").unwrap();
+        assert_eq!(
+            program
+                .statements
+                .iter()
+                .filter(|s| matches!(s, Statement::Predeal { .. }))
+                .count(),
+            1
+        );
     }
 
     #[test]

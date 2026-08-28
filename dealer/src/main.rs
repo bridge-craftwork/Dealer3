@@ -896,6 +896,18 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Reported after the undefined names, not before: `dealr west` is a bare
+    // seat too, and there the misspelled keyword is the thing worth saying.
+    let dangling = dealer_parser::dangling_seats(&program);
+    if let Some(seat) = dangling.first() {
+        eprintln!(
+            "Error: `{seat}` is on its own, which does nothing.\n       \
+             A seat in a `predeal` needs its holdings — `predeal north SAKQ {seat} SJ32`, \
+             not `predeal north SAKQ {seat}`."
+        );
+        std::process::exit(1);
+    }
+
     // Extract action block directives from the program
     let mut produce_count_from_input: Option<usize> = None;
     let mut generate_count_from_input: Option<usize> = None;
