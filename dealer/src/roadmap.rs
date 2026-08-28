@@ -280,6 +280,21 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("Rejected loudly today; the same thing can be written in the condition."),
     },
     WorkItem {
+        what: "Fill hand-type quotas exactly, for a finite PBN",
+        done_when: None,
+        issue: Some(16),
+        effort: Effort::Medium,
+        value: Value::High,
+        note: Some(
+            "Levelling gets the long-run proportions right and cannot make twenty boards \
+             come out even — at that length a band carries a standard deviation of eight \
+             points. Filling quotas instead needs no measuring pass, no keeps and no roll, \
+             so it also escapes the one error levelling cannot recover from: a rate measured \
+             thinly biases its keep for good. Only for sets generated here; a BBO table runs \
+             the script live and cannot over-generate and discard.",
+        ),
+    },
+    WorkItem {
         what: "`--bbo-strict`: warn when a script will behave differently on BBO",
         done_when: None,
         issue: Some(13),
