@@ -3,6 +3,14 @@
     <article v-for="(deal, i) in deals" :key="i" class="board">
       <header class="board-head">
         <span class="board-no">{{ i + 1 }}</span>
+        <!-- The type this board matched, in its own colour. With the deals
+             interleaved, reading down the column shows the set walking through
+             the types rather than meeting them as they happened to fall. -->
+        <span
+          v-if="types[i]"
+          class="board-type"
+          :style="{ color: palette.get(types[i]).color, background: palette.get(types[i]).tint }"
+        >{{ types[i] }}</span>
         <span class="board-hcp">
           NS {{ deal.north.hcp + deal.south.hcp }} · EW {{ deal.east.hcp + deal.west.hcp }}
         </span>
@@ -30,6 +38,14 @@ import { SUIT_ORDER, SUIT_SYMBOLS, RED_SUITS } from '@/lib/cardFormatting.js'
 
 defineProps({
   deals: { type: Array, required: true },
+  /// The hand type each board matched, parallel to `deals`. Empty when the
+  /// script names none.
+  types: { type: Array, default: () => [] },
+  /// Shared with the results panel, so a type is the same colour everywhere.
+  palette: {
+    type: Object,
+    default: () => ({ get: () => ({ color: 'var(--fg-muted)', tint: 'transparent' }) }),
+  },
 })
 
 // Small enough to be a render function: four rows of symbol + ranks, plus the
@@ -62,6 +78,14 @@ Hand.props = ['label', 'hand']
 .board-head {
   display: flex; justify-content: space-between; align-items: baseline;
   font-size: 11px; color: var(--fg-muted); margin-bottom: 4px;
+}
+.board-type {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 6px;
 }
 .board-no { font-weight: 600; }
 .board-hcp { font-family: var(--mono); }

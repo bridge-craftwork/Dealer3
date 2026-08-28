@@ -62,15 +62,20 @@ impl Format {
         }
     }
 
-    fn render(self, deal: &dealer_core::Deal, index: usize, ctx: &OutputContext) -> String {
+    fn render(
+        self,
+        deal: &dealer_core::Deal,
+        index: usize,
+        ctx: &OutputContext,
+        hand_type: Option<&str>,
+    ) -> String {
         match self {
             Format::OneLine => format_oneline(deal).trim_end().to_string(),
             Format::PrintAll => format_printall(deal, index),
-            // Board numbers, dealer and vulnerability all belong in the PBN
-            // tags; a file without them is far less useful to whatever opens it.
-            // Hand types are left out: they are a generation-time notion, and
-            // the bindings render one deal at a time with nothing to classify
-            // it against.
+            // Board numbers, dealer, vulnerability and the hand type all belong
+            // in the PBN tags; a file without them is far less useful to
+            // whatever opens it, and a set saved from the page should say the
+            // same things as one saved from the command line.
             Format::Pbn => format_printpbn(
                 deal,
                 &PbnBoard {
@@ -78,6 +83,7 @@ impl Format {
                     dealer: ctx.dealer,
                     vulnerability: ctx.vulnerability,
                     seed: Some(ctx.seed),
+                    hand_type,
                     ..Default::default()
                 },
             ),
@@ -88,6 +94,9 @@ impl Format {
 /// One `average "label" expr` result.
 #[derive(Serialize)]
 struct AverageResult {
+    /// True when the expression is about a `HandType_*` variable, so the page
+    /// can show it in the hand-type table rather than twice.
+    is_hand_type: bool,
     label: Option<String>,
     /// Mean over matching deals, or 0 when nothing matched.
     value: f64,
@@ -130,8 +139,14 @@ struct FrequencyResult {
 struct HandTypeShare {
     name: String,
     natural: f64,
+    /// The share the keeps deliver in the long run, which is what the generated
+    /// scenario's own text says. Equal to `delivered` when nothing was levelled.
+    planned: f64,
+    /// Its share of this run, which over a short set is lumpy however even the
+    /// keeps are.
     delivered: f64,
     produced: usize,
+    out_of: usize,
 }
 
 /// The levelling, as numbers. No prose: how it reads is the page's business.
@@ -229,8 +244,10 @@ pub fn generate(
                 HandTypeShare {
                     name: name.clone(),
                     natural: share,
+                    planned: share,
                     delivered: share,
                     produced: *count,
+                    out_of: run.produced,
                 }
             })
             .collect()
@@ -289,8 +306,10 @@ pub fn generate(
                 .map(|s| HandTypeShare {
                     name: s.name.clone(),
                     natural: s.natural,
+                    planned: s.planned,
                     delivered: s.delivered,
                     produced: s.produced,
+                    out_of: s.out_of,
                 })
                 .collect(),
             exactness: report.lambda,
@@ -313,8 +332,10 @@ pub fn generate(
             .map(|s| HandTypeShare {
                 name: s.name.clone(),
                 natural: s.natural,
+                planned: s.planned,
                 delivered: s.delivered,
                 produced: s.produced,
+                out_of: s.out_of,
             })
             .collect(),
         None => shares_of(&run),
@@ -610,7 +631,8 @@ fn run_script(
 
     let averages = averages
         .into_iter()
-        .map(|(label, _, sum, count)| AverageResult {
+        .map(|(label, expr, sum, count)| AverageResult {
+            is_hand_type: dealer_level::mentions_hand_type(&expr),
             label,
             value: if count > 0 { sum / count as f64 } else { 0.0 },
             count,
@@ -676,8 +698,9 @@ fn run_script(
     let mut deals = Vec::with_capacity(order.len());
     for (position, index) in order.into_iter().enumerate() {
         let (matched, deal) = &held[index];
-        deals.push(format.render(deal, position, &output));
-        deal_types.push(matched.map(|i| hand_type_labels[i].clone()));
+        let label = matched.map(|i| hand_type_labels[i].as_str());
+        deals.push(format.render(deal, position, &output, label));
+        deal_types.push(label.map(str::to_string));
     }
 
     Ok(RunOutcome {
@@ -689,7 +712,10 @@ fn run_script(
         generated,
         averages,
         frequencies,
-        hand_type_names: hand_type_names.iter().map(|n| n.to_string()).collect(),
+        // The labels, not the variable names: everything downstream — the
+        // keeps, the `{{level-mix}}` markers, the badge on a board — is written
+        // in terms of `12_14` rather than `HandType_12_14`.
+        hand_type_names: hand_type_labels.clone(),
         hand_type_counts,
     })
 }

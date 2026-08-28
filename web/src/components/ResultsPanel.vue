@@ -20,11 +20,57 @@
         deals. Statistics below cover all of them.
       </p>
 
-      <!-- average "label" expr -->
-      <section v-if="result.averages.length" class="block">
+      <!-- The script's HandType_* variables: what nature offered against what
+           the run delivered. Above the averages because when a scenario is
+           levelled this is the thing it was levelled for. -->
+      <section v-if="handTypes.length" class="block">
+        <h3>Hand types</h3>
+        <p v-if="leveling" class="ht-note">
+          Levelled over {{ leveling.measured.toLocaleString() }} measured deals ·
+          {{ Math.round(leveling.cost).toLocaleString() }} dealt per deal kept ·
+          keeps pinned down by <strong>{{ leveling.rarest }}</strong>, seen
+          {{ leveling.rarest_seen.toLocaleString() }} times
+        </p>
+        <div class="ht">
+          <div v-for="t in handTypes" :key="t.name" class="ht-row">
+            <span class="ht-label" :style="{ color: palette.get(t.name).color }">{{ t.name }}</span>
+            <!-- Two segments, and which comes first says which way the type
+                 moved. A type levelling up shows nature first and the gain
+                 beyond it; one levelling down shows what it delivers first and
+                 what it gave up beyond that. Either way the blue ends at the
+                 delivered share, so the blue edges line up down the column and
+                 it is the orange that is ragged. -->
+            <span class="ht-track">
+              <template v-if="t.planned >= t.natural">
+                <span class="ht-bar natural" :style="{ width: pct(t.natural) }"></span>
+                <span class="ht-bar delivered" :style="{ width: pct(t.planned - t.natural) }"></span>
+              </template>
+              <template v-else>
+                <span class="ht-bar delivered" :style="{ width: pct(t.planned) }"></span>
+                <span class="ht-bar natural" :style="{ width: pct(t.natural - t.planned) }"></span>
+              </template>
+            </span>
+            <span class="ht-value">{{ (100 * t.planned).toFixed(1) }}%</span>
+            <!-- What this run actually dealt, which over a short set is lumpy
+                 however even the keeps are — twenty-four boards across five
+                 bands carry a standard deviation of eight points. Worth showing
+                 next to the share it was aiming at rather than instead of it. -->
+            <span class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
+          </div>
+        </div>
+        <p v-if="leveling" class="ht-key">
+          <span class="ht-swatch natural"></span> natural
+          <span class="ht-swatch delivered"></span> levelled — and what this run of
+          {{ handTypes[0]?.out_of }} dealt, which is lumpy at this length however even the keeps are
+        </p>
+      </section>
+
+      <!-- average "label" expr, less the ones about hand types: those say the
+           same thing as the table above and would only crowd this one. -->
+      <section v-if="plainAverages.length" class="block">
         <h3>Averages</h3>
         <div class="avg">
-          <div v-for="(a, i) in result.averages" :key="i" class="avg-row">
+          <div v-for="(a, i) in plainAverages" :key="i" class="avg-row">
             <span class="avg-label">{{ (a.label || 'Average').trim() }}</span>
             <span class="avg-bar-track">
               <span class="avg-bar" :style="{ width: averageBarWidth(a.value) }"></span>
@@ -90,13 +136,26 @@
           This output format cannot be shown as hands. Switch to Text, or generate with the
           one-line format.
         </p>
-        <DealGrid v-else-if="view === 'grid'" :deals="parsedDeals" />
+        <DealGrid
+          v-else-if="view === 'grid'"
+          :deals="parsedDeals"
+          :types="result.dealTypes || []"
+          :palette="palette"
+        />
         <template v-else>
           <!-- `printes` is the script's own output. It goes above the deals
                because that is what it is usually for: a line summarising each
                deal, which is easier to read as a block than interleaved. -->
           <pre v-if="result.printes" class="deals printes">{{ result.printes }}</pre>
-          <pre class="deals">{{ result.deals.join('\n') }}</pre>
+          <!-- Tinted by hand type and not named: the colours alone show the run
+               walking through the types, which naming them would only say
+               again in words. -->
+          <pre class="deals"><span
+            v-for="(deal, i) in result.deals"
+            :key="i"
+            class="deal-line"
+            :style="{ background: palette.get((result.dealTypes || [])[i]).tint }"
+          >{{ deal }}\n</span></pre>
         </template>
       </section>
       <p v-else-if="!result.hitLimit" class="results-muted">
@@ -117,6 +176,7 @@ import { ref, computed } from 'vue'
 import DealGrid from '@/components/DealGrid.vue'
 import { parseOnelineDeals } from '@/lib/cardFormatting.js'
 import { formatAverage } from '@/lib/format.js'
+import { handTypePalette } from '@/lib/handTypes.js'
 
 const props = defineProps({
   result: { type: Object, default: null },
@@ -128,6 +188,29 @@ defineEmits(['download', 'print'])
 
 // Hands read far more easily than one-line strings, so that is the default.
 const view = ref('grid')
+
+// The script's hand types, in the order it declares them, which is the order
+// their colours follow.
+const handTypes = computed(() => props.result?.handTypes || [])
+
+const leveling = computed(() => props.result?.leveling || null)
+
+// One palette for the whole panel, so a type is the same colour in its row, on
+// its board and behind its line — which is what shows the run walking through
+// the types rather than meeting them as they fall.
+const palette = computed(() => handTypePalette(handTypes.value.map((t) => t.name)))
+
+// Averages about hand types are the hand-type table said twice, so they are
+// left to it. The engine marks them, since a label is prose and cannot be asked.
+const plainAverages = computed(() =>
+  (props.result?.averages || []).filter((a) => !a.is_hand_type),
+)
+
+/// A share of the deals as a CSS width. Shares, not a scale set by the largest,
+/// because they are shares: a band at 20% should look like a fifth.
+function pct(share) {
+  return `${Math.max(0, Math.min(1, share)) * 100}%`
+}
 
 // Only the one-line format can be laid out as hands: printall is already a
 // visual layout, and PBN is a record format. Returns [] for those, and the
@@ -195,6 +278,50 @@ const formatValue = formatAverage
 .avg { display: flex; flex-direction: column; gap: 3px; }
 .avg-row { display: grid; grid-template-columns: minmax(6em, 14em) 1fr 5em; align-items: center; gap: 8px; font-size: 12px; }
 .avg-label { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+/* Hand types. The track is a share of the whole, not a scale set by the largest
+   row, so a band at 20% looks like a fifth. */
+.ht { display: grid; gap: 6px; }
+.ht-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) 1fr 3.5rem 5.5rem;
+  align-items: center;
+  gap: 10px;
+}
+.ht-label { font-family: var(--mono); font-size: 0.86rem; font-weight: 600; }
+.ht-track {
+  display: flex;
+  background: var(--bg-subtle);
+  border-radius: 2px;
+  height: 14px;
+  overflow: hidden;
+}
+.ht-bar { display: block; height: 100%; }
+.ht-bar.natural { background: var(--natural); }
+.ht-bar.delivered { background: var(--accent); }
+.ht-value { font-variant-numeric: tabular-nums; text-align: right; font-size: 0.85rem; }
+.ht-was {
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.ht-note { color: var(--fg-muted); font-size: 0.8rem; margin: 0 0 8px; }
+.ht-key { color: var(--fg-muted); font-size: 0.78rem; margin: 8px 0 0; }
+.ht-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin: 0 4px 0 10px;
+  vertical-align: -1px;
+}
+.ht-key .ht-swatch:first-child { margin-left: 0; }
+.ht-swatch.natural { background: var(--natural); }
+.ht-swatch.delivered { background: var(--accent); }
+
+/* One deal per span so each can carry its type's tint. `pre` keeps the
+   whitespace; the spans are inline so a multi-line format still reads. */
+.deal-line { display: block; border-radius: 2px; }
+
 .avg-bar-track { background: var(--bg-subtle); border-radius: 2px; height: 14px; overflow: hidden; }
 .avg-bar { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 .avg-value { font-family: var(--mono); text-align: right; }

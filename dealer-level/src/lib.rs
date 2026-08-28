@@ -8,7 +8,7 @@
 //!
 //! `docs/leveling-strategy.md` is the method, with the numbers behind it.
 
-use dealer_parser::{Program, Statement};
+use dealer_parser::{Expr, Program, Statement};
 
 /// A scenario ready to receive a levelling block, writing one in if it has none.
 ///
@@ -620,6 +620,31 @@ pub fn hand_types(program: &Program) -> Vec<&str> {
     found
 }
 
+/// Whether an expression is about a hand type.
+///
+/// A scenario levelling five bands usually carries five `average` statements
+/// reporting them, which say the same thing as the hand-type table and would
+/// only crowd the averages beside it. The label cannot answer this — it is
+/// prose — so the expression is asked instead.
+pub fn mentions_hand_type(expr: &Expr) -> bool {
+    match expr {
+        Expr::Variable(name) => name.starts_with(HAND_TYPE_PREFIX),
+        Expr::BinaryOp { left, right, .. } => mentions_hand_type(left) || mentions_hand_type(right),
+        Expr::UnaryOp { expr, .. } => mentions_hand_type(expr),
+        Expr::Ternary {
+            condition,
+            true_expr,
+            false_expr,
+        } => {
+            mentions_hand_type(condition)
+                || mentions_hand_type(true_expr)
+                || mentions_hand_type(false_expr)
+        }
+        Expr::FunctionCall { args, .. } => args.iter().any(mentions_hand_type),
+        _ => false,
+    }
+}
+
 /// What goes in the `[HandType "..."]` tag: the name without its prefix, and
 /// without the separator someone will have written after it.
 pub fn hand_type_label(name: &str) -> &str {
@@ -760,10 +785,19 @@ pub struct HandTypeShare {
     pub name: String,
     /// Its share of the deals the scenario produced before levelling.
     pub natural: f64,
-    /// Its share of what the levelled run produced.
+    /// The share the keeps deliver in the long run — the target, unless a
+    /// budget relaxed it. This is what the generated scenario's own text says,
+    /// so it is the number to show beside it.
+    pub planned: f64,
+    /// Its share of the deals this run actually produced. Over a short set that
+    /// is lumpy however even the keeps are: twenty-four boards across five
+    /// bands carry a standard deviation of eight points.
     pub delivered: f64,
-    /// How many deals of this type the levelled run produced.
+    /// How many deals of this type the run produced.
     pub produced: usize,
+    /// How many deals the run produced in total, so a caller can say "3 of 24"
+    /// without carrying the denominator separately.
+    pub out_of: usize,
 }
 
 /// What levelling a scenario and running it turned up.
@@ -845,14 +879,24 @@ pub fn level_and_run<T>(
             .map(|i| measured.counts[i] as f64 / measured.produced.max(1) as f64)
             .unwrap_or(0.0)
     };
+    let planned_of = |name: &str| {
+        leveled
+            .plans
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.mix)
+            .unwrap_or(0.0)
+    };
     let shares = delivered
         .names
         .iter()
         .zip(&delivered.counts)
         .map(|(name, count)| HandTypeShare {
             natural: natural_of(name),
+            planned: planned_of(name),
             delivered: *count as f64 / delivered.produced.max(1) as f64,
             produced: *count,
+            out_of: delivered.produced,
             name: name.clone(),
         })
         .collect();

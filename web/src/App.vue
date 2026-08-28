@@ -56,12 +56,39 @@
               <option value="pbn">PBN</option>
             </select>
           </label>
+          <!-- Ticks itself when a script names hand types, since that is the
+               only thing levelling needs and the reason to want it. Untouched
+               after that: turning it back off is a choice, and re-ticking it on
+               the next edit would take that away. -->
+          <label class="check" :class="{ off: !hasHandTypes }" :title="levelHint">
+            <input v-model="autoLevel" type="checkbox" :disabled="!hasHandTypes" />
+            Auto-level
+          </label>
           <button class="run" :disabled="!engineReady || running || !scriptValid" @click="run">
             {{ running ? 'Running…' : 'Run' }}
           </button>
         </div>
 
-        <ScriptEditor v-model="script" @validity="onValidity" />
+        <!-- Two views of the same run. The generated scenario is worth reading:
+             the keeps, the header recording what they were measured over, and
+             the chat text filled in from the same numbers. -->
+        <div v-if="leveledScript" class="tabs" role="tablist">
+          <button
+            role="tab"
+            :aria-selected="editorTab === 'script'"
+            :class="{ on: editorTab === 'script' }"
+            @click="editorTab = 'script'"
+          >Script</button>
+          <button
+            role="tab"
+            :aria-selected="editorTab === 'leveled'"
+            :class="{ on: editorTab === 'leveled' }"
+            @click="editorTab = 'leveled'"
+          >Leveled</button>
+        </div>
+
+        <ScriptEditor v-show="editorTab === 'script'" v-model="script" @validity="onValidity" />
+        <pre v-if="editorTab === 'leveled'" class="leveled">{{ leveledScript }}</pre>
       </section>
 
       <section class="col col-results">
@@ -137,6 +164,46 @@ const selectedFile = ref(restored?.scenario || '')
 const loadingFile = ref('')
 const downloading = ref(false)
 
+// Levelling is off unless a script names hand types, which is the only thing it
+// needs and the only reason to want it. `autoLevelTouched` records that someone
+// has since had an opinion, so re-ticking the box on their next keystroke does
+// not take it away from them.
+const autoLevel = ref(restored?.autoLevel ?? false)
+const autoLevelTouched = ref(restored?.autoLevel != null)
+const editorTab = ref('script')
+
+/// Whether the script declares any `HandType_*` variable.
+///
+/// Matched on the assignment rather than any mention, so a script that only
+/// refers to one — a generated file, say — does not look like the source of it.
+const hasHandTypes = computed(() =>
+  /^[ \t]*HandType[A-Za-z0-9_]*[ \t]*=/m.test(script.value),
+)
+
+const levelHint = computed(() =>
+  hasHandTypes.value
+    ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even.'
+    : 'Name some categories of hand with variables beginning HandType_ to level them.',
+)
+
+const leveledScript = computed(() => result.value?.leveling?.script || '')
+
+// Ticked for you the first time a script with hand types appears, and left
+// alone afterwards.
+watch(hasHandTypes, (has) => {
+  if (has && !autoLevelTouched.value) autoLevel.value = true
+  if (!has) autoLevel.value = false
+}, { immediate: true })
+
+watch(autoLevel, () => {
+  autoLevelTouched.value = true
+})
+
+// A levelled run has a second tab; without one there is nothing to show there.
+watch(leveledScript, (text) => {
+  if (!text) editorTab.value = 'script'
+})
+
 onMounted(async () => {
   await ready()
   engineReady.value = true
@@ -148,7 +215,7 @@ onMounted(async () => {
 // synchronous — it would otherwise sit on the typing path.
 let saveTimer = null
 watch(
-  [script, seed, produce, maxGenerate, format, selectedFile],
+  [script, seed, produce, maxGenerate, format, selectedFile, autoLevel],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -159,6 +226,7 @@ watch(
         maxGenerate: maxGenerate.value,
         format: format.value,
         scenario: selectedFile.value,
+        autoLevel: autoLevel.value,
       })
     }, 400)
   },
@@ -276,6 +344,7 @@ async function run() {
       produce: produce.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
+      autoLevel: autoLevel.value && hasHandTypes.value,
     })
   } catch (e) {
     result.value = null
@@ -294,6 +363,9 @@ async function run() {
   --fg-muted: #6b7280;
   --line: #d8dade;
   --accent: #2f6fb2;
+  /* The share nature offers, against the accent's levelled share. Warm against
+     cool, and far enough from both to be told apart by anyone who cannot. */
+  --natural: #d98324;
   --accent-subtle: #e4eefa;
   --danger: #b3261e;
   --warn: #b8860b;
@@ -342,6 +414,48 @@ body {
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
 .controls input[type="number"] { width: 7em; }
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.check.off { color: var(--fg-muted); }
+.check input { margin: 0; }
+
+/* At the level of Run, because it switches what the pane below is showing. */
+.tabs { display: flex; gap: 2px; margin-bottom: -1px; }
+.tabs button {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.tabs button.on { background: var(--editor-bg); color: #fff; border-color: var(--editor-line); }
+
+/* Read-only, and it looks it: this is what ran, not something to edit. Editing
+   it would be editing a copy that the next run overwrites. */
+.leveled {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--editor-bg);
+  color: #d7dae0;
+  border: 1px solid var(--editor-line);
+  border-radius: 0 4px 4px 4px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  overflow: auto;
+  max-height: 60vh;
+  white-space: pre;
+}
+
 .reseed {
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg);
   color: var(--fg-muted); font: inherit; font-size: 11px;
