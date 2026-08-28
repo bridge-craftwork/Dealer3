@@ -34,6 +34,16 @@ pub enum Statement {
     Dealer(Position),
     /// Vulnerable statement: vulnerable none/NS/EW/all
     Vulnerable(VulnerabilityType),
+    /// Title statement: title "text"
+    ///
+    /// DealerV2_4 names a run inside the script; dealer3 also has `-T`, which
+    /// wins when both are given, as the command line does everywhere else.
+    Title(String),
+    /// Seed statement: seed N
+    ///
+    /// DealerV2_4's, and every one of its regression scripts opens with one.
+    /// `-s` wins when both are given.
+    Seed(u32),
     /// Predeal statement: predeal N/E/S/W cards
     Predeal {
         position: Position,

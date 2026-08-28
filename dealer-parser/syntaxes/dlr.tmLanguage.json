@@ -103,7 +103,7 @@
       "patterns": [
         {
           "name": "keyword.control.dlr",
-          "match": "\\b(printcompact|printoneline|pointcount|vulnerable|condition|frequency|altcount|generate|printall|printpbn|average|predeal|printes|printew|produce|action|csvrpt|dealer|print)\\b"
+          "match": "\\b(printcompact|printoneline|pointcount|vulnerable|condition|frequency|altcount|generate|printall|printpbn|average|predeal|printes|printew|produce|action|csvrpt|dealer|print|title|seed)\\b"
         },
         {
           "name": "keyword.other.condition.dlr",

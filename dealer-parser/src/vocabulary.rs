@@ -39,6 +39,8 @@ pub const STATEMENT_KEYWORDS: &[&str] = &[
     "action",
     "dealer",
     "vulnerable",
+    "title",
+    "seed",
     "predeal",
     "csvrpt",
     "pointcount",
@@ -924,6 +926,27 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
                   produced.",
         example: "vulnerable ns",
         note: None,
+    },
+    StatementDoc {
+        keyword: Some("title"),
+        form: "title \"<text>\"",
+        summary: "Names the run, filling the `[Event]` tag of PBN output. `-T` wins when both \
+                  are given.",
+        example: "title \"Weak two openings\"",
+        note: Some(
+            "DealerV2_4's. Nearly every script written for it opens with one, which is why \
+             dealer3 accepts it as well as the switch.",
+        ),
+    },
+    StatementDoc {
+        keyword: Some("seed"),
+        form: "seed <number>",
+        summary: "Fixes the random seed, so the run reproduces. `-s` wins when both are given.",
+        example: "seed 42",
+        note: Some(
+            "DealerV2_4's. Before dealer3 accepted it the word parsed as a variable and the \
+             number as an expression, so the seed a script asked for was silently ignored.",
+        ),
     },
     StatementDoc {
         keyword: Some("predeal"),

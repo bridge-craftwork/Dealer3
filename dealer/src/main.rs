@@ -1256,14 +1256,6 @@ fn main() {
         std::process::exit(1);
     }
 
-    // Use provided seed or default to current time (microsecond resolution)
-    let seed = args.seed.unwrap_or_else(|| {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_micros() as u32
-    });
-
     // Open CSV file if requested
     let mut csv_writer: Option<BufWriter<std::fs::File>> = None;
     if let Some(csv_arg) = &args.csv_file {
@@ -1351,12 +1343,34 @@ fn main() {
         }
     };
 
+    // Names with nothing behind them. A bare expression is a legal statement, so
+    // a misspelled keyword parses rather than failing — `dealr west` is a
+    // variable reference and a compass, both discarded. dealer.exe answers
+    // `line 1: unknown variable`; without this, dealer3 dealt on quietly.
+    let unknown = dealer_parser::undefined_variables(&program);
+    if !unknown.is_empty() {
+        eprintln!(
+            "Error: {} used but never defined: {}.\n       A misspelled statement keyword \
+             looks like this — `dealr west` is a name and a compass, not a `dealer` \
+             statement.",
+            if unknown.len() == 1 {
+                "a name is"
+            } else {
+                "names are"
+            },
+            unknown.join(", ")
+        );
+        std::process::exit(1);
+    }
+
     // Extract action block directives from the program
     let mut produce_count_from_input: Option<usize> = None;
     let mut generate_count_from_input: Option<usize> = None;
     let mut format_from_input: Option<OutputFormat> = None;
     let mut dealer_from_input: Option<DealerPosition> = None;
     let mut vuln_from_input: Option<VulnerabilityArg> = None;
+    let mut title_from_input: Option<String> = None;
+    let mut seed_from_input: Option<u32> = None;
 
     // Track average statements: (label, expression, sum, count)
     let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
@@ -1436,6 +1450,12 @@ fn main() {
                     VulnerabilityType::All => VulnerabilityArg::All,
                 });
             }
+            Statement::Title(text) => {
+                title_from_input = Some(text.clone());
+            }
+            Statement::Seed(value) => {
+                seed_from_input = Some(*value);
+            }
             Statement::CsvReport(terms) => {
                 csv_reports.push(terms.clone());
             }
@@ -1487,7 +1507,20 @@ fn main() {
 
     let dealer_position = args.dealer.or(dealer_from_input);
 
+    // `-s` beats a `seed` statement, and the clock is the last resort. Resolved
+    // here rather than before parsing, because the script may name it.
+    let seed = args.seed.or(seed_from_input).unwrap_or_else(|| {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_micros() as u32
+    });
+
     let vulnerability = args.vulnerability.or(vuln_from_input);
+
+    // `-T` beats a `title` statement, the way `-d` beats `dealer` and
+    // `--vulnerable` beats `vulnerable`.
+    let title = args.title.clone().or(title_from_input);
 
     // Start timing
     let start_time = SystemTime::now();
@@ -1817,7 +1850,7 @@ fn main() {
                             output_format,
                             dealer_position.map(|d| d.into()),
                             vulnerability.map(|v| v.into()),
-                            args.title.as_deref(),
+                            title.as_deref(),
                             seed,
                             args.input_file.as_deref(),
                         )
@@ -2259,7 +2292,7 @@ fn main() {
                     output_format,
                     dealer_position.map(|d| d.into()),
                     vulnerability.map(|v| v.into()),
-                    args.title.as_deref(),
+                    title.as_deref(),
                     seed,
                     args.input_file.as_deref(),
                 )

@@ -19,6 +19,8 @@ dealer_statement = {
     | action_stmt
     | dealer_stmt
     | vulnerable_stmt
+    | title_stmt
+    | seed_stmt
     | predeal_stmt
     | csvrpt_stmt
     | pointcount_stmt
@@ -47,6 +49,11 @@ generate_stmt = { &kw_generate ~ ^"generate" ~ literal }
 action_stmt = { &kw_action ~ ^"action" ~ (action_component ~ ("," ~ action_component)*)? }
 dealer_stmt = { &kw_dealer ~ ^"dealer" ~ compass }
 vulnerable_stmt = { &kw_vulnerable ~ ^"vulnerable" ~ vulnerability }
+// DealerV2_4 names the run in the script rather than on the command line.
+// Same thing as `-T`, and the switch wins when both are given.
+title_stmt = { &kw_title ~ ^"title" ~ string_literal }
+// Also DealerV2_4's, and also a switch here: `-s` wins.
+seed_stmt = { &kw_seed ~ ^"seed" ~ literal }
 predeal_stmt = { &kw_predeal ~ ^"predeal" ~ compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { &kw_csvrpt ~ ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
@@ -269,6 +276,8 @@ kw_produce    = @{ ^"produce"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_generate   = @{ ^"generate"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_action     = @{ ^"action"     ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_dealer     = @{ ^"dealer"     ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_title      = @{ ^"title"      ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_seed       = @{ ^"seed"       ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_vulnerable = @{ ^"vulnerable" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_predeal    = @{ ^"predeal"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_csvrpt     = @{ ^"csvrpt"     ~ !(ASCII_ALPHANUMERIC | "_") }
@@ -290,7 +299,7 @@ kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^
 statement_keyword = @{
     kw_condition | kw_produce | kw_generate | kw_action | kw_dealer
     | kw_vulnerable | kw_predeal | kw_csvrpt | kw_average | kw_frequency
-    | kw_pointcount | kw_altcount | kw_printes | kw_print
+    | kw_pointcount | kw_altcount | kw_printes | kw_print | kw_title | kw_seed
 }
 
 // Words the original dealer accepts that dealer3 does not implement.

@@ -112,6 +112,19 @@ pub const REMAINING: &[WorkItem] = &[
     // DealerV2_4's own words, from reading its lexer and yacc rather than a
     // summary of them, and measured against its 61-script Regression suite.
     WorkItem {
+        what: "`predeal` naming more than one seat",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::High,
+        note: Some(
+            "dealer.exe's, not DealerV2_4's: its grammar is `predealargs: predealarg | \
+             predealargs predealarg`, so `predeal north SAKQ south SJ32` sets both, and \
+             the reference binary does. dealer3 takes one compass per statement and reads \
+             the second seat's holdings as undefined names.",
+        ),
+    },
+    WorkItem {
         what: "`title \"...\"` as a statement",
         done_when: None,
         issue: None,

@@ -260,6 +260,7 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
+| 🔴 Do first | `predeal` naming more than one seat | Low | High |  | dealer.exe's, not DealerV2_4's: its grammar is `predealargs: predealarg | predealargs predealarg`, so `predeal north SAKQ south SJ32` sets both, and the reference binary does. dealer3 takes one compass per statement and reads the second seat's holdings as undefined names. |
 | 🟡 Worth it | `title "..."` as a statement | Low | Medium |  | 58 of DealerV2_4's 61 regression scripts open with one, and it is the only thing standing between dealer3 and 21 of them: dropping the line takes the suite from 4 parsing to 25. dealer3 has the same thing as `-T`. |
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts doubled — so pick a spelling knowing that one exists. |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |

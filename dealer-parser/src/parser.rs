@@ -309,6 +309,31 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })?;
             Ok(Statement::Vulnerable(vuln))
         }
+        Rule::title_stmt => {
+            let raw = inner
+                .into_inner()
+                .next()
+                .ok_or_else(|| ParseError {
+                    message: "title needs a quoted string".to_string(),
+                })?
+                .as_str();
+            // The quotes are the delimiters, not part of the title, and the
+            // original reads no escapes between them.
+            Ok(Statement::Title(raw[1..raw.len() - 1].to_string()))
+        }
+        Rule::seed_stmt => {
+            let raw = inner
+                .into_inner()
+                .next()
+                .ok_or_else(|| ParseError {
+                    message: "seed needs a number".to_string(),
+                })?
+                .as_str();
+            let seed: u32 = raw.parse().map_err(|_| ParseError {
+                message: format!("Invalid seed: {}", raw),
+            })?;
+            Ok(Statement::Seed(seed))
+        }
         Rule::pointcount_stmt => {
             let values = read_count_values(inner.into_inner())?;
             check_count_length(&values)?;
