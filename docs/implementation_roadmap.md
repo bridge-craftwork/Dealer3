@@ -150,42 +150,17 @@ blanket — only a predeal to a seat the swap actually moves is refused, so
 
 ## Phase 5: Advanced features — partly delivered
 
-### 5.1 Double-Dummy Analysis (DDS Integration)
-**Switches**: `-M MODE`, `-R THREADS`
-**Effort**: Very High (20-30 hours)
-**Value**: Medium-High (advanced users)
-**Requirements**:
-- Integrate DDS library (C++ FFI)
-- Implement `tricks()` function
-- Add DDS mode selection
-- Thread pool management
+This phase used to list four features in prose, with effort estimates and
+switch letters. It went stale the way the switch table did before that was
+generated: it had `tricks()` and `-R` down as work to do months after both
+shipped, it named `-l` twice for two different features, and it offered
+`-0` through `-9` for script parameters without noticing that three of those
+letters are dealer.exe's swapping switches and already taken.
 
-### 5.2 Library Mode
-**Switch**: `-l FILENAME`
-**Effort**: High (8-10 hours)
-**Value**: Low (niche feature)
-**Implementation**:
-- Read pre-generated deals from file
-- Skip shuffling, use file deals
-- Fast tricks() evaluation (if DDS available)
-
-### 5.3 Export Formats
-**Switches**: `-Z/--zrd`, `-l/--dl52`
-**Effort**: Medium (3-4 hours each)
-**Value**: Low (format-specific)
-**Implementation**:
-- RP zrd format writer
-- DL52 format writer
-- Optional DDS results inclusion
-
-### 5.4 Script Parameters
-**Switches**: `-0` through `-9`
-**Effort**: Low-Medium (2-3 hours)
-**Value**: Low (scripting)
-**Implementation**:
-- Store as global variables `$0`-`$9`
-- Make available in expressions
-- Useful for parameterized scripts
+So what remains of it is in **What is left** below, which is generated from
+`dealer/src/roadmap.rs` and checked against the argument parser — `-M`,
+`-Z`, DL52, library mode and script parameters are all rows in that table,
+with the switch collisions written down where they belong.
 
 ---
 
@@ -288,8 +263,9 @@ Priority is derived from effort and value rather than written down beside them.
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
+| 🔵 Unlikely | Export in DL52 format | Medium | Low |  | DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with the script parameters, the spelling here would have to differ. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
-| 🔵 Unlikely | Script parameters `$0`-`$9` | Medium | Low |  | DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping switches — so the spelling would have to differ. |
+| 🔵 Unlikely | Script parameters `$0`-`$9` | Medium | Low |  | DealerV2_4 sets them with `-0` to `-9`, which are dealer.exe's swapping switches. dealer.exe wins, so the syntax could be accepted but the switch that fills it would be dealer3's own. `$` is unused in the grammar today, so the parsing is the easy half; the hard half is that `$` is not in the original's lexer either, so a script using it will not run on BBO. |
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | Rejected loudly today; the same thing can be written in the condition. |
 | 🔵 Unlikely | Two-dimensional `frequency` | Medium | Low |  | The original takes a second expression and range and prints marginals. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |

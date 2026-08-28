@@ -167,6 +167,17 @@ pub const REMAINING: &[WorkItem] = &[
         note: None,
     },
     WorkItem {
+        what: "Export in DL52 format",
+        done_when: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some(
+            "DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with \
+             the script parameters, the spelling here would have to differ.",
+        ),
+    },
+    WorkItem {
         what: "Double-dummy solver mode",
         done_when: Some(DoneWhen::Switch("-M")),
         issue: None,
@@ -184,8 +195,11 @@ pub const REMAINING: &[WorkItem] = &[
         effort: Effort::Medium,
         value: Value::Low,
         note: Some(
-            "DealerV2_4 sets them with `-0` to `-9`, which collide with dealer.exe's swapping \
-             switches — so the spelling would have to differ.",
+            "DealerV2_4 sets them with `-0` to `-9`, which are dealer.exe's swapping \
+             switches. dealer.exe wins, so the syntax could be accepted but the switch \
+             that fills it would be dealer3's own. `$` is unused in the grammar today, so \
+             the parsing is the easy half; the hard half is that `$` is not in the \
+             original's lexer either, so a script using it will not run on BBO.",
         ),
     },
     WorkItem {
