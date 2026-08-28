@@ -8,6 +8,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`HandType_X_Share = N`: the target mix, written in the scenario.** A weight
+  per hand type, defaulting to 1 — so a scenario that says nothing still gets an
+  even split, and one that says something carries its own intended mix wherever
+  it runs. The browser needs no control for it, and the two front ends cannot
+  drift apart. Still only a variable assignment, so it parses on BBO exactly as
+  the `HandType_` convention does.
+  - `--level-target` overrides it, as `-s` overrides `seed`.
+  - The case it exists for: levelling five HCP bands leaves the *inside* of each
+    band as nature had it, so within 12-14 a 12 is far commoner than a 14.
+    Making each HCP its own type fixes that but breaks the bands — thirteen even
+    types give the three-wide bands more than the two-wide ones. Shares of 2 and
+    3 restore both at once, and the arithmetic is the sort that ends up wrong in
+    a comment.
+  - `hand_types()` had to learn to skip these, or `HandType_12_Share` becomes a
+    fourth hand type called `12_Share`, overlapping the real one and breaking
+    the partition. The suffix is matched without regard to case for the same
+    reason: an unrecognised `_share` would fail that way silently.
+- **The measuring pass sizes itself.** It deals until the rarest hand type has
+  been seen 2,000 times — about ±2.2% on that rate — and stops there. That
+  number is what sets the precision of the whole levelling, since a keep is
+  `mix / natural` and an error in the divisor is baked in for good.
+  - How many deals that takes depends entirely on how rare the rarest type is,
+    and the range is wide: the five-band example needs 158,000 produced, a
+    thirteen-band one whose scarcest value is 0.2% of qualifying deals needs
+    1,066,000. No fixed number serves both, which is why `-p` no longer sizes it
+    — the old fixed pass was arbitrary and, for anything with a genuinely rare
+    type, arbitrarily low.
+  - **`--level-measure`** caps the deals produced (default 2,000,000) and
+    **`--level-timeout`** the seconds (default 60). Reaching either warns rather
+    than refusing: the file is written, and the shortfall is reported and
+    stamped into it. Measuring too thin was refused before, which gave neither a
+    file nor a way forward.
+  - It stops on the exact deal that finishes the job rather than at the end of
+    the batch it fell in. Batches are 200 deals per thread, so a batch boundary
+    would make the measurement — and the file generated from it — depend on how
+    many cores the machine has, and CI regenerates and diffs `examples/`.
+  - In the browser the same thing happens against a clock rather than a deal
+    count, since a page blocks while it deals: a 10,000-deal probe to find out
+    how rare the rarest type is, then as long as that suggests within a few
+    seconds. The example scenario went from 10,000 measured deals to 125,787,
+    and its rarest band from 159 sightings to 1,589 — which took its delivered
+    share from 17.9% to 21.3%, the 24% keep error being exactly the fault the
+    old fixed pass could not see.
 - **`predeal` may name more than one seat**, as dealer.exe's does:
   `predeal north SAKQ south SJ32` sets both. Its grammar is
   `predealargs: predealarg | predealargs predealarg`, and the reference binary

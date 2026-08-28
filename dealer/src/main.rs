@@ -19,7 +19,7 @@ use dealer_eval::{
 };
 use dealer_level::{
     check_leveling_source, hand_type_label, hand_types, insert_leveling_block, interleave,
-    level_from, Leveled, Measurement, MIN_HAND_TYPE_SAMPLE,
+    level_from, Leveled, Measurement, MEASURE_GOAL, MIN_HAND_TYPE_SAMPLE,
 };
 use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
 use dealer_pbn::{
@@ -131,14 +131,34 @@ struct Args {
     ///
     /// Runs the script as it stands to measure how often each `HandType_*`
     /// variable comes up, works out the keep rate for each, and writes the
-    /// result into the copy's `### BEGIN GENERATED LEVELING ###` block. `-p`
-    /// sets how many deals to measure over. See `docs/leveling-guide.md`.
+    /// result into the copy's `### BEGIN GENERATED LEVELING ###` block.
+    /// See `docs/leveling-guide.md`.
     #[arg(long = "write-leveled", value_name = "FILE")]
     write_leveled: Option<PathBuf>,
 
     /// Target mix for `--write-leveled`: "even", or weights per hand type
-    #[arg(long = "level-target", value_name = "MIX", default_value = "even")]
-    level_target: String,
+    ///
+    /// Overrides any `HandType_X_Share` the script declares. Without either,
+    /// the mix is even.
+    #[arg(long = "level-target", value_name = "MIX")]
+    level_target: Option<String>,
+
+    /// Most deals to produce while measuring for `--write-leveled`
+    ///
+    /// A ceiling, not a target: measuring stops as soon as the rarest hand type
+    /// has been seen enough times to divide by. The rarest type is what sets
+    /// the precision of the whole levelling, and how many deals that takes
+    /// depends on how rare it is — a type at 5% of qualifying deals is pinned
+    /// down by ten thousand, one at 0.2% needs a quarter of a million.
+    #[arg(long = "level-measure", value_name = "N", default_value = "2000000")]
+    level_measure: usize,
+
+    /// Seconds to spend measuring for `--write-leveled` before giving up
+    ///
+    /// Reaching it is not an error: the levelling is written with whatever was
+    /// measured, and the shortfall is reported and stamped into the file.
+    #[arg(long = "level-timeout", value_name = "SECS", default_value = "60")]
+    level_timeout: u64,
 
     /// Budget for `--write-leveled`, in deals dealt per deal kept
     #[arg(long = "level-budget", value_name = "N")]
@@ -1045,6 +1065,18 @@ fn main() {
             }
         });
 
+    // A measuring run is sized by what it is measuring, not by `-p`, and `-p`
+    // means something else here anyway — a scenario's own `produce 5000` is
+    // about the practice set, not about how well its rates are known. So
+    // `--level-measure` is the ceiling and the rarest type decides when to stop
+    // below it. Without this the measurement was whatever `-p` happened to say,
+    // which for a type at 0.2% of qualifying deals was nowhere near enough.
+    let produce_count = if args.write_leveled.is_some() {
+        args.level_measure
+    } else {
+        produce_count
+    };
+
     let output_format = args
         .format
         .or(format_from_input)
@@ -1264,6 +1296,13 @@ fn main() {
     // Track if we timed out
     let mut timed_out = false;
 
+    // Set the moment every hand type has been seen enough times to divide by,
+    // which is when a measuring run has nothing left to learn. A `Cell` so the
+    // loop can read it while the closure below holds the counts.
+    let enough_measured = std::cell::Cell::new(false);
+    let measuring = args.write_leveled.is_some();
+    let hand_type_count_wanted = hand_type_names.len();
+
     // Helper closure to process a matching deal (averages, frequencies, output, CSV)
     #[allow(clippy::type_complexity)]
     // `held` and `hand_type_counts` are captured rather than passed: the
@@ -1354,7 +1393,20 @@ fn main() {
                 matched.map(hand_type_label)
             };
             if let Some(label) = hand_type {
-                *hand_type_counts.entry(label.to_string()).or_insert(0) += 1;
+                let count = hand_type_counts.entry(label.to_string()).or_insert(0);
+                *count += 1;
+                // A measuring run stops as soon as the rarest type is worth
+                // dividing by, and this is where that becomes knowable. The
+                // flag is a `Cell` because the counts themselves are borrowed
+                // by this closure for the whole run, so the loop outside cannot
+                // read them — and only the moment a type *reaches* the bar is
+                // worth walking the map for.
+                if measuring && *count == MEASURE_GOAL {
+                    enough_measured.set(
+                        hand_type_counts.len() == hand_type_count_wanted
+                            && hand_type_counts.values().all(|n| *n >= MEASURE_GOAL),
+                    );
+                }
             }
 
             // printes: the script's own formatted output, with nothing added
@@ -1608,6 +1660,11 @@ fn main() {
         };
 
         while produced < produce_count && generated < max_generate {
+            // Enough of every hand type to divide by, which is the only thing a
+            // measuring run is for.
+            if enough_measured.get() {
+                break;
+            }
             // Check timeout before each batch
             if let Some(timeout_secs) = args.timeout {
                 let elapsed = start_time.elapsed().unwrap().as_secs();
@@ -1616,6 +1673,22 @@ fn main() {
                     eprintln!(
                         "Timeout after {} seconds ({} generated, {} produced)",
                         elapsed, generated, produced
+                    );
+                    break;
+                }
+            }
+
+            // The measuring run's own clock, so a scenario whose rarest type is
+            // desperately rare stops on a deadline instead of grinding to
+            // `--level-measure`. Not an error: the levelling is written with
+            // what was measured and the shortfall reported.
+            if args.write_leveled.is_some() {
+                let elapsed = start_time.elapsed().unwrap().as_secs();
+                if elapsed >= args.level_timeout {
+                    eprintln!(
+                        "Note: stopped measuring after {}s ({} produced). \
+                         Raise --level-timeout to measure for longer.",
+                        elapsed, produced
                     );
                     break;
                 }
@@ -1681,6 +1754,18 @@ fn main() {
                     if produced >= produce_count {
                         break;
                     }
+
+                    // A measuring run stops on the very deal that finished the
+                    // job, not at the end of the batch it fell in. Batches are
+                    // 200 deals per thread, so stopping at a batch boundary
+                    // would make the measurement — and the generated file that
+                    // comes out of it — depend on how many cores the machine
+                    // has. The example pair in `examples/` is regenerated and
+                    // diffed by CI, which would fail on any machine but the one
+                    // it was written on.
+                    if enough_measured.get() {
+                        break;
+                    }
                 }
             }
         }
@@ -1702,15 +1787,31 @@ fn main() {
             produced,
             generated,
             counts: labels.iter().map(|l| hand_type_counts[l]).collect(),
-            names: labels,
+            names: labels.clone(),
         };
+
+        // The switch wins over the script, as `-s` does over `seed`. Without
+        // either, the script's own `HandType_X_Share` declarations answer —
+        // and those default to 1 each, which is an even mix.
+        let weights = match &args.level_target {
+            Some(spec) => dealer_level::parse_level_target(spec, &labels),
+            None => dealer_level::hand_type_shares(&program),
+        };
+        let weights = match weights {
+            Ok(weights) => weights,
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        };
+
         // The prepared scenario, not the file: a placeholder written in above
         // belongs in the copy as well, or the two would disagree.
         let source = leveling_source.clone().unwrap_or_default();
         let leveled = match level_from(
             &source,
             &measured,
-            &args.level_target,
+            &weights,
             args.level_budget,
             seed,
             MIN_HAND_TYPE_SAMPLE,
@@ -1721,6 +1822,9 @@ fn main() {
                 std::process::exit(1);
             }
         };
+        for warning in &leveled.warnings {
+            eprintln!("Warning: {}", warning);
+        }
         if let Err(e) = std::fs::write(leveled_path, &leveled.script) {
             eprintln!("Error: could not write {}: {}", leveled_path.display(), e);
             std::process::exit(1);

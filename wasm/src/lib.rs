@@ -168,6 +168,9 @@ struct LevelingResult {
     /// a relative error — the precision of the whole levelling rests on it.
     rarest: String,
     rarest_seen: usize,
+    /// Anything worth saying out loud that does not make the levelling wrong —
+    /// a measurement thinner than the goal, above all.
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -254,8 +257,19 @@ pub fn generate(
     };
 
     let (run, leveling) = if auto_level {
+        // The target mix comes out of the script, exactly as it does on the
+        // command line: `HandType_22_24_Share = 3` and nothing else. That is
+        // why the page needs no control for it — a scenario carries its own
+        // intended mix, and the two front ends cannot drift apart.
+        let program = dealer_parser::parse_program(
+            &dealer_parser::preprocess_all(script, &Default::default())
+                .map_err(|e| JsError::new(&e))?,
+        )
+        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+        let weights = dealer_level::hand_type_shares(&program).map_err(|e| JsError::new(&e))?;
+
         let opts = dealer_level::LevelOptions {
-            target: "even",
+            target: &weights,
             budget: None,
             seed,
             // A browser has no patience for the command line's 500 sightings of
@@ -263,24 +277,39 @@ pub fn generate(
             // count it managed comes back instead, so the page can say how well
             // the keeps are pinned down.
             min_sample: MIN_BROWSER_SAMPLE,
-            measure_produce: MEASURE_PRODUCE.min(max_generate),
+            probe_produce: PROBE_PRODUCE.min(max_generate),
+            measure_cap: max_generate,
         };
+        // What the second pass may cost. A page blocks while it deals, so the
+        // clock is the real limit here rather than a deal count — the command
+        // line can spend a minute on a scenario the browser has to answer in
+        // seconds, and the same request would mean very different waits.
+        let measure_deadline = now_ms() + MEASURE_BUDGET_MS;
+        let measured_per_ms = std::cell::Cell::new(0.0f64);
         let (run, report) = dealer_level::level_and_run(
             script,
             &opts,
             // Measuring: counts only. These deals exist to be characterised and
             // thrown away, so none of them is rendered.
             |script, measure_produce| {
-                let outcome = run_script(
-                    script,
-                    seed,
-                    measure_produce,
-                    max_generate,
-                    format,
-                    false,
-                    false,
-                )
-                .map_err(|e| error_text(&e))?;
+                // Clamped to what the clock allows, judged from how fast the
+                // probe went. Returning fewer than asked for is expected: the
+                // levelling reads the counts that come back, not the request.
+                let left = (measure_deadline - now_ms()).max(0.0);
+                let rate = measured_per_ms.get();
+                let affordable = if rate > 0.0 {
+                    ((left * rate) as usize).max(1)
+                } else {
+                    measure_produce
+                };
+                let asked = measure_produce.min(affordable);
+
+                let started = now_ms();
+                let outcome =
+                    run_script(script, seed, asked, max_generate, format, false, false)
+                        .map_err(|e| error_text(&e))?;
+                let spent = (now_ms() - started).max(1.0);
+                measured_per_ms.set(outcome.produced as f64 / spent);
                 Ok(measurement(&outcome))
             },
             // Producing: the deals the page will show, interleaved.
@@ -318,6 +347,7 @@ pub fn generate(
             measured: report.measured,
             rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
             rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
+            warnings: report.warnings.clone(),
         };
         (run, Some(leveling))
     } else {
@@ -362,7 +392,15 @@ pub fn generate(
 /// The rarest hand type sets the precision of the whole thing, so this is the
 /// number that matters. Ten thousand is a second or two and pins a type of a
 /// few percent to within a point; the page reports where it actually landed.
-const MEASURE_PRODUCE: usize = 10_000;
+const PROBE_PRODUCE: usize = 10_000;
+
+/// How long the browser will go on measuring after the probe.
+///
+/// A page blocks while it deals, so this is a clock rather than a deal count —
+/// which is also what lets one number serve every scenario. Falling short of
+/// the goal is not an error: the count reached comes back and the panel says
+/// what it was.
+const MEASURE_BUDGET_MS: f64 = 6_000.0;
 
 /// Fewest sightings of a type the browser will divide by.
 ///

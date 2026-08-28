@@ -31,6 +31,14 @@
           keeps pinned down by <strong>{{ leveling.rarest }}</strong>, seen
           {{ leveling.rarest_seen.toLocaleString() }} times
         </p>
+        <!-- A thin measurement is the one error levelling cannot recover from:
+             the keep is `mix / natural`, so an error in a rate measured on too
+             little is baked in for good rather than averaging out. It does not
+             make the run wrong, so it warns rather than refusing — but it has
+             to be visible, because nothing else on the page looks amiss. -->
+        <p v-for="(w, i) in leveling?.warnings || []" :key="i" class="ht-warn">
+          {{ w.replace(/\s+/g, ' ') }}
+        </p>
         <div class="ht">
           <div v-for="t in handTypes" :key="t.name" class="ht-row">
             <span class="ht-label" :style="{ color: palette.get(t.name).color }">{{ t.name }}</span>
@@ -355,6 +363,19 @@ const formatValue = formatAverage
   vertical-align: -1px;
 }
 .ht-key .ht-swatch:first-child { margin-left: 0; }
+/* Amber rather than red: the levelling ran and its numbers are on screen —
+   this is about how much to trust them, not about a failure. */
+.ht-warn {
+  margin: 0.35rem 0 0.6rem;
+  padding: 0.45rem 0.6rem;
+  border-left: 3px solid #c8860d;
+  background: #fdf6e7;
+  color: #6b4e08;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  border-radius: 0 3px 3px 0;
+}
+
 .ht-swatch.natural { background: var(--natural); }
 .ht-swatch.delivered { background: var(--accent); }
 

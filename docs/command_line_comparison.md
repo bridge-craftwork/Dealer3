@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **33 of the 44 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **35 of the 46 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -36,9 +36,11 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-g`, `--generate` | Stop after dealing N hands | ✅ | ✅ | ✅ | Default 10,000,000. Whichever limit is reached first ends the run. |
 | `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Default is the clock. dealer3 has its own RNG (xoshiro256++), so a seed does not reproduce dealer.exe's deals — that went with legacy mode. |
 | `-t`, `--timeout` | Give up after N seconds | ✅ | — | — |  |
-| `--write-leveled` | Write a copy of the script with its hand types levelled | ✅ | — | — | Measures how often each `HandType_*` variable comes up, works out the keep rate for each, and writes them into the copy. `-p` sets the sample. See `docs/leveling-guide.md`. |
-| `--level-target` | Target mix for `--write-leveled`: even, or one weight per hand type | ✅ | — | — |  |
+| `--write-leveled` | Write a copy of the script with its hand types levelled | ✅ | — | — | Measures how often each `HandType_*` variable comes up, works out the keep rate for each, and writes them into the copy. The measuring run sizes itself — see `--level-measure`. The target mix comes from the script's `HandType_*_Share` declarations unless `--level-target` overrides them. See `docs/leveling-guide.md`. |
+| `--level-target` | Target mix for `--write-leveled`: even, or one weight per hand type | ✅ | — | — | Overrides the script's own `HandType_*_Share` declarations, as `-s` overrides `seed`. Without either, the mix is even. |
 | `--level-budget` | Budget for `--write-leveled`, in deals dealt per deal kept | ✅ | — | — | When a target costs more than this, exactness is relaxed rather than the rarest type sacrificed: every type moves the same fraction toward its target. |
+| `--level-measure` | Most deals to produce while measuring for `--write-leveled` | ✅ | — | — | A ceiling, not a target: measuring stops as soon as the rarest hand type has been seen enough times to divide by, which is what sets the precision of the whole levelling. How many deals that takes depends on how rare that type is — ten thousand for one at 5% of qualifying deals, a million for one at 0.2% — so it is worked out rather than chosen. |
+| `--level-timeout` | Seconds to spend measuring for `--write-leveled` before giving up | ✅ | — | — | Reaching it is not an error: the levelling is written with whatever was measured, and the shortfall is reported and stamped into the file. |
 | `--param` | Fill a script parameter: `--param 1=west` puts `west` where `$1` stands | ✅ | — | ⚠️ -0 to -9 set $0 to $9 | DealerV2_4's spelling collides with dealer.exe's swapping switches, which win, so only the switch differs — a script written for it is unchanged. A parameter is source rather than a value: a compass, a number, a shape, even a function name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike DealerV2_4, a `$n` nothing supplies is an error rather than an empty space. |
 | `--rnd-seed` | Shift the stream `rnd()` draws from | ✅ | — | — | `rnd()` is reproducible without it. The original draws from the generator it shuffles with, so calling it there changes the deals; dealer3 keeps the two apart. |
 | `-0` | No swapping (the default) | ✅ | ✅ | ⚠️ -x MODE | The three swapping switches override one another, so the last one wins. |

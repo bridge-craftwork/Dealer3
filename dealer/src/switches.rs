@@ -140,7 +140,9 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_v2: Origin::Absent,
         note: Some(
             "Measures how often each `HandType_*` variable comes up, works out the keep rate \
-             for each, and writes them into the copy. `-p` sets the sample. See \
+             for each, and writes them into the copy. The measuring run sizes itself — see \
+             `--level-measure`. The target mix comes from the script's `HandType_*_Share` \
+             declarations unless `--level-target` overrides them. See \
              `docs/leveling-guide.md`.",
         ),
     },
@@ -151,7 +153,10 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         what: "Target mix for `--write-leveled`: even, or one weight per hand type",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
-        note: None,
+        note: Some(
+            "Overrides the script's own `HandType_*_Share` declarations, as `-s` overrides \
+             `seed`. Without either, the mix is even.",
+        ),
     },
     SwitchRow {
         short: "",
@@ -163,6 +168,33 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         note: Some(
             "When a target costs more than this, exactness is relaxed rather than the rarest \
              type sacrificed: every type moves the same fraction toward its target.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--level-measure",
+        group: "Generation",
+        what: "Most deals to produce while measuring for `--write-leveled`",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "A ceiling, not a target: measuring stops as soon as the rarest hand type has \
+             been seen enough times to divide by, which is what sets the precision of the \
+             whole levelling. How many deals that takes depends on how rare that type is — \
+             ten thousand for one at 5% of qualifying deals, a million for one at 0.2% — so \
+             it is worked out rather than chosen.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--level-timeout",
+        group: "Generation",
+        what: "Seconds to spend measuring for `--write-leveled` before giving up",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Reaching it is not an error: the levelling is written with whatever was \
+             measured, and the shortfall is reported and stamped into the file.",
         ),
     },
     SwitchRow {

@@ -148,7 +148,7 @@ roughly the same
 place.](images/hand-types-panel.png "Natural against delivered, for the scenario above")
 
 Orange is what nature offers, blue what the run delivered. Read down the orange
-and you see the problem: 57.4% at the top against 1.6% at the bottom. Read down
+and you see the problem: 58.4% at the top against 1.3% at the bottom. Read down
 the blue and you see the fix — every band ending in the same place, near 20%.
 
 The bands that shrank show a long orange tail past the blue; the bands that grew
@@ -169,6 +169,7 @@ hand.
 | word | what it is |
 |---|---|
 | `HandType_NAME` | **You write this.** A variable naming a category of hand. The label is what follows the prefix, so `HandType_22_24` is the type `22_24` |
+| `HandType_NAME_Share` | **You write this**, optionally. That type's weight in the target mix. Every type defaults to 1, which is an even split |
 | `{{level-mix:NAME}}` | **You write this**, in the player-facing text. Replaced by that type's share of the result |
 | `{{level-mix}}` | The same, but writes every type and its share as a block |
 | `### BEGIN GENERATED LEVELING ###` | Optional. Marks where the generated block should go. Without it, one is written in above the condition |
@@ -225,6 +226,52 @@ so the same thresholds land on target everywhere.
 
 If your scenario already defines `roll` — from an include, say — it is used as
 it stands, but only in exactly that shape.
+
+### Asking for an uneven mix
+
+Every type is wanted equally unless the script says otherwise, and it says
+otherwise with a share:
+
+```
+HandType_22_24_Share = 3
+```
+
+Weights, not percentages — they are normalised — so `1,1,2` and `10,10,20` say
+the same thing. A type that declares no share gets 1.
+
+The case this exists for is subtler than "I want more slam hands". Levelling the
+five bands above leaves the *inside* of each band as nature had it: within
+12-14, a 12 is far commoner than a 14, so the delivered set is still lopsided
+where it matters to a student. The fix is to make each HCP its own hand type —
+thirteen of them, `hcp(south) == 12` through `== 24`.
+
+But that alone breaks the bands: thirteen even types would give 12-14 three
+thirteenths and 18-19 only two, so the wide bands would swell. To keep the
+bands equal *and* level inside them, a value in a two-wide band has to be wanted
+half again as often as one in a three-wide band:
+
+```
+HandType_12_Share = 2      # 12-14, 15-17 and 22-24 are three HCP wide
+HandType_18_Share = 3      # 18-19 and 20-21 are two
+```
+
+Five bands of 3, 3, 2, 2 and 3 values, with shares of 2, 2, 3, 3 and 2, each ask
+for six thirtieths — a fifth each. Delivered:
+
+| band | share | its values |
+|---|---|---|
+| 12-14 | 20.05% | 2039, 1917, 2060 |
+| 15-17 | 20.48% | 2070, 2091, 1982 |
+| 18-19 | 19.80% | 2878, 3062 |
+| 20-21 | 19.92% | 2969, 3006 |
+| 22-24 | 19.75% | 1990, 2000, 1936 |
+
+Bands level, and flat within each.
+
+`--level-target` says the same thing on the command line and overrides the
+script, as `-s` overrides `seed`. Prefer the shares: a scenario then carries its
+own intended mix, the browser needs no control for it, and the two front ends
+cannot drift apart.
 
 ---
 
@@ -460,7 +507,8 @@ than a warning.
 
 | refusal | what to do |
 |---|---|
-| **a type seen fewer than 500 times** | raise `-p`. The message names the type. See [How good is the result?](#how-good-is-the-result) |
+| **a share naming a type that is not declared** | a typo in `HandType_X_Share` would otherwise set the share of nothing at all, leaving the mix quietly even |
+| **a share that is not a plain number** | a share settled by the deal would mean a different target mix on every hand |
 | **types that overlap** | two types matched one deal — tighten the boundaries |
 | **types that leave a gap** | the measured rates did not sum to 1. Add a catch-all type, or narrow the condition so the declared types cover it |
 | **a generated file given as the stock one** | use the stock file. Levelling an already-levelled scenario measures the levelled mix, computes keeps of roughly 1, and writes a scenario with no levelling at all. The stamp is what catches this |
@@ -511,34 +559,42 @@ Both front ends report where they landed, and that figure is the thing to read:
 keeps pinned down by `22_24`, the rarest, seen 1285 times: +-2.8%
 ```
 
-**On the command line**, `-p` is the control and fewer than 500 sightings of any
-type is refused outright — a build step can simply be told to measure over more,
-so a hard stop costs nothing and prevents a bad file. A few thousand sightings
-of the rarest band is comfortable.
+**You mostly do not have to do anything.** The measuring pass sizes itself: it
+deals until the rarest type has been seen 2,000 times and stops there, which is
+about ±2.2% on that rate. How many deals that takes depends entirely on how rare
+that type is, and the range is wide — the five-band example needs 158,000
+produced and takes under a second, while a thirteen-band one whose scarcest
+value is 0.2% of qualifying deals needs 1,066,000 and takes three. No fixed
+number serves both, which is why it is worked out rather than chosen.
 
-**In the browser** the measuring pass is fixed at 10,000 produced deals, so
-there is nothing to turn up. It goes ahead from 50 sightings and reports the
-count instead of refusing, because a page that refused would teach nothing. So
-the action is different: read the count, and if it is small, **generate the file
-from the command line with a larger `-p` before it goes anywhere near a class.**
+Two limits stop it running away, and reaching either is a warning rather than an
+error — the file is still written, with the shortfall reported and stamped into
+it:
 
-Ten thousand deals is a second or two and plenty for a band of a few percent. It
-is thin for a genuinely rare one. On this repo's example the panel reports:
+- **`--level-measure`** caps the deals produced (default 2,000,000).
+- **`--level-timeout`** caps the seconds (default 60).
 
-```
-keeps pinned down by 22_24, seen 159 times
-```
+**In the browser** there is nothing to set. It probes with 10,000 deals to find
+out how rare the rarest type is, then measures for as long as that suggests —
+bounded by a few seconds, because a page blocks while it deals. If it falls
+short it says so in the Hand types panel.
 
-159 sightings of a band whose true rate predicts 129 — a 24% overestimate, which
-is an ordinary result at that count. The `22_24` keep comes out 24% too small,
-and that band goes on delivering about 17% instead of 20%.
+So the action is: **read the reported count.** Below a few hundred, generate the
+file from the command line, where the clock is more generous.
 
-It is in the picture above, if you know to look: `22_24` reads **17.9%** where
-the other four sit between 19.1 and 21.3. That is the only visible symptom, and
-on a single run it is indistinguishable from ordinary sampling noise — the
-difference is that this one does not shrink with more deals. **A levelling
-reports its own precision and not its own accuracy**, and the `seen 159 times`
-is the only thing on screen that says so.
+That number is on screen for a reason worth knowing, because it used to be the
+only warning of a fault nothing else showed. When the browser measured a fixed
+10,000 deals it saw `22_24` about 159 times — against a true rate predicting
+129, a 24% overestimate, which is an ordinary result at that count. The keep
+came out 24% too small and the band delivered about 17% instead of 20%,
+*permanently*. On the page it read `17.9%` where the other four sat between
+19.1 and 21.3: indistinguishable from sampling noise on a single run, except
+that this one did not shrink with more deals.
+
+Sizing the measurement fixed that particular case — the same scenario now
+measures 125,787 deals and sees the band 1,589 times. The lesson survives it:
+**a levelling reports its own precision and not its own accuracy**, and the
+sighting count is the only thing on screen that speaks to either.
 
 To measure a band of a given natural rate to a given relative precision:
 

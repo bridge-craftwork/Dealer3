@@ -142,13 +142,20 @@ describe('renderGuide', () => {
 })
 
 describe('the guide itself', () => {
-  // The figures the CLI and the browser actually enforce. Both are load-bearing
-  // — a levelling measured on too little is the one error producing more deals
-  // cannot fix — so the guide is held to naming them.
-  it('states both sample-size floors', () => {
-    expect(GUIDE).toContain('500')
-    expect(GUIDE).toContain('50 sightings')
-    expect(GUIDE).toContain('10,000')
+  // A levelling measured on too little is the one error producing more deals
+  // cannot fix, so the guide is held to explaining how the measurement is
+  // sized and what bounds it.
+  it('says what the measuring pass aims for and what caps it', () => {
+    expect(GUIDE).toContain('2,000 times')
+    expect(GUIDE).toContain('--level-measure')
+    expect(GUIDE).toContain('--level-timeout')
+  })
+
+  // The share convention is the other half of the interface, and the one that
+  // is easy to leave undocumented because it is optional.
+  it('documents the target-share convention', () => {
+    expect(GUIDE).toContain('HandType_NAME_Share')
+    expect(GUIDE).toContain('HandType_22_24_Share')
   })
 
   it('carries no hand-written switch or language status table', () => {

@@ -405,6 +405,37 @@ pub fn fill_mix_markers(text: &str, plans: &[LevelPlan]) -> Result<String, Strin
     Ok(out)
 }
 
+/// How many produced deals it would take for the rarest type to be seen
+/// `goal` times, judged from what has been seen so far.
+///
+/// The measuring pass is sized by the rarest type and nothing else, because the
+/// keep is `mix / natural` and it is that divisor's relative error that ends up
+/// in the delivered mix. A type at 0.2% of qualifying deals needs a quarter of
+/// a million produced to be seen 500 times; one at 5% needs ten thousand. No
+/// single fixed number serves both, which is why this is worked out rather than
+/// chosen.
+///
+/// Returns 0 when nothing has been seen yet, which is the caller's signal that
+/// the probe was too small to estimate from at all.
+pub fn needed_produce(counts: &[usize], produced: usize, goal: usize) -> usize {
+    let rarest = counts.iter().copied().min().unwrap_or(0);
+    if rarest == 0 || produced == 0 {
+        return 0;
+    }
+    // Round up: asking for exactly the goal lands short half the time.
+    (goal as f64 * produced as f64 / rarest as f64).ceil() as usize
+}
+
+/// Sightings of the rarest type a measuring pass aims for.
+///
+/// Deliberately well above [`MIN_HAND_TYPE_SAMPLE`], which is the floor below
+/// which a levelling is worth warning about. Stopping at the floor would leave
+/// every scenario measured to the worst precision anyone would accept — 500
+/// sightings is ±4.5% on that rate, and it passes straight into the delivered
+/// mix. 2000 is ±2.2%, and the difference costs seconds: the measuring pass
+/// deals nothing it has to render, score or keep.
+pub const MEASURE_GOAL: usize = 2_000;
+
 /// Fewest sightings of a type worth dividing by.
 ///
 /// A keep is `mix / natural`, so a relative error in a measured rate passes
@@ -647,6 +678,28 @@ pub fn interleave(
 /// count found is always reported.
 pub const HAND_TYPE_PREFIX: &str = "HandType";
 
+/// The suffix that marks a variable as a hand type's target share rather than
+/// a hand type.
+///
+/// `HandType_12_Share = 3` says the `12` type is wanted three times as often as
+/// one with a share of 1. Written in the script rather than passed as a switch
+/// so a scenario carries its own intended mix — the browser then needs no
+/// control for it, and the two front ends cannot disagree.
+///
+/// Still only a variable assignment, so a script using it parses on BBO exactly
+/// as the `HandType_` convention does.
+///
+/// Matched without regard to case, because the failure otherwise is silent and
+/// nasty: `HandType_12_share` that was not recognised would simply become a
+/// hand type called `12_share`, overlapping the real one.
+pub const SHARE_SUFFIX: &str = "_Share";
+
+/// Whether this name declares a share rather than a hand type.
+fn is_share(name: &str) -> bool {
+    name.len() > SHARE_SUFFIX.len()
+        && name[name.len() - SHARE_SUFFIX.len()..].eq_ignore_ascii_case(SHARE_SUFFIX)
+}
+
 /// The script's hand-type variables, in the order it declares them.
 ///
 /// Declaration order, not alphabetical: it is the order the author thought in,
@@ -655,12 +708,75 @@ pub fn hand_types(program: &Program) -> Vec<&str> {
     let mut found = Vec::new();
     for statement in &program.statements {
         if let Statement::Assignment { name, .. } = statement {
-            if name.starts_with(HAND_TYPE_PREFIX) && !found.contains(&name.as_str()) {
+            if name.starts_with(HAND_TYPE_PREFIX)
+                && !is_share(name)
+                && !found.contains(&name.as_str())
+            {
                 found.push(name.as_str());
             }
         }
     }
     found
+}
+
+/// The target share each hand type asks for, in declaration order.
+///
+/// Weights rather than percentages — they are normalised — so `1,1,2` and
+/// `10,10,20` say the same thing. A type that declares no share gets 1, which
+/// makes an even split the default and means a scenario has to say nothing at
+/// all to get the old behaviour.
+///
+/// The case this exists for: bins that should come out equal while the values
+/// inside each bin are also level. Five bins of 3, 3, 2, 2 and 3 HCP values
+/// need shares of 2, 2, 3, 3 and 2 — a value in a two-wide bin is wanted half
+/// again as often as one in a three-wide bin, and working that out by hand is
+/// exactly the sort of arithmetic that ends up wrong in a comment.
+pub fn hand_type_shares(program: &Program) -> Result<Vec<f64>, String> {
+    let labels: Vec<String> = hand_types(program)
+        .into_iter()
+        .map(|n| hand_type_label(n).to_string())
+        .collect();
+    let mut shares = vec![1.0; labels.len()];
+
+    for statement in &program.statements {
+        let Statement::Assignment { name, expr } = statement else {
+            continue;
+        };
+        if !name.starts_with(HAND_TYPE_PREFIX) || !is_share(name) {
+            continue;
+        }
+        let label = hand_type_label(name);
+        let label = &label[..label.len() - SHARE_SUFFIX.len()];
+
+        let index = labels.iter().position(|l| l == label).ok_or_else(|| {
+            format!(
+                "`{}` sets the share of a hand type `{}` that the scenario never \
+                     declares.\n       Add `{}_{} = ...`, or correct the name.",
+                name, label, HAND_TYPE_PREFIX, label
+            )
+        })?;
+
+        // A share has to be known before a card is dealt, so it is a number and
+        // not an expression. Anything else is a mistake worth naming rather
+        // than a feature: a share that depended on the deal would mean a
+        // different target mix on every hand.
+        let Expr::Literal(value) = expr else {
+            return Err(format!(
+                "`{}` has to be a plain number — it is a target share, settled before any \
+                 deal is looked at.",
+                name
+            ));
+        };
+        if *value < 0 {
+            return Err(format!("`{}` cannot be negative.", name));
+        }
+        shares[index] = *value as f64;
+    }
+
+    if shares.iter().sum::<f64>() <= 0.0 {
+        return Err("every hand type's share is 0, which asks for no deals at all.".to_string());
+    }
+    Ok(shares)
 }
 
 /// Whether an expression is about a hand type.
@@ -724,6 +840,9 @@ pub struct Leveled {
     pub acceptance: f64,
     /// The share of dealt hands that passed the scenario's own condition.
     pub base_rate: f64,
+    /// Anything the caller should say out loud but that does not make the
+    /// levelling wrong — a measurement thinner than asked for, above all.
+    pub warnings: Vec<String>,
 }
 
 /// Work out a scenario's levelling from a measuring pass, and write it in.
@@ -736,7 +855,7 @@ pub struct Leveled {
 pub fn level_from(
     source: &str,
     measured: &Measurement,
-    target_spec: &str,
+    target: &[f64],
     budget: Option<f64>,
     seed: u32,
     min_sample: usize,
@@ -773,17 +892,27 @@ pub fn level_from(
         ));
     }
 
+    // Thin measurements warn rather than refuse. The measuring pass now grows
+    // itself toward the goal and stops on a clock, so falling short means the
+    // scenario is genuinely expensive to measure — and refusing then would give
+    // no file and no way forward, where a warning gives both the file and the
+    // number to judge it by. The precision is stamped into the generated
+    // scenario as well, so it travels with the file.
+    let mut warnings = Vec::new();
     let thin: Vec<String> = measured
         .names
         .iter()
         .zip(&measured.counts)
         .filter(|(_, n)| **n < min_sample)
-        .map(|(l, n)| format!("{} seen {} times", l, n))
+        .map(|(l, n)| format!("`{}` seen {} times", l, n))
         .collect();
     if !thin.is_empty() {
-        return Err(format!(
-            "measured on too few deals to divide by: {}.\n       Measure over more than {} \
-             deals, or widen the rare types.",
+        warnings.push(format!(
+            "measured on fewer than {} deals of {}, over {} produced.\n         A keep is \
+             `mix / natural`, so an error in a rate this thin is baked into the mix for good \
+             — it does not average out.\n         Raise --level-measure or --level-timeout, \
+             or widen the rare types.",
+            min_sample,
             thin.join("; "),
             measured.produced
         ));
@@ -794,7 +923,21 @@ pub fn level_from(
         .iter()
         .map(|n| *n as f64 / measured.produced as f64)
         .collect();
-    let target = parse_level_target(target_spec, &measured.names)?;
+    if target.len() != measured.names.len() {
+        return Err(format!(
+            "{} target shares for {} hand types.",
+            target.len(),
+            measured.names.len()
+        ));
+    }
+    // Weights, not percentages, whether they came from the script's `_Share`
+    // declarations or from `--level-target` — so normalising here is what lets
+    // both say the same thing.
+    let total: f64 = target.iter().sum();
+    if total <= 0.0 {
+        return Err("the target shares sum to zero, which asks for no deals at all.".to_string());
+    }
+    let target: Vec<f64> = target.iter().map(|w| w / total).collect();
     let base_rate = measured.produced as f64 / measured.generated.max(1) as f64;
     let budget_acceptance = budget.map(|b| ((1.0 / b) / base_rate).min(1.0));
     let (plans, lambda, acceptance) = level_plan(
@@ -820,6 +963,7 @@ pub fn level_from(
         lambda,
         acceptance,
         base_rate,
+        warnings,
     })
 }
 
@@ -860,21 +1004,27 @@ pub struct LevelReport {
     pub cost: f64,
     /// How many deals the keeps were measured over.
     pub measured: usize,
+    /// Anything worth saying out loud that does not make the levelling wrong.
+    pub warnings: Vec<String>,
 }
 
 /// What the caller chose about a levelling.
 pub struct LevelOptions<'a> {
-    /// `even`, or one weight per hand type.
-    pub target: &'a str,
+    /// One weight per hand type, in declaration order. Normalised here, so
+    /// these are shares in the `HandType_X_Share` sense rather than fractions.
+    pub target: &'a [f64],
     /// A cap on the cost, in deals dealt per deal kept.
     pub budget: Option<f64>,
     pub seed: u32,
     /// Fewest sightings of a type worth dividing by.
     pub min_sample: usize,
-    /// How many deals to measure over before working out the keeps. The rarest
-    /// type sets the precision of the whole levelling, so this is the number
-    /// that matters — see `docs/leveling-strategy.md`.
-    pub measure_produce: usize,
+    /// How many deals the first, exploratory pass produces.
+    ///
+    /// Only there to find out how rare the rarest type is. Small, because for
+    /// most scenarios it is also enough on its own.
+    pub probe_produce: usize,
+    /// Most deals the second pass may produce, whatever the probe suggests.
+    pub measure_cap: usize,
 }
 
 /// Level a scenario and run it, in one call.
@@ -902,7 +1052,23 @@ pub fn level_and_run<T>(
     let prepared = insert_leveling_block(source)?;
     check_leveling_source(&prepared)?;
 
-    let measured = measure(&prepared, opts.measure_produce)?;
+    // Two passes, not one, and the first is only there to find out how rare
+    // the rarest type is. A single fixed size cannot serve both a scenario
+    // whose scarcest band is 5% of qualifying deals and one where it is 0.2% —
+    // they need ten thousand produced and a million, and guessing high wastes
+    // most of a minute on the first while guessing low quietly ruins the
+    // second.
+    //
+    // The measuring closure may return fewer deals than asked for: a front end
+    // with a clock to answer to clamps the request to what fits, and what comes
+    // back is what was actually dealt.
+    let probe = measure(&prepared, opts.probe_produce)?;
+    let needed = needed_produce(&probe.counts, probe.produced, MEASURE_GOAL);
+    let measured = if needed > probe.produced {
+        measure(&prepared, needed.min(opts.measure_cap))?
+    } else {
+        probe
+    };
     let leveled = level_from(
         &prepared,
         &measured,
@@ -955,6 +1121,7 @@ pub fn level_and_run<T>(
             acceptance: leveled.acceptance,
             cost: 1.0 / (base_rate * leveled.acceptance),
             measured: measured.produced,
+            warnings: leveled.warnings,
         },
     ))
 }

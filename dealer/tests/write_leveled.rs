@@ -257,9 +257,12 @@ fn a_roll_the_scenario_already_defines_is_reused_or_refused() {
     assert!(run.stderr.contains("not in the form"), "{}", run.stderr);
 }
 
-/// A rate that is divided by has to be worth dividing by.
+/// A rate that is divided by has to be worth dividing by — but falling short
+/// warns rather than refuses, now that the measuring run grows itself toward
+/// the goal and stops on a clock. Refusing then would leave no file and no way
+/// forward; a warning gives both the file and the number to judge it by.
 #[test]
-fn types_measured_on_too_few_deals_are_refused() {
+fn types_measured_on_too_few_deals_warn_but_still_write() {
     let source = temp("thin", STOCK);
     let mut out_path = source.clone();
     out_path.set_extension("out.dlr");
@@ -267,10 +270,12 @@ fn types_measured_on_too_few_deals_are_refused() {
         .args([
             &source.display().to_string(),
             "-q",
-            "-p",
-            "2000",
             "-s",
             "1",
+            // Far too few to see the rarest band 500 times, and the ceiling
+            // rather than the goal is what stops it.
+            "--level-measure",
+            "2000",
             "--write-leveled",
             &out_path.display().to_string(),
         ])
@@ -279,9 +284,63 @@ fn types_measured_on_too_few_deals_are_refused() {
         .expect("dealer should run");
     let _ = std::fs::remove_file(&source);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(stderr.contains("too few deals to divide by"), "{stderr}");
-    assert!(!out_path.exists(), "nothing should have been written");
+    assert_eq!(output.status.code(), Some(0), "{stderr}");
+    assert!(stderr.contains("Warning:"), "{stderr}");
+    assert!(stderr.contains("baked into the mix"), "{stderr}");
+    assert!(out_path.exists(), "the file should still be written");
+    let _ = std::fs::remove_file(&out_path);
+}
+
+/// The measuring run sizes itself by the rarest type rather than by `-p`, and
+/// stops on the exact deal that finishes the job — so the same scenario
+/// measures the same number of deals however many cores are available.
+#[test]
+fn the_measuring_run_sizes_itself_and_is_reproducible() {
+    let source = temp("sized", STOCK);
+    let mut first = source.clone();
+    first.set_extension("one.dlr");
+    let mut second = source.clone();
+    second.set_extension("many.dlr");
+
+    let run = |threads: &str, out: &std::path::Path| {
+        let output = Command::new(env!("CARGO_BIN_EXE_dealer"))
+            .args([
+                &source.display().to_string(),
+                "-q",
+                "-s",
+                "1",
+                "--threads",
+                threads,
+                "--write-leveled",
+                &out.display().to_string(),
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .expect("dealer should run");
+        String::from_utf8_lossy(&output.stderr).into_owned()
+    };
+
+    let one = run("1", &first);
+    let many = run("8", &second);
+    let _ = std::fs::remove_file(&source);
+
+    // `-p` was never given, so anything measured at all is the run sizing
+    // itself. The stock scenario's rarest band is about 1.3% of qualifying
+    // deals, so reaching the goal takes six figures.
+    assert!(one.contains("measured over"), "{one}");
+    assert!(
+        !one.contains("Warning:"),
+        "the goal should have been reached: {one}"
+    );
+
+    let text = std::fs::read_to_string(&first).expect("written");
+    let other = std::fs::read_to_string(&second).expect("written");
+    assert_eq!(text, other, "thread count must not change the measurement");
+    // Everything but the trailing `wrote <path>`, which names the two files.
+    let report = |s: &str| s.split("\nwrote ").next().unwrap_or_default().to_string();
+    assert_eq!(report(&one), report(&many), "nor what is reported about it");
+    let _ = std::fs::remove_file(&first);
+    let _ = std::fs::remove_file(&second);
 }
 
 /// The types have to partition what the scenario produces, or the keeps do not

@@ -69,12 +69,14 @@ jobs:
       run: cargo test -p dealer-dds --release
 
     # `examples/NT_Ladder.leveled.dlr` is generated from the stock file beside
-    # it. The measuring run is seeded, so regenerating reproduces it byte for
-    # byte — unless the levelling has changed, which is the point.
+    # it. The measuring run is seeded and stops on the exact deal that finishes
+    # the job rather than at a batch boundary, so regenerating reproduces it
+    # byte for byte on any number of cores — unless the levelling has changed,
+    # which is the point.
     - name: Check the generated example is still what dealer produces
       if: runner.os == 'Linux'
       run: |
-        target/release/dealer examples/NT_Ladder.stock.dlr -q -p 100000 -s 1 \
+        target/release/dealer examples/NT_Ladder.stock.dlr -q -s 1 \
           --write-leveled /tmp/regenerated.dlr
         diff -u examples/NT_Ladder.leveled.dlr /tmp/regenerated.dlr
 

@@ -29,12 +29,15 @@ which is what the tool measures.
 **The levelled file** is generated and should not be edited:
 
 ```bash
-dealer examples/NT_Ladder.stock.dlr -q -p 100000 -s 1 \
+dealer examples/NT_Ladder.stock.dlr -q -s 1 \
     --write-leveled examples/NT_Ladder.leveled.dlr
 ```
 
-The measuring run is seeded, so this reproduces the committed file byte for byte
-— which is how CI checks the pair has not drifted from the tool.
+No `-p`: the measuring run sizes itself, dealing until the rarest hand type has
+been seen enough times to divide by and stopping there. It is seeded and stops
+on the exact deal that finishes the job rather than at a batch boundary, so this
+reproduces the committed file byte for byte on any number of cores — which is
+how CI checks the pair has not drifted from the tool.
 
 ## What the pair is worth looking at for
 
