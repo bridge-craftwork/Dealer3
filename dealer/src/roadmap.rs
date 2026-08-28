@@ -195,11 +195,15 @@ pub const REMAINING: &[WorkItem] = &[
         effort: Effort::Medium,
         value: Value::Low,
         note: Some(
-            "DealerV2_4 sets them with `-0` to `-9`, which are dealer.exe's swapping \
-             switches. dealer.exe wins, so the syntax could be accepted but the switch \
-             that fills it would be dealer3's own. `$` is unused in the grammar today, so \
-             the parsing is the easy half; the hard half is that `$` is not in the \
-             original's lexer either, so a script using it will not run on BBO.",
+            "Not a value but a substitution: DealerV2_4's lexer re-scans the switch's text \
+             where the `$n` stood, so a parameter can be a number, a compass, a shape spec \
+             or a function name — `$9($0)` with `-9 hcp -0 west` is `hcp(west)`. So this \
+             belongs in the preprocessor, not the grammar. Its switches `-0` to `-9` are \
+             dealer.exe's swapping switches and dealer.exe wins, so the spelling would be \
+             dealer3's own. Worth doing better in one place: V2_4 expands an unfilled `$n` \
+             to nothing and carries on, and `$` marks the spot plainly enough to refuse \
+             instead. `$` is absent from the original's lexer, so a script using it stops \
+             being a BBO script.",
         ),
     },
     WorkItem {
