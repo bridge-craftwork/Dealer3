@@ -69,45 +69,40 @@ impl Lengths {
     }
 }
 
-/// One atomic shape: what each named suit must be, what the floating group must
-/// be, and any condition attached with `:`.
+/// One atomic shape: what each suit is pinned to, what floats between the
+/// suits left over, and any condition attached with `:`.
 struct Atom {
-    /// `(suit index, lengths)` for suits named with a letter.
-    named: Vec<(usize, Lengths)>,
-    /// Lengths for the suits not named, in any order between them. Empty when
-    /// the shape has no parentheses, in which case `positional` is used.
+    /// Per suit, in spade-heart-diamond-club order. `None` means the suit is
+    /// not pinned and belongs to the floating group.
+    fixed: [Option<Lengths>; 4],
+    /// Lengths for the suits not pinned, in any order between them.
     group: Vec<Lengths>,
-    /// The four slots of a shape written without parentheses.
-    positional: Option<[Lengths; 4]>,
     condition: Option<Cond>,
 }
 
 impl Atom {
     fn matches(&self, shape: Shape) -> bool {
-        let fits = match &self.positional {
-            Some(slots) => slots.iter().zip(shape).all(|(l, n)| l.holds(n)),
-            None => self.assignment_exists(shape),
-        };
-        fits && self.condition.as_ref().is_none_or(|c| c.holds(shape))
+        self.fits(shape) && self.condition.as_ref().is_none_or(|c| c.holds(shape))
     }
 
-    /// Whether the named suits and the floating group can be laid over this
-    /// shape at all. Four suits, so every arrangement is tried: the group is
-    /// unordered by definition, and `M` and `m` have already been turned into
+    /// Whether the pinned suits hold and the floating group can be laid over
+    /// what is left. Four suits, so every arrangement is tried; the group is
+    /// unordered by definition, and `M` and `m` have already become
     /// alternatives by the time we are here.
-    fn assignment_exists(&self, shape: Shape) -> bool {
-        if !self
-            .named
-            .iter()
-            .all(|(suit, lengths)| lengths.holds(shape[*suit]))
-        {
-            return false;
+    fn fits(&self, shape: Shape) -> bool {
+        for (suit, pinned) in self.fixed.iter().enumerate() {
+            if let Some(lengths) = pinned {
+                if !lengths.holds(shape[suit]) {
+                    return false;
+                }
+            }
         }
-        let mut free: Vec<usize> = (0..4)
-            .filter(|i| !self.named.iter().any(|(s, _)| s == i))
-            .collect();
+        let mut free: Vec<usize> = (0..4).filter(|i| self.fixed[*i].is_none()).collect();
         if free.len() != self.group.len() {
             return false;
+        }
+        if free.is_empty() {
+            return true;
         }
         permutations(&mut free, 0, &mut |order| {
             self.group
@@ -463,59 +458,47 @@ fn parse_atom(text: &str) -> Result<Atom, String> {
         None => (shape_part.as_str(), None),
     };
 
-    match group_text {
-        // With parentheses: named suits outside, the floating group inside.
-        Some(group_text) => {
-            let named = parse_named(before)?;
-            let group = parse_lengths(group_text)?;
-            if named.len() + group.len() != 4 {
-                return Err(format!(
-                    "`{}` names {} suits and floats {}, which is not four",
-                    shape_part,
-                    named.len(),
-                    group.len()
-                ));
-            }
-            Ok(Atom {
-                named,
-                group,
-                positional: None,
-                condition,
-            })
+    // Slots outside the parentheses pin a suit each. A slot that names one
+    // takes that suit; a slot that does not takes the next suit still free, in
+    // spade-heart-diamond-club order — so `5(431)` is five spades and
+    // `44(xx)` is four spades and four hearts, as DealerV2_4's own regression
+    // script says in a comment beside them.
+    let slots = parse_slots(before)?;
+    let mut fixed: [Option<Lengths>; 4] = [None; 4];
+    let named: Vec<usize> = slots.iter().filter_map(|(_, s)| *s).collect();
+    let mut spare: Vec<usize> = (0..4).filter(|i| !named.contains(i)).collect();
+    spare.reverse();
+    for (lengths, suit) in slots {
+        let index = match suit {
+            Some(index) => index,
+            None => spare
+                .pop()
+                .ok_or_else(|| format!("`{shape_part}` is more than four suits long"))?,
+        };
+        if fixed[index].is_some() {
+            return Err(format!("`{shape_part}` names the same suit twice"));
         }
-        // Without parentheses: four slots. A slot that names its suit takes
-        // that one; the rest fill the suits left over, in spade, heart,
-        // diamond, club order. So `5+Mxxx` is `5+xxx` or `x5+xx`, and nothing
-        // is permuted — that is what the parentheses are for.
-        None => {
-            let slots = parse_slots(before)?;
-            if slots.len() != 4 {
-                return Err(format!(
-                    "`{}` is {} suits long; a shape without parentheses needs four",
-                    shape_part,
-                    slots.len()
-                ));
-            }
-            let mut positional = [Lengths::any(); 4];
-            let mut spare: Vec<usize> = (0..4)
-                .filter(|i| !slots.iter().any(|(_, s)| s == &Some(*i)))
-                .collect();
-            spare.reverse();
-            for (lengths, suit) in slots {
-                let index = match suit {
-                    Some(index) => index,
-                    None => spare.pop().expect("as many spare suits as unnamed slots"),
-                };
-                positional[index] = lengths;
-            }
-            Ok(Atom {
-                named: Vec::new(),
-                group: Vec::new(),
-                positional: Some(positional),
-                condition,
-            })
-        }
+        fixed[index] = Some(lengths);
     }
+
+    let group = match group_text {
+        Some(text) => parse_lengths(text)?,
+        None => Vec::new(),
+    };
+    let free = fixed.iter().filter(|f| f.is_none()).count();
+    if free != group.len() {
+        return Err(format!(
+            "`{shape_part}` pins {} suits and floats {}, which is not four",
+            4 - free,
+            group.len()
+        ));
+    }
+
+    Ok(Atom {
+        fixed,
+        group,
+        condition,
+    })
 }
 
 /// A run of slots, each a length and optionally the suit it belongs to:
@@ -555,20 +538,6 @@ fn parse_slots(text: &str) -> Result<Vec<(Lengths, Option<usize>)>, String> {
         out.push((lengths, suit));
     }
     Ok(out)
-}
-
-/// Every slot in `text` must name its suit — which is what the part before a
-/// parenthesised group is for.
-fn parse_named(text: &str) -> Result<Vec<(usize, Lengths)>, String> {
-    parse_slots(text)?
-        .into_iter()
-        .map(|(lengths, suit)| match suit {
-            Some(index) => Ok((index, lengths)),
-            None => Err(format!(
-                "`{text}` has a length with no suit before a permutation group"
-            )),
-        })
-        .collect()
 }
 
 /// A run of slots that name no suit: the inside of a permutation group.
@@ -717,46 +686,88 @@ fn expand_pattern(pattern: &[Option<u8>; 4]) -> Vec<Shape> {
 ///
 /// Runs before the pass that marks four-digit shape literals, since what it
 /// writes is exactly the kind of literal that pass exists to mark.
+///
+/// Comments and quoted strings are stepped over rather than searched. One of
+/// DealerV2_4's own regression scripts has a comment counting "the 10
+/// `shape{}` statements" in the file, and a naive search reads that as an
+/// eleventh with nothing in it.
 pub fn expand(source: &str) -> Result<String, String> {
+    let chars: Vec<char> = source.chars().collect();
     let mut out = String::with_capacity(source.len());
-    let mut rest = source;
-    while let Some(start) = find_fdshape(rest) {
-        out.push_str(&rest[..start]);
-        let tail = &rest[start..];
-        let open = tail.find('{').expect("found by find_fdshape");
-        let close = tail[open..]
-            .find('}')
-            .ok_or_else(|| "a `shape{` is never closed".to_string())?
-            + open;
-        let body = &tail[open + 1..close];
-        let (compass, list) = body
-            .split_once(',')
-            .ok_or_else(|| format!("`shape{{{body}}}` needs a compass and then a shape"))?;
-        out.push_str(&expand_one(compass.trim(), list)?);
-        rest = &tail[close + 1..];
+    let mut at = 0;
+    while at < chars.len() {
+        if let Some(end) = skippable(&chars, at) {
+            out.extend(&chars[at..end]);
+            at = end;
+            continue;
+        }
+        match fdshape_at(&chars, at) {
+            Some((open, close)) => {
+                let body: String = chars[open + 1..close].iter().collect();
+                let (compass, list) = body
+                    .split_once(',')
+                    .ok_or_else(|| format!("`shape{{{body}}}` needs a compass and then a shape"))?;
+                out.push_str(&expand_one(compass.trim(), list)?);
+                at = close + 1;
+            }
+            None => {
+                out.push(chars[at]);
+                at += 1;
+            }
+        }
     }
-    out.push_str(rest);
     Ok(out)
 }
 
-/// Where the next `shape` followed by a `{` starts, whitespace allowed between.
-fn find_fdshape(text: &str) -> Option<usize> {
-    let mut from = 0;
-    while let Some(found) = text[from..].find("shape") {
-        let at = from + found;
-        let after = text[at + 5..].trim_start();
-        // Not part of a longer word, and a brace rather than a bracket.
-        let before_ok = at == 0
-            || !text[..at]
-                .chars()
-                .next_back()
-                .is_some_and(|c| c.is_alphanumeric() || c == '_');
-        if before_ok && after.starts_with('{') {
-            return Some(at);
-        }
-        from = at + 5;
+/// The end of the comment or string starting at `at`, if one does.
+fn skippable(chars: &[char], at: usize) -> Option<usize> {
+    let two: String = chars[at..(at + 2).min(chars.len())].iter().collect();
+    let line_end = |from: usize| {
+        chars[from..]
+            .iter()
+            .position(|c| *c == '\n')
+            .map(|i| from + i)
+            .unwrap_or(chars.len())
+    };
+    match chars[at] {
+        '#' => Some(line_end(at)),
+        '/' if two == "//" => Some(line_end(at)),
+        '/' if two == "/*" => Some(
+            chars[at..]
+                .windows(2)
+                .position(|w| w == ['*', '/'])
+                .map(|i| at + i + 2)
+                .unwrap_or(chars.len()),
+        ),
+        '"' => Some(
+            chars[at + 1..]
+                .iter()
+                .position(|c| *c == '"')
+                .map(|i| at + i + 2)
+                .unwrap_or(chars.len()),
+        ),
+        _ => None,
     }
-    None
+}
+
+/// Whether a `shape` followed by `{` starts here, and where its braces are.
+fn fdshape_at(chars: &[char], at: usize) -> Option<(usize, usize)> {
+    if !chars[at..].starts_with(&['s', 'h', 'a', 'p', 'e']) {
+        return None;
+    }
+    // Not the tail of a longer word.
+    if at > 0 && (chars[at - 1].is_alphanumeric() || chars[at - 1] == '_') {
+        return None;
+    }
+    let mut open = at + 5;
+    while chars.get(open).is_some_and(|c| c.is_whitespace()) {
+        open += 1;
+    }
+    if chars.get(open) != Some(&'{') {
+        return None;
+    }
+    let close = chars[open..].iter().position(|c| *c == '}')? + open;
+    Some((open, close))
 }
 
 fn expand_one(compass: &str, list: &str) -> Result<String, String> {
@@ -923,6 +934,19 @@ mod tests {
     }
 
     #[test]
+    fn a_slot_before_the_group_need_not_name_its_suit() {
+        // From DealerV2_4's ShapeFD_syntax_s223.dli, whose comment beside this
+        // line reads "44(xx) same as 44xx": an unnamed slot takes the next suit
+        // still free, so `5(431)` is five spades.
+        assert_eq!(shapes_of("5(431)"), shapes_of("5s(431)"));
+        assert_eq!(shapes_of("44(xx)"), shapes_of("44xx"));
+        // And it composes with a named one.
+        assert_eq!(shapes_of("4M(3+3+2+)").len(), shapes_of("4M(3+3+2+)").len());
+        assert!(shapes_of("5(431)").contains(&[5, 4, 3, 1]));
+        assert!(!shapes_of("5(431)").contains(&[4, 5, 3, 1]));
+    }
+
+    #[test]
     fn the_separator_needs_space_so_a_condition_can_add() {
         // `h+s>=10` is arithmetic; ` + ` starts another shape.
         let both = shapes_of("4+s4+h(xx):d>c,h+s==10 + 7xxx");
@@ -968,6 +992,20 @@ mod tests {
     fn an_ordinary_shape_call_is_left_alone() {
         let source = "condition shape(north, any 4333 + 54xx)\n";
         assert_eq!(expand(source).expect("expands"), source);
+    }
+
+    #[test]
+    fn a_shape_inside_a_comment_is_left_alone() {
+        // DealerV2_4's own ShapeFD_syntax_s223.dli counts "the 10 `shape{}`
+        // statements" in a comment, which a plain search reads as an eleventh.
+        for source in [
+            "// counts the 10 'shape{}' statements\ncondition 1\n",
+            "# a shape{} in a hash comment\ncondition 1\n",
+            "/* a shape{} in a block comment */\ncondition 1\n",
+            "title \"a shape{} in a string\"\ncondition 1\n",
+        ] {
+            assert_eq!(expand(source).expect("expands"), source, "in: {source}");
+        }
     }
 
     #[test]
