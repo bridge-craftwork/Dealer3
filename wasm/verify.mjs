@@ -84,7 +84,7 @@ for (const c of CASES) {
     const printed = execFileSync(CLI,
       [path, '-s', String(c.seed), '-p', String(c.produce), '-q'],
       { encoding: 'utf8' })
-    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline')).printes
+    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false)).printes
     if (printed !== fromWasm) {
       fail(c.name, `printes differs\n      cli:  ${JSON.stringify(printed)}\n      wasm: ${JSON.stringify(fromWasm)}`)
     } else {
@@ -96,7 +96,7 @@ for (const c of CASES) {
   const cli = parseCli(execFileSync(CLI,
     [path, '-s', String(c.seed), '-p', String(c.produce), '-f', 'oneline', '-X'],
     { encoding: 'utf8' }))
-  const wasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline'))
+  const wasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false))
 
   if (JSON.stringify(cli.deals) !== JSON.stringify(wasm.deals)) {
     fail(c.name, `deals differ (cli ${cli.deals.length}, wasm ${wasm.deals.length})`)

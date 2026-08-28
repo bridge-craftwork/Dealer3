@@ -16,7 +16,7 @@
 //! Output is byte-identical to the native binary for the same seed and script,
 //! so the Tier 2 regression hashes pin this build too.
 
-use dealer_core::{FastDealConfig, FastDealGenerator, Position};
+use dealer_core::{Deal, FastDealConfig, FastDealGenerator, Position};
 use dealer_eval::{
     eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
     extract_variables, EvalContext,
@@ -124,6 +124,37 @@ struct FrequencyResult {
     total: usize,
 }
 
+/// What nature offered against what the levelled run delivered, per hand type.
+/// The page draws its bars straight from these.
+#[derive(Serialize)]
+struct HandTypeShare {
+    name: String,
+    natural: f64,
+    delivered: f64,
+    produced: usize,
+}
+
+/// The levelling, as numbers. No prose: how it reads is the page's business.
+#[derive(Serialize)]
+struct LevelingResult {
+    /// The scenario that actually ran, for the page to show beside the one that
+    /// was written.
+    script: String,
+    shares: Vec<HandTypeShare>,
+    /// 1 unless a budget relaxed the target.
+    exactness: f64,
+    /// The share of qualifying deals the keeps let through.
+    acceptance: f64,
+    /// Deals dealt per deal kept.
+    cost: f64,
+    /// How many deals the keeps were measured over.
+    measured: usize,
+    /// The rarest type's count in the measuring pass, and what that is worth as
+    /// a relative error — the precision of the whole levelling rests on it.
+    rarest: String,
+    rarest_seen: usize,
+}
+
 #[derive(Serialize)]
 struct GenerateResult {
     deals: Vec<String>,
@@ -143,6 +174,13 @@ struct GenerateResult {
     /// Everything the script's `printes` statements wrote, exactly as the CLI
     /// would have written it to a terminal. Empty when the script has none.
     printes: String,
+    /// The hand type each returned deal matched, parallel to `deals`.
+    deal_types: Vec<Option<String>>,
+    /// The script's hand types and their shares of this run. Present whether or
+    /// not it was levelled; without levelling `natural` and `delivered` agree.
+    hand_types: Vec<HandTypeShare>,
+    /// Present only when the run was levelled.
+    leveling: Option<LevelingResult>,
 }
 
 /// Script settings that affect output but not generation.
@@ -156,6 +194,181 @@ struct OutputContext {
 /// wasm32-unknown-unknown, so read the clock through JS instead.
 fn now_ms() -> f64 {
     js_sys::Date::now()
+}
+
+/// Generate deals matching `script`, returning JSON.
+///
+/// With `auto_level`, the engine levels the scenario first: it measures how
+/// often each `HandType_*` comes up, works out a keep rate for each, and runs
+/// the levelled copy — two passes, both of them the engine's, so the browser
+/// and the command line agree on what a levelling is and when to refuse one.
+/// The deals then come back interleaved, walking through the types rather than
+/// meeting them as they fall.
+///
+/// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
+/// filter must not be able to hang it. Callers should surface `hit_limit`
+/// rather than silently showing a short result.
+#[wasm_bindgen]
+pub fn generate(
+    script: &str,
+    seed: u32,
+    produce: usize,
+    max_generate: usize,
+    format: &str,
+    auto_level: bool,
+) -> Result<String, JsError> {
+    let format = Format::parse(format)?;
+    let started = now_ms();
+
+    let shares_of = |run: &RunOutcome| -> Vec<HandTypeShare> {
+        run.hand_type_names
+            .iter()
+            .zip(&run.hand_type_counts)
+            .map(|(name, count)| {
+                let share = *count as f64 / run.produced.max(1) as f64;
+                HandTypeShare {
+                    name: name.clone(),
+                    natural: share,
+                    delivered: share,
+                    produced: *count,
+                }
+            })
+            .collect()
+    };
+
+    let (run, leveling) = if auto_level {
+        let opts = dealer_level::LevelOptions {
+            target: "even",
+            budget: None,
+            seed,
+            // A browser has no patience for the command line's 500 sightings of
+            // the rarest type, and refusing outright would teach nothing. The
+            // count it managed comes back instead, so the page can say how well
+            // the keeps are pinned down.
+            min_sample: MIN_BROWSER_SAMPLE,
+            measure_produce: MEASURE_PRODUCE.min(max_generate),
+        };
+        let (run, report) = dealer_level::level_and_run(
+            script,
+            &opts,
+            // Measuring: counts only. These deals exist to be characterised and
+            // thrown away, so none of them is rendered.
+            |script, measure_produce| {
+                let outcome = run_script(
+                    script,
+                    seed,
+                    measure_produce,
+                    max_generate,
+                    format,
+                    false,
+                    false,
+                )
+                .map_err(|e| error_text(&e))?;
+                Ok(measurement(&outcome))
+            },
+            // Producing: the deals the page will show, interleaved.
+            |script| {
+                let outcome =
+                    run_script(script, seed, produce, max_generate, format, true, true)
+                        .map_err(|e| error_text(&e))?;
+                let measured = measurement(&outcome);
+                Ok((outcome, measured))
+            },
+        )
+        .map_err(|e| JsError::new(&e))?;
+
+        let rarest = report
+            .plans
+            .iter()
+            .min_by(|a, b| a.natural.total_cmp(&b.natural));
+        let leveling = LevelingResult {
+            script: report.script,
+            shares: report
+                .shares
+                .iter()
+                .map(|s| HandTypeShare {
+                    name: s.name.clone(),
+                    natural: s.natural,
+                    delivered: s.delivered,
+                    produced: s.produced,
+                })
+                .collect(),
+            exactness: report.lambda,
+            acceptance: report.acceptance,
+            cost: report.cost,
+            measured: report.measured,
+            rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
+            rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
+        };
+        (run, Some(leveling))
+    } else {
+        let run = run_script(script, seed, produce, max_generate, format, true, false)?;
+        (run, None)
+    };
+
+    let hand_types = match &leveling {
+        Some(leveled) => leveled
+            .shares
+            .iter()
+            .map(|s| HandTypeShare {
+                name: s.name.clone(),
+                natural: s.natural,
+                delivered: s.delivered,
+                produced: s.produced,
+            })
+            .collect(),
+        None => shares_of(&run),
+    };
+
+    let result = GenerateResult {
+        deals: run.deals,
+        deal_types: run.deal_types,
+        generated: run.generated,
+        produced: run.produced,
+        hit_limit: run.hit_limit,
+        averages: run.averages,
+        frequencies: run.frequencies,
+        printes: run.printes,
+        hand_types,
+        leveling,
+        seconds: (now_ms() - started) / 1000.0,
+    };
+    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
+}
+
+/// How many deals to measure a levelling over in a browser.
+///
+/// The rarest hand type sets the precision of the whole thing, so this is the
+/// number that matters. Ten thousand is a second or two and pins a type of a
+/// few percent to within a point; the page reports where it actually landed.
+const MEASURE_PRODUCE: usize = 10_000;
+
+/// Fewest sightings of a type the browser will divide by.
+///
+/// The command line refuses under 500, which is the right bar for a build step
+/// that can simply be told to measure over more. A page that refused would
+/// teach nothing, so it goes ahead from 50 and says how well the keeps are
+/// pinned down.
+const MIN_BROWSER_SAMPLE: usize = 50;
+
+/// A `JsError` has no readable message on the Rust side, so errors crossing
+/// into the engine's closures carry their text instead.
+fn error_text(error: &JsError) -> String {
+    let value: wasm_bindgen::JsValue = error.clone().into();
+    value
+        .as_string()
+        .or_else(|| js_sys::Reflect::get(&value, &"message".into()).ok()?.as_string())
+        .unwrap_or_else(|| "the run failed".to_string())
+}
+
+/// The counts a levelling needs, taken from a run.
+fn measurement(run: &RunOutcome) -> dealer_level::Measurement {
+    dealer_level::Measurement {
+        produced: run.produced,
+        generated: run.generated,
+        names: run.hand_type_names.clone(),
+        counts: run.hand_type_counts.clone(),
+    }
 }
 
 /// One pass over the deals: what a run produces, before any levelling.
@@ -187,6 +400,7 @@ fn run_script(
     max_generate: usize,
     format: Format,
     keep_deals: bool,
+    interleave: bool,
 ) -> Result<RunOutcome, JsError> {
 
     let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
@@ -301,7 +515,9 @@ fn run_script(
     } else {
         FastDealGenerator::new(seed as u64)
     };
-    let mut deals = Vec::new();
+    // Held rather than rendered as they come: a board's number belongs to where
+    // it lands, and interleaving does not decide that until every deal is in.
+    let mut held: Vec<(Option<usize>, Deal)> = Vec::new();
     let mut printes_output = String::new();
     let mut generated = 0usize;
     let mut produced = 0usize;
@@ -340,7 +556,7 @@ fn run_script(
         // `printes` writes to a terminal in the CLI; here it is collected and
         // handed back for the page to show. Capped alongside the deals for the
         // same reason, and by the same count, so the two stay in step.
-        if !printes_specs.is_empty() && deals.len() < MAX_RETURNED_DEALS {
+        if !printes_specs.is_empty() && held.len() < MAX_RETURNED_DEALS {
             let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
             for terms in &printes_specs {
                 for term in terms {
@@ -386,9 +602,8 @@ fn run_script(
 
         // Deals are capped independently of `produced` so a large `produce` used
         // purely to gather statistics does not have to ship every deal to JS.
-        if keep_deals && deals.len() < MAX_RETURNED_DEALS {
-            deals.push(format.render(&deal, produced, &output));
-            deal_types.push(matched_type.map(|i| hand_type_labels[i].clone()));
+        if keep_deals && held.len() < MAX_RETURNED_DEALS {
+            held.push((matched_type, deal.clone()));
         }
         produced += 1;
     }
@@ -440,6 +655,30 @@ fn run_script(
             }
         })
         .collect();
+
+    // Interleaved, a set walks through the categories rather than meeting them
+    // as they fall. Numbered by where they land, so a reader that sorts on the
+    // board number cannot quietly undo the ordering.
+    let order: Vec<usize> = if interleave && !hand_type_labels.is_empty() {
+        let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+        for (index, (matched, _)) in held.iter().enumerate() {
+            let label = matched.map(|i| hand_type_labels[i].clone());
+            match buckets.iter_mut().find(|(name, _)| *name == label) {
+                Some((_, deals)) => deals.push(index),
+                None => buckets.push((label, vec![index])),
+            }
+        }
+        let labels: Vec<&str> = hand_type_labels.iter().map(String::as_str).collect();
+        dealer_level::interleave(&labels, buckets)
+    } else {
+        (0..held.len()).collect()
+    };
+    let mut deals = Vec::with_capacity(order.len());
+    for (position, index) in order.into_iter().enumerate() {
+        let (matched, deal) = &held[index];
+        deals.push(format.render(deal, position, &output));
+        deal_types.push(matched.map(|i| hand_type_labels[i].clone()));
+    }
 
     Ok(RunOutcome {
         hit_limit: produced < produce && generated >= max_generate,
