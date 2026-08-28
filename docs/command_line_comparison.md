@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **32 of the 42 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **32 of the 43 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -109,6 +109,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-U` | DealerServer path | ❌ | — | ✅ |  |
 | `-O` | OPC evaluation for the opener | ❌ | — | ✅ |  |
 | `-D` | Debug verbosity 0-9 | ❌ | — | ✅ |  |
+| `-L` | Path to the RP library the deals are read from | ❌ | — | ✅ | The companion to DealerV2_4's `-l`; it was mentioned only in the note on `--input-deals`, which left it the one V2_4 switch with no row of its own. |
 <!-- END GENERATED: switches -->
 
 ## Sources

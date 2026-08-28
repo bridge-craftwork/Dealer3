@@ -260,8 +260,15 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  |  |
+| 🟡 Worth it | `title "..."` as a statement | Low | Medium |  | 58 of DealerV2_4's 61 regression scripts open with one, and it is the only thing standing between dealer3 and 21 of them: dropping the line takes the suite from 4 parsing to 25. dealer3 has the same thing as `-T`. |
+| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts doubled — so pick a spelling knowing that one exists. |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
+| 🔵 Unlikely | `dds(compass, strain)` | Low | Low |  | The same signature as `tricks()`, sent to the DDS library rather than the GIB routine. dealer3 solves everything through bridge-solver, so it is an alias here. Used by 11 regression scripts. |
+| 🔵 Unlikely | `par(side)`: the par contract | Low | Low |  | Needs all 20 double-dummy results, which bridge-solver already provides for `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with `-P`, which has a row of its own in the switch table. |
+| 🔵 Unlikely | `printns` and `printside(side)` | Low | Low |  | dealer3 has `printew`; DealerV2_4 routes all three through one action. |
+| 🔵 Unlikely | `printrpt(...)`: a `csvrpt` list to stdout | Low | Low |  | The screen counterpart of `csvrpt` and `-C`, sharing their term list. 13 regression scripts use it. |
+| 🔵 Unlikely | `trix(compass)` and `trix(deal)` | Low | Low |  | Tricks in all five strains as CSV columns. The solving is already done. |
+| 🔵 Unlikely | Decimal literals, `6.25` and `.5` | Medium | Low |  | DealerV2_4 reads them as hundredths, which is what lets `altcount` weight a card at 0.75 and `ltc` count in halves. dealer3's numbers are integers. |
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
 | 🔵 Unlikely | Export in DL52 format | Medium | Low |  | DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with the script parameters, the spelling here would have to differ. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
@@ -269,8 +276,14 @@ Priority is derived from effort and value rather than written down beside them.
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | Rejected loudly today; the same thing can be written in the condition. |
 | 🔵 Unlikely | Two-dimensional `frequency` | Medium | Low |  | The original takes a second expression and range and prints marginals. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
+| 🔵 Unlikely | `bktfreq`: frequency in buckets, one and two dimensional | Medium | Low |  | Adjacent to the two-dimensional `frequency` below but not the same thing: that one is the original's, this one groups a range into buckets. |
+| 🔵 Unlikely | `export(side)` and `export(compass)` | Medium | Low |  | The statement behind DealerV2_4's `-X`, which writes predeal holdings. |
+| 🔵 Unlikely | `ltc(compass)`, `ltc(compass, suit)`: the modern losing trick count | Medium | Low |  | Not a spelling of `losers()`. DealerV2_4 keeps both words, and this one counts in half-losers — so it needs decimal literals to be worth having. |
 | 🔵 Unlikely | Exhaust mode | High | Low |  | Never finished in the original either; the code is compiled out. |
 | 🔵 Unlikely | Library mode: replay deals by index | High | Low |  | `--input-deals` already covers the common case in dealer3's own way. |
+| 🔵 Unlikely | `opc(side[, strain])` and the `opener` statement | High | Low |  | Official Point Count: a whole evaluation system, not a function. `-O` has a row in the switch table already. Worth knowing that `opener west` parses today as two bare identifiers and is silently ignored, so an OPC script runs and quietly means something else. |
+| 🔵 Unlikely | `shape{ ... }`: Francois Dellacherie's shape language | High | Low |  | DealerV2_4 shells out to an `fdp` helper and re-lexes what comes back, so `shape{west, d>c or h>s}` becomes ordinary shape specs. 6 regression scripts use it. |
+| 🔵 Unlikely | `usereval(...)`: user-supplied evaluation tables | High | Low |  | Sets DealerV2_4's `userserver_reqd`, so it comes with the DealerServer that `-U` names — a second process, not a language feature. |
 <!-- END GENERATED: priority-matrix -->
 
 The twelve-row matrix that used to sit here had no status column, and nine of

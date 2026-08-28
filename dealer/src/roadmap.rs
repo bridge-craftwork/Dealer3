@@ -109,6 +109,148 @@ pub struct WorkItem {
 /// Everything still outstanding, in no particular order — the table sorts it.
 pub const REMAINING: &[WorkItem] = &[
     // ---- The language, which is where the real gaps are now ---------------
+    // DealerV2_4's own words, from reading its lexer and yacc rather than a
+    // summary of them, and measured against its 61-script Regression suite.
+    WorkItem {
+        what: "`title \"...\"` as a statement",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Medium,
+        note: Some(
+            "58 of DealerV2_4's 61 regression scripts open with one, and it is the only \
+             thing standing between dealer3 and 21 of them: dropping the line takes the \
+             suite from 4 parsing to 25. dealer3 has the same thing as `-T`.",
+        ),
+    },
+    WorkItem {
+        what: "`printns` and `printside(side)`",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some("dealer3 has `printew`; DealerV2_4 routes all three through one action."),
+    },
+    WorkItem {
+        what: "`dds(compass, strain)`",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some(
+            "The same signature as `tricks()`, sent to the DDS library rather than the \
+             GIB routine. dealer3 solves everything through bridge-solver, so it is an \
+             alias here. Used by 11 regression scripts.",
+        ),
+    },
+    WorkItem {
+        what: "`trix(compass)` and `trix(deal)`",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some("Tricks in all five strains as CSV columns. The solving is already done."),
+    },
+    WorkItem {
+        what: "`printrpt(...)`: a `csvrpt` list to stdout",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some(
+            "The screen counterpart of `csvrpt` and `-C`, sharing their term list. \
+             13 regression scripts use it.",
+        ),
+    },
+    WorkItem {
+        what: "`par(side)`: the par contract",
+        done_when: None,
+        issue: None,
+        effort: Effort::Low,
+        value: Value::Low,
+        note: Some(
+            "Needs all 20 double-dummy results, which bridge-solver already provides for \
+             `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with \
+             `-P`, which has a row of its own in the switch table.",
+        ),
+    },
+    WorkItem {
+        what: "`ltc(compass)`, `ltc(compass, suit)`: the modern losing trick count",
+        done_when: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some(
+            "Not a spelling of `losers()`. DealerV2_4 keeps both words, and this one \
+             counts in half-losers — so it needs decimal literals to be worth having.",
+        ),
+    },
+    WorkItem {
+        what: "Decimal literals, `6.25` and `.5`",
+        done_when: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some(
+            "DealerV2_4 reads them as hundredths, which is what lets `altcount` weight a \
+             card at 0.75 and `ltc` count in halves. dealer3's numbers are integers.",
+        ),
+    },
+    WorkItem {
+        what: "`bktfreq`: frequency in buckets, one and two dimensional",
+        done_when: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some(
+            "Adjacent to the two-dimensional `frequency` below but not the same thing: \
+             that one is the original's, this one groups a range into buckets.",
+        ),
+    },
+    WorkItem {
+        what: "`export(side)` and `export(compass)`",
+        done_when: None,
+        issue: None,
+        effort: Effort::Medium,
+        value: Value::Low,
+        note: Some("The statement behind DealerV2_4's `-X`, which writes predeal holdings."),
+    },
+    WorkItem {
+        what: "`opc(side[, strain])` and the `opener` statement",
+        done_when: None,
+        issue: None,
+        effort: Effort::High,
+        value: Value::Low,
+        note: Some(
+            "Official Point Count: a whole evaluation system, not a function. `-O` has a \
+             row in the switch table already. Worth knowing that `opener west` parses \
+             today as two bare identifiers and is silently ignored, so an OPC script runs \
+             and quietly means something else.",
+        ),
+    },
+    WorkItem {
+        what: "`usereval(...)`: user-supplied evaluation tables",
+        done_when: None,
+        issue: None,
+        effort: Effort::High,
+        value: Value::Low,
+        note: Some(
+            "Sets DealerV2_4's `userserver_reqd`, so it comes with the DealerServer that \
+             `-U` names — a second process, not a language feature.",
+        ),
+    },
+    WorkItem {
+        what: "`shape{ ... }`: Francois Dellacherie's shape language",
+        done_when: None,
+        issue: None,
+        effort: Effort::High,
+        value: Value::Low,
+        note: Some(
+            "DealerV2_4 shells out to an `fdp` helper and re-lexes what comes back, so \
+             `shape{west, d>c or h>s}` becomes ordinary shape specs. 6 regression scripts \
+             use it.",
+        ),
+    },
     WorkItem {
         what: "Two-dimensional `frequency`",
         done_when: None,
@@ -123,7 +265,10 @@ pub const REMAINING: &[WorkItem] = &[
         issue: None,
         effort: Effort::Low,
         value: Value::Low,
-        note: None,
+        note: Some(
+            "DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts \
+             doubled — so pick a spelling knowing that one exists.",
+        ),
     },
     WorkItem {
         what: "The length-bias form of `predeal`, `spades(north) == 5`",

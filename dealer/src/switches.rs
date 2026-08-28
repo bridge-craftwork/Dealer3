@@ -518,6 +518,18 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_v2: Origin::Same,
         note: None,
     },
+    SwitchRow {
+        short: "-L",
+        long: "",
+        group: "Not implemented",
+        what: "Path to the RP library the deals are read from",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Same,
+        note: Some(
+            "The companion to DealerV2_4's `-l`; it was mentioned only in the note on \
+             `--input-deals`, which left it the one V2_4 switch with no row of its own.",
+        ),
+    },
 ];
 
 /// What dealer3 does with a switch, derived from clap rather than recorded.
