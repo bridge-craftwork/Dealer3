@@ -291,6 +291,14 @@ fn a_deal_matching_no_type_is_refused() {
         "{}",
         run.stderr
     );
+    // And says what to do about it. The usual cause is a condition wider than
+    // the types, which is what every scenario looks like when the block it is
+    // replacing was filtering as well as levelling.
+    assert!(
+        run.stderr.contains("and (HandType_12_14 or HandType_15_17"),
+        "the remedy should be spelled out as a condition to paste: {}",
+        run.stderr
+    );
 }
 
 #[test]

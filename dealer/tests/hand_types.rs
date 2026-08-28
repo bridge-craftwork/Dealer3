@@ -150,6 +150,14 @@ action printpbn
     let (_, err, status) = run(&["-p", "20", "-s", "1"], script);
     assert_eq!(status, 1);
     assert!(err.contains("have to partition"), "got: {err}");
+    // With the deal that did it: two definitions written pages apart overlap
+    // on a corner neither author had in mind, and naming the two is not enough
+    // to find the corner.
+    assert!(err.contains("The deal:"), "got: {err}");
+    assert!(
+        err.matches('.').count() >= 12,
+        "the deal should be laid out in full, got: {err}"
+    );
 }
 
 /// A deal matching none of them is not an error — a script may classify only

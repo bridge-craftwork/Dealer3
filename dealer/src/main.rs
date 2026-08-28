@@ -1752,10 +1752,17 @@ fn main() {
                         Ok(_) => match matched {
                             None => matched = Some(name),
                             Some(first) => {
+                                // With the deal: two definitions written pages
+                                // apart overlap on a corner neither author had
+                                // in mind, and the corner is what has to be
+                                // looked at.
                                 eprintln!(
                                     "Error: a deal is both `{}` and `{}`. Hand types have to \
-                                 partition the deals, so at most one may match.",
-                                    first, name
+                                     partition the deals, so at most one may match.\n       \
+                                     The deal:\n       {}",
+                                    first,
+                                    name,
+                                    format_oneline(deal).trim_end()
                                 );
                                 std::process::exit(1);
                             }
@@ -2129,11 +2136,23 @@ fn main() {
         let seen: Vec<usize> = labels.iter().map(|l| hand_type_counts[l]).collect();
         let classified: usize = seen.iter().sum();
         if classified != produced {
+            // Usually the base condition is simply wider than the types, which
+            // happens whenever the old spot-card block was doing the filtering
+            // as well as the levelling: the deals it dropped were never in a
+            // category to begin with. Naming the remedy saves working that out
+            // from first principles.
             eprintln!(
                 "Error: {} of {} deals matched no hand type. They have to partition what \
-                 the scenario produces, or the keeps will not add up.",
+                 the scenario produces,\n       or the keeps will not add up — a rate is \
+                 only a rate if it is a share of something.\n       Either widen the types, \
+                 or narrow the condition to the deals they cover:\n\n           and ({})\n",
                 produced - classified,
-                produced
+                produced,
+                hand_type_names
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<_>>()
+                    .join(" or ")
             );
             std::process::exit(1);
         }
