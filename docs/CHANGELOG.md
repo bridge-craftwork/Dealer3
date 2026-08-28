@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     placeholder, a `levelTheDeal` nothing uses, a `roll` that is not the safe
     form, types measured on fewer than 500 deals, and types that leave a deal
     unclassified.
+  - A target weight of `0` excludes its type exactly — written `level_X = 0`,
+    not rounded up to the one-in-a-thousand a threshold can express. A keep that
+    is genuinely too small for the roll's range is refused, since rounding it
+    either way leaves the file disagreeing with its own header.
 - **`--interleave`** orders the output so each hand type appears before any
   repeats, which is what turns a 500-board set from correct-in-aggregate into
   usable one hand at a time. Rare types are spread across the whole run rather
@@ -39,6 +43,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   appear in every round and the two rare ones in alternate rounds, so every
   round holds five deals rather than six and then four. Bucket sizes are
   reported on stderr, leaving stdout pure PBN.
+  - Boards are numbered by where they land, not by when they were dealt, in
+    every format that carries a number. The ordering lives in the file, and
+    `[Board]` is what a reader sorts or indexes on; numbering in production
+    order would let any such reader undo the ordering without an error. Dealer
+    and vulnerability rotate with the number, so they follow too.
+  - Refused alongside `--write-leveled`: that run measures the scenario as it
+    stands, so there is no practice set to walk through. Level first, then
+    interleave the generated file.
 - **The last three words of the original's language: `print`, `printes` and
   `rnd`** (#15). All three were reserved and refused; all three now work, and
   their output is byte-identical to dealer.exe's on the same deal.
