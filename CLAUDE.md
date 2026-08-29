@@ -7,8 +7,9 @@ dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full
 ## Current Status
 
 - **Version**: 1.0.0
-- **Last Updated**: 2026-08-26
-- **Switches**: 26 of 36 implemented across the three dealers
+- **Last Updated**: 2026-08-29
+- **Switches**: see `docs/command_line_comparison.md`, which is generated. This
+  line used to carry a count and it was wrong by ten.
 - **Language**: every word the original accepts is implemented, bar `evalcontract`,
   which the original itself aborts on; 25 functions under 40 spellings
 - **Also shipping**: a WebAssembly build and a browser app at
@@ -42,8 +43,32 @@ dealer3/
 ├── dealer-pbn/         - PBN format I/O
 ├── dealer-parser/      - Constraint language parser (pest PEG grammar)
 ├── dealer-eval/        - Expression evaluator (variables, functions, operators)
+├── dealer-level/       - Levelling arithmetic: keeps, target mixes, the generated block
+├── dealer-run/         - The generate loop, shared by both front ends
+├── dealer-dds/         - Double-dummy solving, behind `tricks()` and `dds()`
+├── wasm/               - WebAssembly bindings (its own workspace, excluded from the root)
 └── dealer/             - CLI application (main binary)
 ```
+
+**`dealer-run` is where generating lives.** Dealing, testing the condition,
+classifying against `HandType_`/`LevelType_`, accumulating `average` and
+`frequency`, levelling a scenario and threading it are all there, behind one
+entry point:
+
+```rust
+dealer_run::run(script, options, host) -> RunReport
+```
+
+A front end supplies a `RunHost`, which is three methods and none of them about
+generating: when to stop, when a pass ended, and where a produced deal goes.
+`dealer/src/main.rs` parses arguments and renders; `wasm/src/lib.rs` reads the
+page's settings and renders. **Neither has a generate loop, and neither should
+grow one** — they each had one until 2026-08-29, they drifted, and the drift was
+invisible until someone compared them.
+
+A levelled run makes two passes and the second is a filter over the first, so
+the engine keeps what the first pass matched and re-uses it. That cache is
+private to `dealer-run`; a front end cannot see it, which is the point.
 
 ### Key Design Decisions
 
