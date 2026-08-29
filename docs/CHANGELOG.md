@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+### Fixed
+- **Auto-level split a `condition` from its expression.** A scenario writing
+  `condition` on its own line with the expression on the next got the generated
+  block inserted *between* the two, so the keyword read `noLeveling` as its
+  condition and the run failed at `= 1` — a line the author never wrote.
+  `condition_span` reported only where the expression began; it now reports the
+  statement's start as well, and the block goes before the keyword. Found in a
+  real scenario, and the shape is common in the wild.
+- **A hand type that never occurs is refused rather than warned about.** Making
+  thin measurements a warning let a type seen *zero* times through, and a keep
+  of `mix / 0` is not imprecise but impossible: no keep makes a hand that does
+  not happen. The file was written anyway, claiming a mix it could not deliver
+  and reporting `+-inf%`. It now names the types and says what usually causes
+  one — a misspelled name, or a condition narrower than the type meant to sit
+  inside it.
+- **The browser reports names that are used but never defined.** The command
+  line has always done this; the browser had no such check, so a misspelling
+  parsed and was silently discarded. That is exactly how the scenario above went
+  wrong: hand types written `not x4` where the variable is `HandType_x4`, which
+  parses, matches nothing, and leaves every type but one empty. The report
+  points at the first use — the parser does not carry positions into the AST, so
+  the line is recovered by looking for the name in the script as the editor
+  holds it, and omitted rather than guessed when it cannot be found.
+
+### Added
 - **`dds(compass, strain)` and `printrpt(...)`: two more of DealerV2_4's words.**
   Both were rated unlikely-and-low-value on the roadmap; measuring the actual
   regression suite said otherwise, and both were cheap.

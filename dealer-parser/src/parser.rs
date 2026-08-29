@@ -1607,7 +1607,23 @@ mod tests {
 /// Wanted so that levelling can add `and levelTheDeal` to a script that has no
 /// placeholder for it, without guessing where the condition ends by looking for
 /// the next keyword.
-pub fn condition_span(input: &str) -> Option<(usize, usize)> {
+pub struct ConditionSpan {
+    /// Where the statement begins: the `condition` keyword, or the expression
+    /// itself when the condition is a bare expression.
+    ///
+    /// Distinct from `expr` because the two are not always on the same line.
+    /// `condition` alone on one line with its expression on the next is common
+    /// in the wild, and anything inserted "before the condition" has to go
+    /// before the keyword — putting it after leaves the keyword looking for an
+    /// expression and finding the first line of whatever was inserted.
+    pub statement: usize,
+    /// Where the expression begins.
+    pub expr: usize,
+    /// Where the expression ends, with trailing whitespace trimmed off.
+    pub end: usize,
+}
+
+pub fn condition_span(input: &str) -> Option<ConditionSpan> {
     let pairs = ConstraintParser::parse(Rule::program, input).ok()?;
     let mut found = None;
     for pair in pairs {
@@ -1624,15 +1640,26 @@ pub fn condition_span(input: &str) -> Option<(usize, usize)> {
             match inner.as_rule() {
                 // `condition <expr>`: the expression alone, so the keyword stays.
                 Rule::condition_stmt => {
+                    let statement = inner.as_span().start();
                     if let Some(expr) = inner.into_inner().next() {
                         let span = expr.as_span();
-                        found = Some(trimmed(input, span.start(), span.end()));
+                        let (expr_start, end) = trimmed(input, span.start(), span.end());
+                        found = Some(ConditionSpan {
+                            statement,
+                            expr: expr_start,
+                            end,
+                        });
                     }
                 }
-                // A bare expression is a condition too.
+                // A bare expression is a condition too, and is its own start.
                 Rule::expr => {
                     let span = inner.as_span();
-                    found = Some(trimmed(input, span.start(), span.end()));
+                    let (expr_start, end) = trimmed(input, span.start(), span.end());
+                    found = Some(ConditionSpan {
+                        statement: expr_start,
+                        expr: expr_start,
+                        end,
+                    });
                 }
                 _ => {}
             }
@@ -1654,8 +1681,15 @@ mod condition_span_tests {
     use super::condition_span;
 
     fn text(source: &str) -> &str {
-        let (start, end) = condition_span(source).expect("a condition");
-        &source[start..end]
+        let span = condition_span(source).expect("a condition");
+        &source[span.expr..span.end]
+    }
+
+    /// What the statement position is for: everything before it can be inserted
+    /// ahead of the condition without splitting the keyword from its expression.
+    fn before(source: &str) -> &str {
+        let span = condition_span(source).expect("a condition");
+        &source[span.statement..]
     }
 
     #[test]
@@ -1684,6 +1718,24 @@ mod condition_span_tests {
             text("condition hcp(north) > 1\ncondition hcp(south) > 2\n"),
             "hcp(south) > 2"
         );
+    }
+
+    /// The bug this exists for: `condition` alone on a line, its expression on
+    /// the next. Inserting at the expression's line puts text between the two,
+    /// and the keyword then reads the first line of it as its condition.
+    #[test]
+    fn the_statement_starts_at_the_keyword_not_the_expression() {
+        let source = "condition\n  hcp(north) > 10\naction printall\n";
+        assert!(
+            before(source).starts_with("condition"),
+            "got {:?}",
+            before(source)
+        );
+    }
+
+    #[test]
+    fn a_bare_expression_starts_at_itself() {
+        assert!(before("nt = 1\nnt and hcp(south) > 5\n").starts_with("nt and"));
     }
 
     #[test]

@@ -589,7 +589,64 @@ fn error_text(error: &JsError) -> String {
 }
 
 /// The counts a levelling needs, taken from a run.
-/// One `printrpt` row, without its leading space.
+/// Where a name is first used, so an undefined-name report can point at it.
+///
+/// The parser does not carry positions into the AST, and the check that finds
+/// these names works on the AST — so the line is recovered by looking. A whole
+/// word, outside comments, in the script as the editor holds it rather than the
+/// preprocessed text, so the position lines up with what is on screen.
+///
+/// Returns `None` rather than guessing when it cannot find one; a report with
+/// no position is better than one pointing at the wrong line.
+fn locate_name(script: &str, name: &str) -> Option<(usize, usize)> {
+    let mut in_block_comment = false;
+    for (row, raw) in script.lines().enumerate() {
+        let mut line = raw;
+        if in_block_comment {
+            match line.find("*/") {
+                Some(i) => {
+                    line = &line[i + 2..];
+                    in_block_comment = false;
+                }
+                None => continue,
+            }
+        }
+        // Drop a trailing line comment, and anything a block comment opens.
+        let mut visible = line;
+        if let Some(i) = visible.find("/*") {
+            in_block_comment = true;
+            visible = &visible[..i];
+        }
+        for marker in ["#", "//"] {
+            if let Some(i) = visible.find(marker) {
+                visible = &visible[..i];
+            }
+        }
+
+        let bytes = visible.as_bytes();
+        let mut at = 0;
+        while let Some(i) = visible[at..].find(name) {
+            let start = at + i;
+            let end = start + name.len();
+            let before_ok = start == 0 || !is_name_byte(bytes[start - 1]);
+            let after_ok = end >= bytes.len() || !is_name_byte(bytes[end]);
+            if before_ok && after_ok {
+                // Columns are 1-based, as pest reports them.
+                let col = visible[..start].chars().count() + 1;
+                let offset = raw.len() - line.len();
+                return Some((row + 1, col + offset));
+            }
+            at = end;
+        }
+    }
+    None
+}
+
+fn is_name_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// One `printrpt` row, without its leading space./// One `printrpt` row, without its leading space.
 ///
 /// The same shape the command line writes for `csvrpt` and `printrpt`: strings
 /// in single quotes, hands in PBN notation, everything else an integer, commas
@@ -1117,11 +1174,39 @@ pub fn check_script(script: &str) -> String {
         }
     };
     let result = match dealer_parser::parse_program(&preprocessed) {
-        Ok(_) => CheckResult {
-            ok: true,
-            error: None,
-            line: None,
-            column: None,
+        // A misspelled name is not a syntax error — a bare expression is a legal
+        // statement, so `not x4` where the variable is `HandType_x4` parses and
+        // is quietly discarded. The command line has always reported these;
+        // without the same check here the browser was the front end that said
+        // nothing, and a script whose hand types silently never match is exactly
+        // where that costs the most.
+        Ok(program) => match dealer_parser::undefined_variables(&program).as_slice() {
+            [] => CheckResult {
+                ok: true,
+                error: None,
+                line: None,
+                column: None,
+            },
+            names => {
+                let (line, column) = match locate_name(script, &names[0]) {
+                    Some((l, c)) => (Some(l), Some(c)),
+                    None => (None, None),
+                };
+                CheckResult {
+                    ok: false,
+                    error: Some(format!(
+                        "{} used but never defined: {}",
+                        if names.len() == 1 {
+                            "a name is"
+                        } else {
+                            "names are"
+                        },
+                        names.join(", ")
+                    )),
+                    line,
+                    column,
+                }
+            }
         },
         Err(e) => {
             let text = format!("{}", e);

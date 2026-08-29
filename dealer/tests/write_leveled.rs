@@ -363,6 +363,61 @@ condition levelTheDeal
     let _ = std::fs::remove_file(&second);
 }
 
+/// `condition` alone on a line, its expression on the next — which is how a
+/// good many scenarios in the wild are written.
+///
+/// The block goes before the *keyword*. Inserted at the expression's line
+/// instead it lands between the two, and the keyword reads the first line of
+/// the block as its condition: `condition noLeveling` followed by `= 1`, which
+/// fails at a line the author never wrote.
+#[test]
+fn a_condition_on_its_own_line_keeps_its_expression() {
+    let split = STOCK
+        .replace(
+            "condition\nbalanced and hcp(south) >= 12 and hcp(south) <= 24\nand levelTheDeal",
+            "condition\n  balanced and hcp(south) >= 12 and hcp(south) <= 24",
+        )
+        // No placeholder either, so the block has to be written in.
+        .replace(
+            "### BEGIN GENERATED LEVELING ###\nnoLeveling = 1\nlevelTheDeal = noLeveling\n### END GENERATED LEVELING ###\n",
+            "",
+        );
+    let run = level(&split, &["--level-measure", "40000"], "splitcond");
+    assert_eq!(run.status, 0, "{}", run.stderr);
+    let out = run.written.expect("a levelled scenario");
+    assert!(out.contains("levelTheDeal"), "{out}");
+    // The keyword and its expression are still together, in that order.
+    let keyword = out.find("condition").expect("the condition survives");
+    let block = out.find("BEGIN GENERATED LEVELING").expect("a block");
+    assert!(
+        block < keyword,
+        "the block belongs before the condition, not inside it"
+    );
+}
+
+/// A type that never comes up cannot be levelled *up*: there is no keep that
+/// makes a hand which does not occur. Refused rather than warned about, unlike
+/// a merely thin measurement.
+#[test]
+fn a_type_that_never_occurs_is_refused() {
+    // An *extra* type that cannot match, so the other five still partition the
+    // deals and the partition check does not fire first. This is the shape of
+    // the real mistake: a type whose definition never comes true, sitting
+    // beside four that work.
+    let impossible = STOCK.replace(
+        "HandType_22_24 = hcp(south) >= 22 and hcp(south) <= 24",
+        "HandType_22_24 = hcp(south) >= 22 and hcp(south) <= 24\nHandType_never = hcp(south) < 0",
+    );
+    let run = level(&impossible, &["--level-measure", "20000"], "never");
+    assert_eq!(run.status, 1, "{}", run.stderr);
+    assert!(run.stderr.contains("never seen"), "{}", run.stderr);
+    assert!(
+        run.stderr.contains("`never`"),
+        "it should name the type: {}",
+        run.stderr
+    );
+}
+
 /// The types have to partition what the scenario produces, or the keeps do not
 /// add up to the mix they claim.
 #[test]

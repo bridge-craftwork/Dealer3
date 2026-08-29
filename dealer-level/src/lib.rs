@@ -27,13 +27,19 @@ pub fn insert_leveling_block(source: &str) -> Result<String, String> {
     if source.contains(LEVEL_BEGIN) {
         return Ok(source.to_string());
     }
-    let (start, end) = dealer_parser::condition_span(source).ok_or_else(|| {
+    let span = dealer_parser::condition_span(source).ok_or_else(|| {
         "the scenario has no condition, so there is nothing for the levelling to \
          gate.\n       Add one, or a `### BEGIN GENERATED LEVELING ###` placeholder saying \
          where the block belongs."
             .to_string()
     })?;
-    let line_start = source[..start].rfind('\n').map_or(0, |i| i + 1);
+    // The line the *statement* begins on, not the expression's. `condition`
+    // alone on a line with its expression on the next is common in the wild,
+    // and inserting at the expression's line would put the block between the
+    // two — leaving the keyword to read `noLeveling` as its condition and fail
+    // on the `= 1` after it.
+    let line_start = source[..span.statement].rfind('\n').map_or(0, |i| i + 1);
+    let end = span.end;
 
     let block = format!(
         "{LEVEL_BEGIN}\n# Written in because the scenario named hand types and left no \
@@ -1077,6 +1083,34 @@ pub fn level_from(
                 .map(|n| format!("{}_{}", HAND_TYPE_PREFIX, n))
                 .collect::<Vec<_>>()
                 .join(" or ")
+        ));
+    }
+
+    // A type that never came up at all is refused, not warned about. The keep
+    // is `mix / natural`, and there is no keep that turns nothing into a fifth
+    // of the deals: this is impossible rather than imprecise, and going on
+    // writes a file whose header claims a mix it cannot deliver. Usually the
+    // type's definition is wrong — a name that never matches, or a condition
+    // narrower than the type it is meant to contain.
+    let never: Vec<&str> = measured
+        .names
+        .iter()
+        .zip(&measured.counts)
+        .filter(|(_, n)| **n == 0)
+        .map(|(l, _)| l.as_str())
+        .collect();
+    if !never.is_empty() {
+        return Err(format!(
+            "never seen in {} deals: {}.\n       A keep cannot make a hand that does not \
+             occur, so there is no levelling that delivers the asked-for mix.\n       Check \
+             those definitions: a type that matches nothing usually means a misspelled name \
+             or a condition\n       narrower than the type meant to sit inside it.",
+            measured.produced,
+            never
+                .iter()
+                .map(|n| format!("`{}`", n))
+                .collect::<Vec<_>>()
+                .join(", ")
         ));
     }
 
