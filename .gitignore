@@ -48,3 +48,7 @@ web/src/wasm/
 # Generated, so not committed: a binary in git makes every docs edit a
 # two-commit affair and every diff unreadable.
 docs/*.pdf
+
+# Playwright MCP scratch: snapshots, console logs and screenshots from
+# driving the site in a browser. Never part of the build.
+.playwright-mcp/
