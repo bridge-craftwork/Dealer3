@@ -239,31 +239,43 @@ pub trait RunHost {
     fn produced(&mut self, deal: &Produced) -> Result<(), String>;
 }
 
-/// The engine's thread pool, and how it maps work over a batch.
+/// The engine's threads, and how it maps work over a batch.
 ///
-/// A pool of its own rather than rayon's global one: a global can only be
-/// configured once per process, so a second run in the same process would
-/// silently keep the first one's thread count.
+/// A pool of its own where one can be had: rayon's global pool can only be
+/// configured once per process, so a second run would silently keep the first
+/// one's thread count.
+///
+/// On the web it cannot. Building a pool spawns threads, and on wasm that needs
+/// a spawn hook which `wasm-bindgen-rayon` installs for the global pool alone —
+/// a private pool simply fails to build. So a build that cannot have its own
+/// falls back to the global one rather than to running serially, which is what
+/// it did at first, silently, while looking like it had threads.
 struct Workers {
     #[cfg(feature = "parallel")]
     pool: Option<rayon::ThreadPool>,
+    /// Whether to use rayon's global pool, because a private one was wanted and
+    /// could not be built.
+    #[cfg(feature = "parallel")]
+    global: bool,
 }
 
 impl Workers {
     fn new(_threads: usize) -> Self {
-        #[cfg(feature = "parallel")]
         // One thread is this one, so there is nothing to hand off to.
-        let pool = if _threads == 1 {
-            None
-        } else {
+        #[cfg(feature = "parallel")]
+        let wanted = _threads > 1;
+        #[cfg(feature = "parallel")]
+        let pool = wanted.then(|| {
             rayon::ThreadPoolBuilder::new()
                 .num_threads(_threads)
                 .build()
                 .ok()
-        };
+        });
         Workers {
             #[cfg(feature = "parallel")]
-            pool,
+            pool: pool.flatten(),
+            #[cfg(feature = "parallel")]
+            global: wanted,
         }
     }
 
@@ -288,9 +300,14 @@ impl Workers {
             (deal, passed)
         };
         #[cfg(feature = "parallel")]
-        if let Some(pool) = &self.pool {
+        {
             use rayon::prelude::*;
-            return pool.install(|| (0..count).into_par_iter().map(one).collect());
+            if let Some(pool) = &self.pool {
+                return pool.install(|| (0..count).into_par_iter().map(one).collect());
+            }
+            if self.global {
+                return (0..count).into_par_iter().map(one).collect();
+            }
         }
         (0..count).map(one).collect()
     }

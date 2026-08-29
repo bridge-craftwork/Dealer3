@@ -234,6 +234,51 @@ fn now_ms() -> f64 {
 /// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
 /// filter must not be able to hang it. Callers should surface `hit_limit`
 /// rather than silently showing a short result.
+/// Start a pool of `threads` web workers for the engine to deal on.
+///
+/// Only present in a threaded build (`./build.sh threaded`), and it must be
+/// awaited before `generate` if a run is to use more than this thread. Needs
+/// the page served with COOP and COEP — `SharedArrayBuffer` does not exist
+/// without them — and the caller built for it.
+///
+/// Not calling it is not an error: the engine falls back to one thread and
+/// deals exactly the same deals, which is the property that makes any of this
+/// safe.
+///
+/// **The site does not ship a threaded build**, because more threads currently
+/// make it slower rather than faster — see `build.sh`. This is the groundwork
+/// and the proof that the engine's side is right, not a switch to flip.
+#[cfg(feature = "parallel")]
+#[wasm_bindgen]
+pub fn start_threads(threads: usize) -> js_sys::Promise {
+    THREADS.with(|t| t.set(threads.max(1)));
+    wasm_bindgen_rayon::init_thread_pool(threads.max(1))
+}
+
+thread_local! {
+    /// How many workers the caller started, which is what a run may use.
+    static THREADS: std::cell::Cell<usize> = const { std::cell::Cell::new(1) };
+}
+
+/// Threads this build and this page can actually deal on.
+fn threads_available() -> usize {
+    #[cfg(feature = "parallel")]
+    {
+        THREADS.with(|t| t.get())
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        1
+    }
+}
+
+/// Whether this build can use more than one thread at all, so a page can tell
+/// the difference between "not built for it" and "the browser refused".
+#[wasm_bindgen]
+pub fn supports_threads() -> bool {
+    cfg!(feature = "parallel")
+}
+
 /// A page's side of a run: it holds deals, collects what the script printed,
 /// paints a bar and answers a clock.
 ///
@@ -424,11 +469,11 @@ pub fn generate(
                 predeal,
                 swap: dealer_core::SwapMode::None,
             },
-            // A page has one thread until it is served with COOP/COEP and built
-            // for wasm threads, at which point turning on `dealer-run`'s
-            // `parallel` feature is the whole of what it takes. The headers are
-            // already set; the build is not.
-            threads: 1,
+            // Whatever the caller started a pool with, and one if it did not
+            // — see `start_threads`. A thread count cannot change what comes
+            // out, only how long it takes, so a page that cannot spawn any
+            // gets the same deals more slowly.
+            threads: threads_available(),
             batch: 0,
             params: Default::default(),
             leveling: auto_level.then_some(LevelingOptions {
