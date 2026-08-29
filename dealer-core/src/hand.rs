@@ -1,51 +1,101 @@
 use crate::shape::shape_to_index;
 use crate::{Card, Rank, Suit};
 
-/// Represents a single player's hand of 13 cards
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Represents a single player's hand of 13 cards.
+///
+/// Stored inline rather than in a `Vec`, because a hand has thirteen cards by
+/// definition and a deal is dealt millions of times. As a `Vec` a `Deal` was
+/// four heap allocations — the single largest cost in dealing one, since a
+/// shuffle is otherwise a Fisher-Yates pass over 52 bytes — and under wasm
+/// threads it was worse than that: every thread queued on the allocator's lock,
+/// so twelve threads dealt a fourteenth of what one did.
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct Hand {
-    cards: Vec<Card>,
+    /// Thirteen slots, of which the first `len` hold cards. The rest are
+    /// [`FILLER`] and are never read — `cards()` is the only way in.
+    cards: [Card; MAX_CARDS],
+    len: u8,
+}
+
+/// A hand holds thirteen cards. Building one with more is a corrupt deal rather
+/// than a condition to report, so it is asserted rather than returned.
+const MAX_CARDS: usize = 13;
+
+/// What the unused slots hold. Never read: every accessor goes through `len`.
+/// A fixed value rather than anything meaningful so that two hands with the same
+/// cards are byte-identical, whatever order they were built in.
+const FILLER: Card = Card {
+    suit: Suit::Clubs,
+    rank: Rank::Two,
+};
+
+impl PartialEq for Hand {
+    /// The cards a hand holds, not the slots it does not. Derived equality would
+    /// compare the filler too, which is the same value everywhere today and so
+    /// would agree — but only by accident, and not if the filler ever changes.
+    fn eq(&self, other: &Self) -> bool {
+        self.cards() == other.cards()
+    }
 }
 
 impl Hand {
     /// Create a new empty hand
     pub fn new() -> Self {
-        Hand { cards: Vec::new() }
+        Hand {
+            cards: [FILLER; MAX_CARDS],
+            len: 0,
+        }
     }
 
     /// Create a hand from a vector of cards
+    ///
+    /// Panics above thirteen: a fourteen-card hand is not a hand.
     pub fn from_cards(cards: Vec<Card>) -> Self {
-        Hand { cards }
+        let mut hand = Hand::new();
+        for card in cards {
+            hand.add_card(card);
+        }
+        hand
     }
 
     /// Add a card to the hand
+    ///
+    /// Panics past the thirteenth. Every caller deals from a 52-card deck into
+    /// four hands, so going over means the deck or the deal is wrong, and
+    /// dropping the card quietly would hide it.
     pub fn add_card(&mut self, card: Card) {
-        self.cards.push(card);
+        assert!(
+            (self.len as usize) < MAX_CARDS,
+            "a hand cannot hold more than {} cards",
+            MAX_CARDS
+        );
+        self.cards[self.len as usize] = card;
+        self.len += 1;
     }
 
     /// Get all cards in the hand
     pub fn cards(&self) -> &[Card] {
-        &self.cards
+        &self.cards[..self.len as usize]
     }
 
     /// Get the number of cards in the hand
     pub fn len(&self) -> usize {
-        self.cards.len()
+        self.len as usize
     }
 
     /// Check if the hand is empty
     pub fn is_empty(&self) -> bool {
-        self.cards.is_empty()
+        self.len == 0
     }
 
     /// Count cards of a specific suit
     pub fn suit_length(&self, suit: Suit) -> usize {
-        self.cards.iter().filter(|c| c.suit == suit).count()
+        self.cards().iter().filter(|c| c.suit == suit).count()
     }
 
     /// Get all cards of a specific suit
     pub fn cards_in_suit(&self, suit: Suit) -> Vec<Card> {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit)
             .copied()
@@ -55,7 +105,7 @@ impl Hand {
     /// Calculate total High Card Points (HCP)
     /// A=4, K=3, Q=2, J=1
     pub fn hcp(&self) -> u8 {
-        self.cards.iter().map(|c| c.hcp()).sum()
+        self.cards().iter().map(|c| c.hcp()).sum()
     }
 
     /// Get the suit lengths in standard order [S, H, D, C]
@@ -100,7 +150,7 @@ impl Hand {
 
     /// Count controls (A=2, K=1)
     pub fn controls(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .map(|c| match c.rank {
                 Rank::Ace => 2,
@@ -112,7 +162,7 @@ impl Hand {
 
     /// Count honors (A, K, Q, J, T) in a specific suit
     pub fn honors_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank >= Rank::Ten)
             .count() as u8
@@ -120,7 +170,8 @@ impl Hand {
 
     /// Sort the hand by suit (spades first) and rank (high to low)
     pub fn sort(&mut self) {
-        self.cards.sort_by(|a, b| {
+        let len = self.len as usize;
+        self.cards[..len].sort_by(|a, b| {
             // Sort by suit descending (Spades first)
             match b.suit.cmp(&a.suit) {
                 std::cmp::Ordering::Equal => {
@@ -134,7 +185,7 @@ impl Hand {
 
     /// Get a sorted copy of the hand
     pub fn sorted(&self) -> Hand {
-        let mut hand = self.clone();
+        let mut hand = *self;
         hand.sort();
         hand
     }
@@ -241,17 +292,17 @@ impl Hand {
 
     /// Check if hand contains a specific card
     pub fn has_card(&self, card: Card) -> bool {
-        self.cards.contains(&card)
+        self.cards().contains(&card)
     }
 
     /// Count number of tens in hand
     pub fn tens(&self) -> u8 {
-        self.cards.iter().filter(|c| c.rank == Rank::Ten).count() as u8
+        self.cards().iter().filter(|c| c.rank == Rank::Ten).count() as u8
     }
 
     /// Count number of tens in specific suit
     pub fn tens_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank == Rank::Ten)
             .count() as u8
@@ -259,12 +310,12 @@ impl Hand {
 
     /// Count number of jacks in hand
     pub fn jacks(&self) -> u8 {
-        self.cards.iter().filter(|c| c.rank == Rank::Jack).count() as u8
+        self.cards().iter().filter(|c| c.rank == Rank::Jack).count() as u8
     }
 
     /// Count number of jacks in specific suit
     pub fn jacks_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank == Rank::Jack)
             .count() as u8
@@ -272,12 +323,15 @@ impl Hand {
 
     /// Count number of queens in hand
     pub fn queens(&self) -> u8 {
-        self.cards.iter().filter(|c| c.rank == Rank::Queen).count() as u8
+        self.cards()
+            .iter()
+            .filter(|c| c.rank == Rank::Queen)
+            .count() as u8
     }
 
     /// Count number of queens in specific suit
     pub fn queens_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank == Rank::Queen)
             .count() as u8
@@ -285,12 +339,12 @@ impl Hand {
 
     /// Count number of kings in hand
     pub fn kings(&self) -> u8 {
-        self.cards.iter().filter(|c| c.rank == Rank::King).count() as u8
+        self.cards().iter().filter(|c| c.rank == Rank::King).count() as u8
     }
 
     /// Count number of kings in specific suit
     pub fn kings_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank == Rank::King)
             .count() as u8
@@ -298,12 +352,12 @@ impl Hand {
 
     /// Count number of aces in hand
     pub fn aces(&self) -> u8 {
-        self.cards.iter().filter(|c| c.rank == Rank::Ace).count() as u8
+        self.cards().iter().filter(|c| c.rank == Rank::Ace).count() as u8
     }
 
     /// Count number of aces in specific suit
     pub fn aces_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && c.rank == Rank::Ace)
             .count() as u8
@@ -311,7 +365,7 @@ impl Hand {
 
     /// Count top 2 honors (A, K) in hand
     pub fn top2(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| matches!(c.rank, Rank::Ace | Rank::King))
             .count() as u8
@@ -319,7 +373,7 @@ impl Hand {
 
     /// Count top 2 honors (A, K) in specific suit
     pub fn top2_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King))
             .count() as u8
@@ -327,7 +381,7 @@ impl Hand {
 
     /// Count top 3 honors (A, K, Q) in hand
     pub fn top3(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen))
             .count() as u8
@@ -335,7 +389,7 @@ impl Hand {
 
     /// Count top 3 honors (A, K, Q) in specific suit
     pub fn top3_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit && matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen))
             .count() as u8
@@ -343,7 +397,7 @@ impl Hand {
 
     /// Count top 4 honors (A, K, Q, J) in hand
     pub fn top4(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| matches!(c.rank, Rank::Ace | Rank::King | Rank::Queen | Rank::Jack))
             .count() as u8
@@ -351,7 +405,7 @@ impl Hand {
 
     /// Count top 4 honors (A, K, Q, J) in specific suit
     pub fn top4_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| {
                 c.suit == suit
@@ -362,7 +416,7 @@ impl Hand {
 
     /// Count top 5 honors (A, K, Q, J, T) in hand
     pub fn top5(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| {
                 matches!(
@@ -375,7 +429,7 @@ impl Hand {
 
     /// Count top 5 honors (A, K, Q, J, T) in specific suit
     pub fn top5_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| {
                 c.suit == suit
@@ -389,7 +443,7 @@ impl Hand {
 
     /// Calculate C13 points (A=6, K=4, Q=2, J=1)
     pub fn c13(&self) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .map(|c| match c.rank {
                 Rank::Ace => 6,
@@ -403,7 +457,7 @@ impl Hand {
 
     /// Calculate C13 points in specific suit
     pub fn c13_in_suit(&self, suit: Suit) -> u8 {
-        self.cards
+        self.cards()
             .iter()
             .filter(|c| c.suit == suit)
             .map(|c| match c.rank {

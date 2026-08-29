@@ -83,8 +83,8 @@ mod tests {
     fn moving_a_hand_changes_the_seed() {
         let deal = &deals()[0];
         let mut swapped = deal.clone();
-        let east = swapped.hand(Position::East).clone();
-        *swapped.hand_mut(Position::East) = swapped.hand(Position::West).clone();
+        let east = *swapped.hand(Position::East);
+        *swapped.hand_mut(Position::East) = *swapped.hand(Position::West);
         *swapped.hand_mut(Position::West) = east;
         assert_ne!(seed_for(deal), seed_for(&swapped));
     }

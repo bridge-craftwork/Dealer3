@@ -37,7 +37,11 @@ async function bringUp() {
   if (!self.crossOriginIsolated) {
     return { threads: 1, why: 'the page is not cross-origin isolated' }
   }
-  const wanted = Math.max(1, Math.min(navigator.hardwareConcurrency || 1, 12))
+  // Four, not every core. Measured on a selective scenario, deals characterized
+  // in six seconds: 1 thread 5.0M, 2 8.9M, 3 11.6M, 4 13.8M, 5 10.7M, 6 8.5M,
+  // 8 6.6M, 12 3.3M. It peaks at four and then falls below one thread — asking
+  // for twelve is worse than asking for none.
+  const wanted = Math.max(1, Math.min(navigator.hardwareConcurrency || 1, 4))
   try {
     await engine.start_threads(wanted)
     return { threads: wanted, why: null }

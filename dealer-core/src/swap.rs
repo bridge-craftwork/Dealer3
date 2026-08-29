@@ -143,7 +143,7 @@ impl SwapMode {
         let sources = &self.arrangements()[variant];
         let mut swapped = Deal::new();
         for (seat, source) in Position::ALL.into_iter().zip(sources) {
-            *swapped.hand_mut(seat) = deal.hand(*source).clone();
+            *swapped.hand_mut(seat) = *deal.hand(*source);
         }
         swapped
     }
