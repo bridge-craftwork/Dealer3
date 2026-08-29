@@ -382,6 +382,12 @@ pub fn generate(
                 predeal,
                 swap: dealer_core::SwapMode::None,
             },
+            // A page has one thread until it is served with COOP/COEP and built
+            // for wasm threads, at which point turning on `dealer-run`'s
+            // `parallel` feature is the whole of what it takes. The headers are
+            // already set; the build is not.
+            threads: 1,
+            batch: 0,
             leveling: auto_level.then_some(LevelingOptions {
                 // The target mix comes out of the script, exactly as it does on
                 // the command line: `HandType_22_24_Share = 3` and nothing

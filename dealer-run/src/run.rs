@@ -85,6 +85,17 @@ pub struct RunOptions {
     /// Level the scenario's categories before dealing. Absent for an ordinary
     /// run, which deals the script as written.
     pub leveling: Option<LevelingOptions>,
+    /// Threads to deal and test on. 0 asks the machine what it has, 1 stays on
+    /// this one. Ignored without the `parallel` feature, which is how a build
+    /// with no threads to spawn — wasm32, today — gets the same answers more
+    /// slowly rather than not at all.
+    ///
+    /// It cannot change what comes out: seeds are drawn in order on one thread,
+    /// and the deals they make are collected back in the order they were drawn.
+    pub threads: usize,
+    /// Deals to work on at a time. 0 sizes it from `threads`. Larger amortises
+    /// the hand-off; smaller answers a clock sooner.
+    pub batch: usize,
 }
 
 /// What levelling a scenario needs to know.
@@ -151,21 +162,14 @@ impl LevelingReport {
     }
 }
 
-/// What a front end supplies to a run: how to evaluate, when to stop, and where
-/// produced deals go.
+/// What a front end supplies to a run: when to stop, and where produced deals
+/// go.
 ///
-/// Deliberately small. Everything else about a levelled run is the same
-/// wherever it happens, and belongs to the engine.
+/// Deliberately small, and deliberately free of anything about *generating*.
+/// Dealing, testing and how many threads to do it on are the same job wherever
+/// it happens, so they are the engine's — a caller that had to supply threading
+/// would be as fast as it happened to bother being.
 pub trait RunHost {
-    /// Which of these deals the condition accepts.
-    ///
-    /// The default evaluates them in order. The command line overrides it to
-    /// spread the batch across threads, which is the only reason this is the
-    /// caller's business at all — the deals and their order are not affected.
-    fn filter(&self, deals: &[Deal], test: &(dyn Fn(&Deal) -> bool + Sync)) -> Vec<bool> {
-        deals.iter().map(test).collect()
-    }
-
     /// Called as a pass goes, to report progress and to ask whether to stop.
     ///
     /// A page answers to a clock and a Cancel button; a terminal to `--timeout`
@@ -198,11 +202,62 @@ pub trait RunHost {
 
     /// A deal the producing pass is handing over.
     fn produced(&mut self, deal: &Produced) -> Result<(), String>;
+}
 
-    /// How many deals to work on at a time. Larger amortises a thread pool;
-    /// smaller answers a clock sooner.
-    fn batch(&self) -> usize {
-        4096
+/// The engine's thread pool, and how it maps work over a batch.
+///
+/// A pool of its own rather than rayon's global one: a global can only be
+/// configured once per process, so a second run in the same process would
+/// silently keep the first one's thread count.
+struct Workers {
+    #[cfg(feature = "parallel")]
+    pool: Option<rayon::ThreadPool>,
+}
+
+impl Workers {
+    fn new(_threads: usize) -> Self {
+        #[cfg(feature = "parallel")]
+        // One thread is this one, so there is nothing to hand off to.
+        let pool = if _threads == 1 {
+            None
+        } else {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(_threads)
+                .build()
+                .ok()
+        };
+        Workers {
+            #[cfg(feature = "parallel")]
+            pool,
+        }
+    }
+
+    /// Build and test every deal in a batch.
+    ///
+    /// Both together, because which of the two costs more is a property of the
+    /// script and not of the engine: a shuffle is about a microsecond, while a
+    /// condition ranges from a table lookup to a double-dummy solve. Splitting
+    /// them would parallelise whichever half we guessed at.
+    ///
+    /// Collected by index, so the deals come back in the order their seeds were
+    /// drawn however many threads worked on them.
+    fn build_and_test(
+        &self,
+        count: usize,
+        build: &(dyn Fn(usize) -> Deal + Sync),
+        test: &(dyn Fn(&Deal) -> bool + Sync),
+    ) -> Vec<(Deal, bool)> {
+        let one = |index: usize| {
+            let deal = build(index);
+            let passed = test(&deal);
+            (deal, passed)
+        };
+        #[cfg(feature = "parallel")]
+        if let Some(pool) = &self.pool {
+            use rayon::prelude::*;
+            return pool.install(|| (0..count).into_par_iter().map(one).collect());
+        }
+        (0..count).map(one).collect()
     }
 }
 
@@ -377,10 +432,10 @@ struct Source {
     generator: FastDealGenerator,
     /// Deals drawn so far, which is the position `Retained::through` counts in.
     position: usize,
-    /// Deals a shuffle produced beyond what the last batch wanted. A shuffle's
-    /// arrangements have to stay together and in order, and a batch size is not
-    /// generally a multiple of the swap width.
-    pending: std::collections::VecDeque<(Handle, Deal)>,
+    /// Arrangements a shuffle produced beyond what the last batch wanted. A
+    /// shuffle's arrangements have to stay together and in order, and a batch
+    /// size is not generally a multiple of the swap width.
+    pending: std::collections::VecDeque<Handle>,
 }
 
 impl Source {
@@ -408,9 +463,14 @@ impl Source {
         }
     }
 
-    /// The next `want` deals, fewer only if the supply ran out.
-    fn next_batch(&mut self, want: usize) -> Vec<(Handle, Deal)> {
-        let mut batch: Vec<(Handle, Deal)> = Vec::with_capacity(want);
+    /// Handles for the next `want` deals, fewer only if the supply ran out.
+    ///
+    /// Cheap and serial — a seed is one step of the generator — so that the
+    /// expensive part, turning a seed into a deal, is left for whatever threads
+    /// there are. Drawing them here in order is also what keeps a run's output
+    /// independent of how many threads that turns out to be.
+    fn next_handles(&mut self, want: usize) -> Vec<Handle> {
+        let mut batch: Vec<Handle> = Vec::with_capacity(want);
         while batch.len() < want {
             if let Some(held) = self.pending.pop_front() {
                 batch.push(held);
@@ -422,25 +482,35 @@ impl Source {
                     if self.position >= all.len() {
                         break;
                     }
-                    batch.push((Handle::Given(self.position), all[self.position].clone()));
+                    batch.push(Handle::Given(self.position));
                     self.position += 1;
                 }
                 Deals::Shuffled { swap, .. } => {
                     let seed = self.generator.next_seed();
-                    let base = self.shuffle(seed);
                     for variant in 0..swap.deals_per_shuffle() {
-                        self.pending.push_back((
-                            Handle::Shuffled {
-                                seed,
-                                variant: variant as u8,
-                            },
-                            swap.apply(&base, variant),
-                        ));
+                        self.pending.push_back(Handle::Shuffled {
+                            seed,
+                            variant: variant as u8,
+                        });
                     }
                 }
             }
         }
         batch
+    }
+
+    /// The deal a handle stands for.
+    fn build(&self, handle: Handle) -> Deal {
+        match handle {
+            Handle::Shuffled { seed, variant } => match &self.deals {
+                Deals::Shuffled { swap, .. } => swap.apply(&self.shuffle(seed), variant as usize),
+                Deals::Given(_) => self.shuffle(seed),
+            },
+            Handle::Given(index) => match &self.deals {
+                Deals::Given(all) => all[index].clone(),
+                Deals::Shuffled { .. } => Deal::new(),
+            },
+        }
     }
 
     fn shuffle(&self, seed: u64) -> Deal {
@@ -449,25 +519,6 @@ impl Source {
         } else {
             generate_deal_from_seed_no_predeal(seed)
         }
-    }
-
-    /// The deals these handles stand for.
-    fn reproduce(&self, handles: &[Handle]) -> Vec<Deal> {
-        handles
-            .iter()
-            .map(|handle| match handle {
-                Handle::Shuffled { seed, variant } => match &self.deals {
-                    Deals::Shuffled { swap, .. } => {
-                        swap.apply(&self.shuffle(*seed), *variant as usize)
-                    }
-                    Deals::Given(_) => self.shuffle(*seed),
-                },
-                Handle::Given(index) => match &self.deals {
-                    Deals::Given(all) => all[*index].clone(),
-                    Deals::Shuffled { .. } => Deal::new(),
-                },
-            })
-            .collect()
     }
 
     /// Wind to just past `position`, so a pass that has replayed everything up
@@ -547,6 +598,9 @@ struct Pass {
 /// Everything one pass varies.
 struct PassOptions<'a> {
     phase: Phase,
+    /// Threads to deal and test on, and how many deals to hand them at a time.
+    threads: usize,
+    batch: usize,
     /// Deals to produce. A characterizing pass is stopped by `until_measured`
     /// long before this, which is only its ceiling.
     produce: usize,
@@ -606,20 +660,21 @@ fn run_pass(
         None => true,
     };
 
+    let workers = Workers::new(opts.threads);
     let mut retained = Retained::new(opts.retain);
     let mut produced = 0usize;
     let mut generated = 0usize;
     let mut replayed = 0usize;
     let mut resumed = opts.replay.is_empty();
-    let batch_size = host.batch().max(1);
+    let batch_size = opts.batch;
 
     'passing: while produced < opts.produce {
         // Whatever an earlier pass kept, before anything new.
-        let (handles, deals, from_stream) = if replayed < opts.replay.len() {
+        let (handles, from_stream) = if replayed < opts.replay.len() {
             let take = batch_size.min(opts.replay.len() - replayed);
-            let handles = &opts.replay[replayed..replayed + take];
+            let handles = opts.replay[replayed..replayed + take].to_vec();
             replayed += take;
-            (handles.to_vec(), source.reproduce(handles), false)
+            (handles, false)
         } else {
             if !resumed {
                 source.resume_after(opts.resume);
@@ -629,23 +684,28 @@ fn run_pass(
                 break;
             }
             let want = batch_size.min(opts.max_generate - generated);
-            let batch = source.next_batch(want);
-            if batch.is_empty() {
+            let handles = source.next_handles(want);
+            if handles.is_empty() {
                 break;
             }
-            let (handles, deals): (Vec<_>, Vec<_>) = batch.into_iter().unzip();
-            (handles, deals, true)
+            (handles, true)
         };
+
+        // The expensive half, on whatever threads there are: making each deal
+        // and asking the condition about it. Which of the two costs more is the
+        // script's business — a shuffle is about a microsecond, a `tricks()`
+        // condition is ten milliseconds — so they travel together.
+        let built =
+            workers.build_and_test(handles.len(), &|index| source.build(handles[index]), &test);
 
         // Where the last of these sits in the stream, so a kept deal's position
         // is known without threading one through every deal.
         let batch_end = source.position;
-        let matched = host.filter(&deals, &test);
-        for (index, deal) in deals.iter().enumerate() {
+        for (index, (deal, matched)) in built.iter().enumerate() {
             if from_stream {
                 generated += 1;
             }
-            if !matched[index] {
+            if !matched {
                 continue;
             }
             let hand_type = accumulator
@@ -653,7 +713,7 @@ fn run_pass(
                 .map_err(|e: RunError| e.to_string())?
                 .hand_type;
             if from_stream {
-                retained.offer(handles[index], batch_end - (deals.len() - 1 - index));
+                retained.offer(handles[index], batch_end - (built.len() - 1 - index));
             }
             if opts.emit {
                 host.produced(&Produced {
@@ -737,6 +797,15 @@ fn run_pass(
 /// With `produce` at zero nothing is dealt from the levelling, which is what a
 /// caller writing the scenario out and stopping there wants.
 pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<RunReport, String> {
+    let threads = resolve_threads(opts.threads);
+    // Enough work per hand-off that the hand-off is not the expensive part, and
+    // little enough that a caller answering to a clock is asked often.
+    let batch = if opts.batch == 0 {
+        (200 * threads).clamp(1024, 65_536)
+    } else {
+        opts.batch
+    };
+
     let Some(leveling) = opts.leveling else {
         // An ordinary run: one pass, the script as written, every match handed
         // over as it comes.
@@ -747,6 +816,8 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             host,
             PassOptions {
                 phase: Phase::Dealing,
+                threads,
+                batch,
                 produce: opts.produce,
                 max_generate: opts.max_generate,
                 until_measured: false,
@@ -778,6 +849,8 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         host,
         PassOptions {
             phase: Phase::Characterizing,
+            threads,
+            batch,
             produce: leveling.measure_cap,
             max_generate: opts.max_generate,
             until_measured: true,
@@ -822,6 +895,8 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             host,
             PassOptions {
                 phase: Phase::AdditionalDealing,
+                threads,
+                batch,
                 produce: opts.produce,
                 // Every pass deals from one budget.
                 max_generate: opts.max_generate.saturating_sub(characterizing.generated),
@@ -864,6 +939,27 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
 
 const RETAIN_DEALS: usize = 1_000_000;
 
+/// What `threads: 0` means on this machine.
+///
+/// One without the `parallel` feature, whatever was asked: a build with no
+/// threads to spawn gets the same answers more slowly, which is exactly what it
+/// means for the count not to change what comes out.
+fn resolve_threads(asked: usize) -> usize {
+    #[cfg(not(feature = "parallel"))]
+    {
+        let _ = asked;
+        1
+    }
+    #[cfg(feature = "parallel")]
+    if asked == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    } else {
+        asked
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -881,7 +977,6 @@ condition 1
         deals: Vec<(Deal, Option<usize>)>,
         /// Phases seen, in order, so a test can say which passes ran.
         phases: Vec<Phase>,
-        batch: usize,
     }
 
     impl RunHost for Collector {
@@ -895,13 +990,6 @@ condition 1
             self.deals.push((produced.deal.clone(), produced.hand_type));
             Ok(())
         }
-        fn batch(&self) -> usize {
-            if self.batch == 0 {
-                4096
-            } else {
-                self.batch
-            }
-        }
     }
 
     fn options(produce: usize, leveling: bool) -> RunOptions {
@@ -913,6 +1001,8 @@ condition 1
                 predeal: FastDealConfig::new(),
                 swap: SwapMode::None,
             },
+            threads: 1,
+            batch: 0,
             leveling: leveling.then_some(LevelingOptions {
                 target: None,
                 budget: None,
@@ -1006,11 +1096,16 @@ condition 1
     fn the_deals_do_not_depend_on_the_batch_size() {
         let mut big = Collector::default();
         let a = super::run(LADDER, options(120, true), &mut big).expect("run");
-        let mut small = Collector {
-            batch: 7,
-            ..Default::default()
-        };
-        let b = super::run(LADDER, options(120, true), &mut small).expect("run");
+        let mut small = Collector::default();
+        let b = super::run(
+            LADDER,
+            RunOptions {
+                batch: 7,
+                ..options(120, true)
+            },
+            &mut small,
+        )
+        .expect("run");
 
         let (a, b) = (a.leveling.expect("levelled"), b.leveling.expect("levelled"));
         assert_eq!(
@@ -1054,6 +1149,52 @@ condition 1
             "16+ opposite nothing is rare, so it should be well under a third: {:.3}",
             strong
         );
+    }
+
+    /// The guarantee threading rests on.
+    ///
+    /// Seeds are drawn in order on one thread and the deals they make are
+    /// collected back by index, so how many threads did the making cannot be
+    /// read off the result. Without that a levelled scenario would depend on
+    /// the machine that generated it, and the pair in `examples/` — regenerated
+    /// and diffed by CI — would fail on any box but the one it was written on.
+    ///
+    /// Only meaningful with the `parallel` feature; without it every count
+    /// resolves to one thread and the test passes trivially, which is itself
+    /// worth asserting.
+    #[test]
+    fn thread_count_does_not_change_a_run() {
+        let deals_at = |threads: usize| {
+            let mut host = Collector::default();
+            let report = super::run(
+                LADDER,
+                RunOptions {
+                    threads,
+                    ..options(150, true)
+                },
+                &mut host,
+            )
+            .expect("run");
+            let levelling = report.leveling.expect("levelled");
+            (host.deals, levelling.script, levelling.measured.counts)
+        };
+        let one = deals_at(1);
+        for threads in [2, 4, 0] {
+            let many = deals_at(threads);
+            assert_eq!(one.1, many.1, "threads={} changed the levelling", threads);
+            assert_eq!(one.2, many.2, "threads={} changed the measurement", threads);
+            assert_eq!(
+                one.0.len(),
+                many.0.len(),
+                "threads={} changed how many deals came out",
+                threads
+            );
+            assert!(
+                one.0.iter().zip(&many.0).all(|(a, b)| a == b),
+                "threads={} changed the deals or their order",
+                threads
+            );
+        }
     }
 
     /// `produce` at zero levels without dealing, which is what a caller writing
