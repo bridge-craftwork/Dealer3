@@ -1,9 +1,12 @@
-//! A levelled run, from a script to its deals.
+//! A run, from a script to its deals.
 //!
-//! One entry point — [`level_and_generate`] — that characterizes a scenario,
-//! works out the keep rate for each of its categories, and deals the levelled
-//! copy. Both front ends call it, so there is one levelling rather than two
-//! that agree by inspection.
+//! One entry point — [`run`] — that deals a scenario and hands over what
+//! matches, levelling it first when asked. Both front ends call it, so there is
+//! one generate loop rather than two that agree by inspection.
+//!
+//! Everything about *dealing* is here: the stream, predeal, swapping, the
+//! condition, the categories, the statistics, and the levelling. A front end
+//! parses arguments or paints a page; it does not deal.
 //!
 //! # What the caller does not see
 //!
@@ -70,13 +73,22 @@ pub enum Deals {
     Given(Vec<Deal>),
 }
 
-/// What a levelled run needs to know.
-pub struct LevelRunOptions {
+/// What a run needs to know.
+pub struct RunOptions {
     pub seed: u32,
-    /// Deals to produce, which sizes the second pass only.
+    /// Deals to produce. Zero levels a scenario without dealing from it, which
+    /// is what a caller writing the levelled copy out and stopping there wants.
     pub produce: usize,
-    /// Deals to deal, across both passes together.
+    /// Deals to deal, across every pass the run makes.
     pub max_generate: usize,
+    pub deals: Deals,
+    /// Level the scenario's categories before dealing. Absent for an ordinary
+    /// run, which deals the script as written.
+    pub leveling: Option<LevelingOptions>,
+}
+
+/// What levelling a scenario needs to know.
+pub struct LevelingOptions {
     /// Weight per levelling category. `None` takes the script's own
     /// `HandType_X_Share` declarations, which default to an even mix.
     pub target: Option<Vec<f64>>,
@@ -86,11 +98,26 @@ pub struct LevelRunOptions {
     pub min_sample: usize,
     /// Ceiling on what the characterizing pass may produce.
     pub measure_cap: usize,
-    pub deals: Deals,
 }
 
-/// What a levelled run did.
-pub struct LevelRunReport {
+/// What a run did.
+pub struct RunReport {
+    pub produced: usize,
+    /// Every deal the run looked at, across every pass it made.
+    pub generated: usize,
+    /// True if the deal budget ran out before `produce` was satisfied, which is
+    /// not the same as there being no more matches.
+    pub hit_limit: bool,
+    /// The script's hand types and how many produced deals matched each.
+    pub hand_types: Vec<(String, usize)>,
+    /// Its `average` and `frequency` results.
+    pub stats: Stats,
+    /// Present only when the run was levelled.
+    pub leveling: Option<LevelingReport>,
+}
+
+/// What levelling a scenario came to.
+pub struct LevelingReport {
     /// The scenario that was actually dealt, for a caller that wants to keep it.
     pub script: String,
     pub plans: Vec<dealer_level::LevelPlan>,
@@ -108,28 +135,19 @@ pub struct LevelRunReport {
     /// How they crossed the levelling categories, empty unless the two
     /// decompositions differ.
     pub natural_joint: Vec<Vec<usize>>,
-    /// The producing pass's hand types and counts, which is what was delivered.
-    pub hand_types: Vec<(String, usize)>,
-    /// Its `average` and `frequency` results.
-    pub stats: Stats,
-    pub produced: usize,
-    /// Deals dealt while characterizing, which is nearly all of the work.
+    /// Deals dealt while characterizing, which is nearly all of a levelled
+    /// run's work and almost none of what it returns.
     pub characterized: usize,
-    /// Deals the producing pass had to deal for itself. Usually none.
+    /// Deals the producing pass had to deal for itself. Usually none: a
+    /// levelled run is a filter over deals the characterizing pass already
+    /// dealt, so they are re-used rather than dealt again.
     pub additional: usize,
-    /// True if the deal budget ran out before `produce` was satisfied.
-    pub hit_limit: bool,
 }
 
-impl LevelRunReport {
-    /// Deals dealt per deal kept, over both passes.
+impl LevelingReport {
+    /// Deals dealt per deal kept.
     pub fn cost(&self) -> f64 {
         1.0 / (self.base_rate * self.acceptance)
-    }
-
-    /// Every deal the run looked at.
-    pub fn generated(&self) -> usize {
-        self.characterized + self.additional
     }
 }
 
@@ -164,6 +182,20 @@ pub trait RunHost {
         false
     }
 
+    /// A pass is over, with its final numbers.
+    ///
+    /// Separate from [`RunHost::should_stop`] because a caller that throttles
+    /// its reports needs one it will not throttle away: a bar frozen at 76% as
+    /// the next phase starts reads as something having gone wrong.
+    fn pass_finished(
+        &mut self,
+        _phase: Phase,
+        _produced: usize,
+        _generated: usize,
+        _target: usize,
+    ) {
+    }
+
     /// A deal the producing pass is handing over.
     fn produced(&mut self, deal: &Produced) -> Result<(), String>;
 
@@ -189,13 +221,135 @@ pub struct Produced<'a> {
     pub hand_type: Option<usize>,
     variables: &'a dealer_eval::Variables<'a>,
     point_counts: Option<&'a dealer_eval::PointCounts>,
+    reports: &'a Reports,
 }
 
-impl<'a> Produced<'a> {
-    /// A fresh context over this deal, for the caller's own per-deal work.
+/// What a script asked to be written out per produced deal.
+#[derive(Default)]
+struct Reports {
+    printes: Vec<Vec<dealer_parser::EsTerm>>,
+    printrpt: Vec<Vec<dealer_parser::CsvTerm>>,
+    csvrpt: Vec<Vec<dealer_parser::CsvTerm>>,
+}
+
+/// The rows a script's `printrpt` and `csvrpt` statements make of one deal.
+///
+/// Together because they differ only in where the row goes — same terms, same
+/// quoting, same commas — and because the original evaluates them as one call,
+/// so a `rnd()` in either draws from the same stream.
+pub struct Rows {
+    /// One per `printrpt`, which the original writes to the terminal.
+    pub printed: Vec<String>,
+    /// One per `csvrpt`, which the original writes to a file.
+    pub csv: Vec<String>,
+}
+
+impl Produced<'_> {
+    /// A fresh context over this deal, for a caller's own per-deal work.
+    ///
+    /// Fresh rather than shared for the reason contexts are built where they
+    /// are everywhere else: where their boundaries fall is what a `rnd()` in
+    /// one draws against a `rnd()` in another.
     pub fn context(&self) -> dealer_eval::EvalContext<'_> {
         dealer_eval::EvalContext::with_counts(self.deal, self.variables, self.point_counts)
     }
+
+    /// What the script's `printes` statements say for this deal.
+    ///
+    /// Nothing between terms and no line ending unless the script asked for
+    /// one, as the original writes it. Empty when the script has none.
+    pub fn printes(&self) -> Result<String, String> {
+        if self.reports.printes.is_empty() {
+            return Ok(String::new());
+        }
+        let ctx = self.context();
+        let mut out = String::new();
+        for terms in &self.reports.printes {
+            for term in terms {
+                match term {
+                    dealer_parser::EsTerm::String(text) => out.push_str(text),
+                    dealer_parser::EsTerm::Newline => out.push('\n'),
+                    dealer_parser::EsTerm::Expression(expr) => {
+                        let value = dealer_eval::eval(expr, &ctx)
+                            .map_err(|e| format!("printes evaluation error: {}", e))?;
+                        out.push_str(&value.to_string());
+                    }
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The report rows this deal makes, for the caller to put where they go.
+    pub fn rows(&self) -> Result<Rows, String> {
+        if self.reports.printrpt.is_empty() && self.reports.csvrpt.is_empty() {
+            return Ok(Rows {
+                printed: Vec::new(),
+                csv: Vec::new(),
+            });
+        }
+        let ctx = self.context();
+        let render = |terms: &[dealer_parser::CsvTerm]| report_row(terms, self.deal, &ctx);
+        Ok(Rows {
+            printed: self
+                .reports
+                .printrpt
+                .iter()
+                .map(|terms| render(terms))
+                .collect::<Result<_, _>>()?,
+            csv: self
+                .reports
+                .csvrpt
+                .iter()
+                .map(|terms| render(terms))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+/// One `printrpt` or `csvrpt` list, as a comma-separated row.
+///
+/// One renderer because DealerV2_4's two statements differ only in where the
+/// row goes.
+fn report_row(
+    terms: &[dealer_parser::CsvTerm],
+    deal: &Deal,
+    ctx: &dealer_eval::EvalContext,
+) -> Result<String, String> {
+    use dealer_core::Position;
+    use dealer_parser::{CsvTerm, Side};
+    use dealer_pbn::format_hand_pbn;
+    let mut parts: Vec<String> = Vec::new();
+    for term in terms {
+        match term {
+            CsvTerm::Expression(expr) => {
+                let value = dealer_eval::eval(expr, ctx)
+                    .map_err(|e| format!("Report evaluation error: {}", e))?;
+                parts.push(value.to_string());
+            }
+            CsvTerm::String(text) => parts.push(format!("'{}'", text)),
+            CsvTerm::Compass(pos) => parts.push(format_hand_pbn(deal.hand(*pos))),
+            CsvTerm::Side(side) => {
+                let (a, b) = match side {
+                    Side::NS => (Position::North, Position::South),
+                    Side::EW => (Position::East, Position::West),
+                };
+                parts.push(format!(
+                    "{} {}",
+                    format_hand_pbn(deal.hand(a)),
+                    format_hand_pbn(deal.hand(b))
+                ));
+            }
+            CsvTerm::Deal => parts.push(format!(
+                "{} {} {} {}",
+                format_hand_pbn(deal.hand(Position::North)),
+                format_hand_pbn(deal.hand(Position::East)),
+                format_hand_pbn(deal.hand(Position::South)),
+                format_hand_pbn(deal.hand(Position::West))
+            )),
+        }
+    }
+    Ok(parts.join(","))
 }
 
 /// What reproduces one deal.
@@ -426,6 +580,23 @@ fn run_pass(
     let point_counts = point_counts.as_ref();
     let mut accumulator = RunAccumulator::new(&program, MeasureStop::standard())?;
 
+    let mut reports = Reports::default();
+    for statement in &program.statements {
+        match statement {
+            dealer_parser::Statement::PrintReport(terms) => reports.printrpt.push(terms.clone()),
+            dealer_parser::Statement::CsvReport(terms) => reports.csvrpt.push(terms.clone()),
+            dealer_parser::Statement::Action {
+                printes,
+                print_reports,
+                ..
+            } => {
+                reports.printes.extend(printes.iter().cloned());
+                reports.printrpt.extend(print_reports.iter().cloned());
+            }
+            _ => {}
+        }
+    }
+
     let test = |deal: &Deal| match constraint {
         Some(expr) => {
             dealer_eval::eval_with_context_and_counts(expr, &variables, deal, point_counts)
@@ -490,6 +661,7 @@ fn run_pass(
                     hand_type,
                     variables: &variables,
                     point_counts,
+                    reports: &reports,
                 })?;
             }
             produced += 1;
@@ -519,7 +691,7 @@ fn run_pass(
             break;
         }
     }
-    host.should_stop(
+    host.pass_finished(
         opts.phase,
         if opts.until_measured {
             accumulator.rarest_measured()
@@ -554,20 +726,46 @@ fn run_pass(
     })
 }
 
-/// Characterize a scenario, level it, and deal the result.
+/// Deal a scenario, levelling it first when asked.
 ///
-/// The whole of a levelled run: `script` goes in, deals come out through
-/// [`RunHost::produced`], and the report carries the scenario that was actually
-/// dealt for a caller that wants to keep it.
+/// Deals reach the caller through [`RunHost::produced`]; what the run came to
+/// is the report. With `opts.leveling` set the scenario is characterized first
+/// — how often each of its categories comes up — the keep rate for each worked
+/// out, and the levelled copy dealt; the report then carries that copy, for a
+/// caller that wants to keep it.
 ///
-/// With `produce` at zero the second pass is skipped — the levelling is worked
-/// out and reported and nothing is dealt from it, which is what
-/// `--write-leveled` wants.
-pub fn level_and_generate(
-    script: &str,
-    opts: LevelRunOptions,
-    host: &mut dyn RunHost,
-) -> Result<LevelRunReport, String> {
+/// With `produce` at zero nothing is dealt from the levelling, which is what a
+/// caller writing the scenario out and stopping there wants.
+pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<RunReport, String> {
+    let Some(leveling) = opts.leveling else {
+        // An ordinary run: one pass, the script as written, every match handed
+        // over as it comes.
+        let mut source = Source::new(opts.deals, opts.seed);
+        let pass = run_pass(
+            script,
+            &mut source,
+            host,
+            PassOptions {
+                phase: Phase::Dealing,
+                produce: opts.produce,
+                max_generate: opts.max_generate,
+                until_measured: false,
+                retain: 0,
+                replay: &[],
+                resume: 0,
+                emit: true,
+            },
+        )?;
+        return Ok(RunReport {
+            produced: pass.produced,
+            generated: pass.generated,
+            hit_limit: pass.hit_limit,
+            hand_types: pass.hand_types,
+            stats: pass.stats,
+            leveling: None,
+        });
+    };
+
     // The scenario with a levelling block in it: the same text the keeps will
     // be written into, so the two cannot describe different scenarios.
     let prepared = dealer_level::insert_leveling_block(script)?;
@@ -580,12 +778,12 @@ pub fn level_and_generate(
         host,
         PassOptions {
             phase: Phase::Characterizing,
-            produce: opts.measure_cap,
+            produce: leveling.measure_cap,
             max_generate: opts.max_generate,
             until_measured: true,
             // Everything it matches, up to what a run could conceivably want.
-            // Not a tuning knob a caller should have to think about: too low
-            // only costs the producing pass some dealing.
+            // Not a knob a caller should have to think about: too low only
+            // costs the producing pass some dealing.
             retain: RETAIN_DEALS,
             replay: &[],
             resume: 0,
@@ -598,7 +796,7 @@ pub fn level_and_generate(
         &Default::default(),
     )?)
     .map_err(|e| format!("Parse error: {}", e))?;
-    let weights = match opts.target {
+    let weights = match leveling.target {
         Some(ref target) => target.clone(),
         None => dealer_level::leveling_types(&program)?.shares,
     };
@@ -606,9 +804,9 @@ pub fn level_and_generate(
         &prepared,
         &characterizing.measurement,
         &weights,
-        opts.budget,
+        leveling.budget,
         opts.seed,
-        opts.min_sample,
+        leveling.min_sample,
     )?;
 
     // The deals asked for. A levelled scenario is the one just characterized
@@ -625,7 +823,7 @@ pub fn level_and_generate(
             PassOptions {
                 phase: Phase::AdditionalDealing,
                 produce: opts.produce,
-                // Both passes deal from one budget.
+                // Every pass deals from one budget.
                 max_generate: opts.max_generate.saturating_sub(characterizing.generated),
                 until_measured: false,
                 retain: 0,
@@ -636,17 +834,10 @@ pub fn level_and_generate(
         )?)
     };
 
-    Ok(LevelRunReport {
-        script: leveled.script,
-        plans: leveled.plans,
-        lambda: leveled.lambda,
-        acceptance: leveled.acceptance,
-        base_rate: leveled.base_rate,
-        warnings: leveled.warnings,
-        natural_hand_types: characterizing.hand_types.clone(),
-        natural_joint: characterizing.joint.clone(),
-        measured: characterizing.measurement,
-        characterized: characterizing.generated,
+    Ok(RunReport {
+        produced: producing.as_ref().map(|p| p.produced).unwrap_or(0),
+        generated: characterizing.generated + producing.as_ref().map(|p| p.generated).unwrap_or(0),
+        hit_limit: producing.as_ref().map(|p| p.hit_limit).unwrap_or(false),
         hand_types: producing
             .as_ref()
             .map(|p| p.hand_types.clone())
@@ -655,17 +846,22 @@ pub fn level_and_generate(
             Some(ref p) => p.stats.clone(),
             None => characterizing.stats,
         },
-        produced: producing.as_ref().map(|p| p.produced).unwrap_or(0),
-        additional: producing.as_ref().map(|p| p.generated).unwrap_or(0),
-        hit_limit: producing.as_ref().map(|p| p.hit_limit).unwrap_or(false),
+        leveling: Some(LevelingReport {
+            script: leveled.script,
+            plans: leveled.plans,
+            lambda: leveled.lambda,
+            acceptance: leveled.acceptance,
+            base_rate: leveled.base_rate,
+            warnings: leveled.warnings,
+            natural_hand_types: characterizing.hand_types,
+            natural_joint: characterizing.joint,
+            measured: characterizing.measurement,
+            characterized: characterizing.generated,
+            additional: producing.as_ref().map(|p| p.generated).unwrap_or(0),
+        }),
     })
 }
 
-/// How many of the characterizing pass's deals to keep.
-///
-/// Eight bytes and change apiece, so this is a few MB at the very worst and
-/// typically far less. High enough that the producing pass almost never has to
-/// deal anything itself; when it does, it simply does.
 const RETAIN_DEALS: usize = 1_000_000;
 
 #[cfg(test)]
@@ -689,11 +885,11 @@ condition 1
     }
 
     impl RunHost for Collector {
-        fn should_stop(&mut self, phase: Phase, _: usize, _: usize, _: usize) -> bool {
-            if self.phases.last() != Some(&phase) {
-                self.phases.push(phase);
-            }
+        fn should_stop(&mut self, _: Phase, _: usize, _: usize, _: usize) -> bool {
             false
+        }
+        fn pass_finished(&mut self, phase: Phase, _: usize, _: usize, _: usize) {
+            self.phases.push(phase);
         }
         fn produced(&mut self, produced: &Produced) -> Result<(), String> {
             self.deals.push((produced.deal.clone(), produced.hand_type));
@@ -708,41 +904,44 @@ condition 1
         }
     }
 
-    fn options(produce: usize) -> LevelRunOptions {
-        LevelRunOptions {
+    fn options(produce: usize, leveling: bool) -> RunOptions {
+        RunOptions {
             seed: 20260829,
             produce,
             max_generate: 5_000_000,
-            target: None,
-            budget: None,
-            min_sample: 50,
-            measure_cap: 2_000_000,
             deals: Deals::Shuffled {
                 predeal: FastDealConfig::new(),
                 swap: SwapMode::None,
             },
+            leveling: leveling.then_some(LevelingOptions {
+                target: None,
+                budget: None,
+                min_sample: 50,
+                measure_cap: 2_000_000,
+            }),
         }
     }
 
-    fn run(produce: usize) -> (Collector, LevelRunReport) {
+    fn levelled(produce: usize) -> (Collector, RunReport) {
         let mut host = Collector::default();
-        let report = level_and_generate(LADDER, options(produce), &mut host).expect("run");
+        let report = super::run(LADDER, options(produce, true), &mut host).expect("run");
         (host, report)
     }
 
     #[test]
     fn a_levelled_run_delivers_the_mix_it_was_asked_for() {
-        let (host, report) = run(300);
+        let (host, report) = levelled(300);
         assert_eq!(host.deals.len(), 300);
         assert_eq!(report.produced, 300);
         assert_eq!(report.hand_types.len(), 3);
 
         // Natural is lopsided; levelled is not. An even three-way split is a
         // third each, and 300 deals is enough to see that within a few points.
-        let natural: Vec<f64> = report
+        let levelling = report.leveling.as_ref().expect("levelled");
+        let natural: Vec<f64> = levelling
             .natural_hand_types
             .iter()
-            .map(|(_, n)| *n as f64 / report.measured.produced as f64)
+            .map(|(_, n)| *n as f64 / levelling.measured.produced as f64)
             .collect();
         assert!(
             natural.iter().any(|s| *s < 0.2) && natural.iter().any(|s| *s > 0.4),
@@ -764,25 +963,26 @@ condition 1
     /// has seen — and its deals are counted, not returned.
     #[test]
     fn characterizing_measures_to_the_goal_and_returns_nothing() {
-        let (host, report) = run(50);
+        let (host, report) = levelled(50);
         assert_eq!(
             host.deals.len(),
             50,
             "only the producing pass hands deals over"
         );
+        let levelling = report.leveling.as_ref().expect("levelled");
         assert!(
-            report.measured.produced > 10_000,
+            levelling.measured.produced > 10_000,
             "measuring a band this rare takes far more than the 50 asked for: {}",
-            report.measured.produced
+            levelling.measured.produced
         );
-        let rarest = report.measured.counts.iter().copied().min().unwrap_or(0);
+        let rarest = levelling.measured.counts.iter().copied().min().unwrap_or(0);
         assert!(
             rarest >= dealer_level::MEASURE_GOAL,
             "stopped with the rarest category at {} of {}",
             rarest,
             dealer_level::MEASURE_GOAL
         );
-        assert_eq!(report.warnings, Vec::<String>::new());
+        assert_eq!(levelling.warnings, Vec::<String>::new());
     }
 
     /// The cache, seen only by its effect: the producing pass deals nothing of
@@ -790,12 +990,13 @@ condition 1
     /// needed.
     #[test]
     fn the_producing_pass_deals_nothing_it_does_not_have_to() {
-        let (_, report) = run(300);
+        let (_, report) = levelled(300);
+        let levelling = report.leveling.as_ref().expect("levelled");
         assert_eq!(
-            report.additional, 0,
+            levelling.additional, 0,
             "every produced deal should come from what characterizing already dealt"
         );
-        assert_eq!(report.generated(), report.characterized);
+        assert_eq!(report.generated, levelling.characterized);
     }
 
     /// And with a batch small enough to make the replay span many of them, the
@@ -804,13 +1005,14 @@ condition 1
     #[test]
     fn the_deals_do_not_depend_on_the_batch_size() {
         let mut big = Collector::default();
-        let a = level_and_generate(LADDER, options(120), &mut big).expect("run");
+        let a = super::run(LADDER, options(120, true), &mut big).expect("run");
         let mut small = Collector {
             batch: 7,
             ..Default::default()
         };
-        let b = level_and_generate(LADDER, options(120), &mut small).expect("run");
+        let b = super::run(LADDER, options(120, true), &mut small).expect("run");
 
+        let (a, b) = (a.leveling.expect("levelled"), b.leveling.expect("levelled"));
         assert_eq!(
             a.script, b.script,
             "the same measurement, so the same keeps"
@@ -826,19 +1028,53 @@ condition 1
         );
     }
 
+    /// An ordinary run is the same call with no levelling: one pass, the script
+    /// as written, and no report of a levelling that did not happen.
+    #[test]
+    fn a_plain_run_deals_the_script_as_written() {
+        let mut host = Collector::default();
+        let report = super::run(LADDER, options(80, false), &mut host).expect("run");
+        assert!(report.leveling.is_none());
+        assert_eq!(host.deals.len(), 80);
+        assert_eq!(report.produced, 80);
+        assert_eq!(host.phases, vec![Phase::Dealing]);
+        assert!(
+            report.generated >= 80,
+            "a condition of 1 accepts every deal, so nothing is dealt twice"
+        );
+        // Nature's own mix, not an even one — nothing levelled it.
+        let strong = report
+            .hand_types
+            .iter()
+            .find(|(name, _)| name == "Strong")
+            .map(|(_, n)| *n as f64 / 80.0)
+            .expect("a Strong band");
+        assert!(
+            strong < 0.25,
+            "16+ opposite nothing is rare, so it should be well under a third: {:.3}",
+            strong
+        );
+    }
+
     /// `produce` at zero levels without dealing, which is what a caller writing
     /// the scenario out and stopping there wants.
     #[test]
     fn levelling_without_dealing() {
-        let (host, report) = run(0);
+        let (host, report) = levelled(0);
         assert!(host.deals.is_empty());
         assert_eq!(report.produced, 0);
-        assert_eq!(report.additional, 0);
-        assert!(report.script.contains("### BEGIN GENERATED LEVELING ###"));
+        let levelling = report.leveling.as_ref().expect("levelled");
+        assert_eq!(levelling.additional, 0);
+        assert!(levelling
+            .script
+            .contains("### BEGIN GENERATED LEVELING ###"));
         assert!(
-            report.script.contains("roll"),
+            levelling.script.contains("roll"),
             "a levelled scenario keeps by a roll of the dice"
         );
-        assert!(report.plans.iter().all(|p| p.keep > 0.0 && p.keep <= 1.0));
+        assert!(levelling
+            .plans
+            .iter()
+            .all(|p| p.keep > 0.0 && p.keep <= 1.0));
     }
 }

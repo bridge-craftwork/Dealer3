@@ -9,3 +9,4 @@ dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-eval = { path = "../dealer-eval" }
 dealer-level = { path = "../dealer-level" }
+dealer-pbn = { path = "../dealer-pbn" }
