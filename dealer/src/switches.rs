@@ -133,6 +133,20 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--level",
+        group: "Generation",
+        what: "Level the scenario's hand types and deal it, in one run",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Two passes over the same stream: one to find out how often each `HandType_*` \
+             comes up, one to deal the levelled copy. `-p` sizes the second; the first stops \
+             when the rarest type is worth dividing by, bounded by `--level-measure` and \
+             `--level-timeout`. Add `--write-leveled` to keep the scenario it generated.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--write-leveled",
         group: "Generation",
         what: "Write a copy of the script with its hand types levelled",
@@ -150,7 +164,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         short: "",
         long: "--level-target",
         group: "Generation",
-        what: "Target mix for `--write-leveled`: even, or one weight per hand type",
+        what: "Target mix when levelling: even, or one weight per hand type",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
         note: Some(
@@ -162,7 +176,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         short: "",
         long: "--level-budget",
         group: "Generation",
-        what: "Budget for `--write-leveled`, in deals dealt per deal kept",
+        what: "Budget when levelling, in deals dealt per deal kept",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
         note: Some(
@@ -174,7 +188,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         short: "",
         long: "--level-measure",
         group: "Generation",
-        what: "Most deals to produce while measuring for `--write-leveled`",
+        what: "Most deals to produce while characterizing a scenario",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
         note: Some(
@@ -189,7 +203,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         short: "",
         long: "--level-timeout",
         group: "Generation",
-        what: "Seconds to spend measuring for `--write-leveled` before giving up",
+        what: "Seconds to spend characterizing a scenario before giving up",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
         note: Some(

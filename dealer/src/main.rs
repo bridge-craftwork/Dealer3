@@ -128,6 +128,20 @@ struct Args {
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
+    /// Level this scenario and run it, in one go
+    ///
+    /// Deals it once to find out what it does — how often each `HandType_*`
+    /// comes up — works out the keep rate for each, then deals the levelled
+    /// copy to produce what `-p` asked for. The same two passes the browser
+    /// makes, and the same rule for when the first has learnt enough: every
+    /// category seen often enough to divide by.
+    ///
+    /// Add `--write-leveled` to keep the scenario it generated. Without it the
+    /// levelled copy is used and discarded, which is what you want for a
+    /// one-off and not what you want for a set you will regenerate.
+    #[arg(long = "level")]
+    level: bool,
+
     /// Write a copy of this script with its hand types levelled
     ///
     /// Runs the script as it stands to measure how often each `HandType_*`
@@ -137,14 +151,14 @@ struct Args {
     #[arg(long = "write-leveled", value_name = "FILE")]
     write_leveled: Option<PathBuf>,
 
-    /// Target mix for `--write-leveled`: "even", or weights per hand type
+    /// Target mix when levelling: "even", or weights per hand type
     ///
     /// Overrides any `HandType_X_Share` the script declares. Without either,
     /// the mix is even.
     #[arg(long = "level-target", value_name = "MIX")]
     level_target: Option<String>,
 
-    /// Most deals to produce while measuring for `--write-leveled`
+    /// Most deals to produce while characterizing a scenario
     ///
     /// A ceiling, not a target: measuring stops as soon as the rarest hand type
     /// has been seen enough times to divide by. The rarest type is what sets
@@ -154,14 +168,14 @@ struct Args {
     #[arg(long = "level-measure", value_name = "N", default_value = "2000000")]
     level_measure: usize,
 
-    /// Seconds to spend measuring for `--write-leveled` before giving up
+    /// Seconds to spend characterizing a scenario before giving up
     ///
     /// Reaching it is not an error: the levelling is written with whatever was
     /// measured, and the shortfall is reported and stamped into the file.
     #[arg(long = "level-timeout", value_name = "SECS", default_value = "60")]
     level_timeout: u64,
 
-    /// Budget for `--write-leveled`, in deals dealt per deal kept
+    /// Budget when levelling, in deals dealt per deal kept
     #[arg(long = "level-budget", value_name = "N")]
     level_budget: Option<f64>,
 
@@ -869,15 +883,29 @@ fn main() {
     // anything: measuring is a hundred thousand deals, and none of it is worth
     // doing if the answer has nowhere to go.
     let mut leveling_source: Option<String> = None;
-    if args.write_leveled.is_some() {
-        if args.input_file.is_none() {
+    if args.write_leveled.is_some() || args.level {
+        if args.write_leveled.is_some() && args.input_file.is_none() {
             eprintln!(
                 "Error: --write-leveled needs the scenario as a file argument, since it \
                  writes a copy of it."
             );
             std::process::exit(1);
         }
-        if args.interleave {
+        // Deals cannot be read twice from a pipe, and `--level` reads them
+        // twice: once to characterize the scenario, once to apply the keeps.
+        // Left alone this produced nothing at all and said so as though that
+        // were the answer.
+        if args.level && args.input_deals.as_deref() == Some("-") {
+            eprintln!(
+                "Error: --level reads the deals twice — once to characterize the scenario, \
+                 once to\n       apply the keeps — and stdin cannot be read twice. Give \
+                 --input-deals a file."
+            );
+            std::process::exit(1);
+        }
+        // `--level` deals the levelled copy afterwards, so there is something
+        // to order and the objection below does not apply to it.
+        if args.interleave && !args.level {
             // The measuring run deals the natural mix, so there is nothing
             // worth walking through, and the deals would be held for an
             // ordering that never happens — silently swallowed. Level first,
@@ -907,754 +935,636 @@ fn main() {
     // the one the keeps are computed against.
     let constraint_str: &str = leveling_source.as_deref().unwrap_or(constraint_str);
 
-    // Fill the script parameters, expand the `shape{...}` shapes, then mark
-    // four-digit shape literals.
-    let mut params = dealer_parser::ScriptParams::default();
-    for spec in &args.param {
-        if let Err(message) = params.set(spec) {
-            eprintln!("Error: {}", message);
-            std::process::exit(1);
-        }
-    }
-    for index in params.unused(constraint_str) {
-        eprintln!(
-            "Warning: --param {} was given and the script never mentions `${}`",
-            index, index
-        );
-    }
-    let preprocessed = match dealer_parser::preprocess_all(constraint_str, &params) {
-        Ok(text) => text,
-        Err(message) => {
-            eprintln!("Error: {}", message);
-            std::process::exit(1);
-        }
-    };
-
-    // Parse the program (may include variable assignments and action blocks)
-    let program = match dealer_parser::parse_program(&preprocessed) {
-        Ok(program) => program,
-        Err(e) => {
-            eprintln!("Parse error: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    // Names with nothing behind them. A bare expression is a legal statement, so
-    // a misspelled keyword parses rather than failing — `dealr west` is a
-    // variable reference and a compass, both discarded. dealer.exe answers
-    // `line 1: unknown variable`; without this, dealer3 dealt on quietly.
-    let unknown = dealer_parser::undefined_variables(&program);
-    if !unknown.is_empty() {
-        eprintln!(
-            "Error: {} used but never defined: {}.\n       A misspelled statement keyword \
-             looks like this — `dealr west` is a name and a compass, not a `dealer` \
-             statement.",
-            if unknown.len() == 1 {
-                "a name is"
-            } else {
-                "names are"
-            },
-            unknown.join(", ")
-        );
-        std::process::exit(1);
-    }
-
-    // Reported after the undefined names, not before: `dealr west` is a bare
-    // seat too, and there the misspelled keyword is the thing worth saying.
-    let dangling = dealer_parser::dangling_seats(&program);
-    if let Some(seat) = dangling.first() {
-        eprintln!(
-            "Error: `{seat}` is on its own, which does nothing.\n       \
-             A seat in a `predeal` needs its holdings — `predeal north SAKQ {seat} SJ32`, \
-             not `predeal north SAKQ {seat}`."
-        );
-        std::process::exit(1);
-    }
-
-    // Extract action block directives from the program
-    let mut produce_count_from_input: Option<usize> = None;
-    let mut generate_count_from_input: Option<usize> = None;
-    let mut format_from_input: Option<OutputFormat> = None;
-    let mut dealer_from_input: Option<DealerPosition> = None;
-    let mut vuln_from_input: Option<VulnerabilityArg> = None;
-    let mut title_from_input: Option<String> = None;
-    let mut seed_from_input: Option<u32> = None;
-
-    // `average` and `frequency` are accumulated by `dealer-run`, which reads
-    // them off the program itself — see `RunAccumulator`.
-
-    // Track CSV report statements
-    use dealer_parser::EsTerm;
-    let mut csv_reports: Vec<Vec<CsvTerm>> = Vec::new();
-    // The same lists, to stdout rather than a file.
-    let mut print_reports: Vec<Vec<CsvTerm>> = Vec::new();
-    // `printes(...)` lists, printed per matching deal in the order written.
-    let mut printes_reports: Vec<Vec<EsTerm>> = Vec::new();
-    // Seats named by `print(...)`, whose hands are laid out once at the end.
-    let mut print_hand_seats: Vec<Position> = Vec::new();
-
-    for statement in &program.statements {
-        match statement {
-            Statement::Produce(n) => produce_count_from_input = Some(*n),
-            Statement::Generate(n) => generate_count_from_input = Some(*n),
-            Statement::Action {
-                format: action_format,
-                printes: printes_specs,
-                print_hands,
-                print_reports: report_specs,
-                ..
-            } => {
-                print_reports.extend(report_specs.iter().cloned());
-                // Extract format if present
-                if let Some(action_type) = action_format {
-                    format_from_input = Some(match action_type {
-                        ActionType::PrintAll => OutputFormat::PrintAll,
-                        ActionType::PrintEW => OutputFormat::PrintEW,
-                        ActionType::PrintPBN => OutputFormat::PrintPBN,
-                        ActionType::PrintCompact => OutputFormat::PrintCompact,
-                        ActionType::PrintOneLine => OutputFormat::PrintOneLine,
-                    });
-                }
-                printes_reports.extend(printes_specs.iter().cloned());
-                for seat in print_hands {
-                    if !print_hand_seats.contains(seat) {
-                        print_hand_seats.push(*seat);
-                    }
-                }
-            }
-            Statement::Dealer(pos) => {
-                dealer_from_input = Some(match pos {
-                    Position::North => DealerPosition::North,
-                    Position::East => DealerPosition::East,
-                    Position::South => DealerPosition::South,
-                    Position::West => DealerPosition::West,
-                });
-            }
-            Statement::Vulnerable(vuln) => {
-                vuln_from_input = Some(match *vuln {
-                    VulnerabilityType::None => VulnerabilityArg::None,
-                    VulnerabilityType::NS => VulnerabilityArg::NS,
-                    VulnerabilityType::EW => VulnerabilityArg::EW,
-                    VulnerabilityType::All => VulnerabilityArg::All,
-                });
-            }
-            Statement::Title(text) => {
-                title_from_input = Some(text.clone());
-            }
-            Statement::Seed(value) => {
-                seed_from_input = Some(*value);
-            }
-            Statement::CsvReport(terms) => {
-                csv_reports.push(terms.clone());
-            }
-            Statement::PrintReport(terms) => {
-                print_reports.push(terms.clone());
-            }
-            _ => {}
-        }
-    }
-
-    // Extract variables and constraint from program (do this once before the loop)
-    // This avoids cloning expression trees on every iteration
-    let program_variables = extract_variables(&program);
-    let constraint = extract_constraint(&program);
-
-    // `None` unless the script redefines a count, which keeps the hardcoded
-    // counts on the hot path for every script that does not.
-    let point_counts = match extract_point_counts(&program) {
-        Ok(counts) => counts,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let point_counts = point_counts.as_ref();
-
-    // Determine limits for generation
-    // -g limits total hands generated, -p limits matching hands produced
-    // When both are specified, stop when either limit is reached
-    // dealer.exe defaults: -g 10000000 (10M), -p 40
-    // IMPORTANT: We must respect the generate limit to match dealer.exe behavior.
-    // Without this, dealer3 could run forever trying to produce rare hands.
-    let max_generate = args
-        .generate
-        .or(generate_count_from_input)
-        .unwrap_or(10_000_000);
-    let produce_count = args
-        .produce
-        .or(produce_count_from_input)
-        .unwrap_or_else(|| {
-            if args.generate.is_some() {
-                usize::MAX // No produce limit when only -g is specified
-            } else {
-                40 // dealer.exe default for -p
-            }
-        });
-
-    // A measuring run is sized by what it is measuring, not by `-p`, and `-p`
-    // means something else here anyway — a scenario's own `produce 5000` is
-    // about the practice set, not about how well its rates are known. So
-    // `--level-measure` is the ceiling and the rarest type decides when to stop
-    // below it. Without this the measurement was whatever `-p` happened to say,
-    // which for a type at 0.2% of qualifying deals was nowhere near enough.
-    let produce_count = if args.write_leveled.is_some() {
-        args.level_measure
-    } else {
-        produce_count
-    };
-
-    let output_format = args
-        .format
-        .or(format_from_input)
-        .unwrap_or(OutputFormat::PrintAll); // Default format (matches dealer.exe)
-
-    let dealer_position = args.dealer.or(dealer_from_input);
-
-    // `-s` beats a `seed` statement, and the clock is the last resort. Resolved
-    // here rather than before parsing, because the script may name it.
-    let seed = args.seed.or(seed_from_input).unwrap_or_else(|| {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_micros() as u32
-    });
-
-    let vulnerability = args.vulnerability.or(vuln_from_input);
-
-    // `-T` beats a `title` statement, the way `-d` beats `dealer` and
-    // `--vulnerable` beats `vulnerable`.
-    let title = args.title.clone().or(title_from_input);
-
-    // Start timing
+    // A levelled run makes two passes over the same stream: one to find out
+    // what the scenario does, one to produce what was asked for. The second
+    // runs a different script — the levelled copy — so it is the whole of the
+    // work below that repeats, parsing included, rather than just the loop.
+    //
+    // `RunAccumulator` borrows the parsed program, so it cannot outlive a pass;
+    // the statistics a pass reports are therefore printed inside the loop, on
+    // whichever pass turns out to be the last.
+    let mut pass_source = constraint_str.to_string();
+    // The first pass characterizes when there is a levelling to work out, which
+    // is what `--write-leveled` has always done and what `--level` now does
+    // before dealing.
+    let mut characterizing = args.write_leveled.is_some() || args.level;
+    // Both passes deal from one budget, and the count reported is both of them.
+    let mut dealt_earlier = 0usize;
+    // Either pass running out of clock is the run running out of clock, so this
+    // outlives them both.
+    let mut timed_out = false;
+    // Started before the passes rather than inside them: "Time needed" is what
+    // the run cost, and a levelled run's characterizing pass is nearly all of
+    // it. `--level-timeout` still bounds that pass alone, being the first.
     let start_time = SystemTime::now();
 
-    dealer_eval::rnd::set_seed(args.rnd_seed);
+    loop {
+        let constraint_str: &str = &pass_source;
 
-    // Categories of hand the script names, for the PBN tag and for ordering a
-    // practice set. Empty for almost every script, and then nothing changes.
-    let hand_type_names = hand_types(&program);
-
-    // What the keeps are computed from, which is not always what the deals are
-    // grouped by: a scenario may level on `LevelType_` while still being tagged,
-    // ordered and reported by `HandType_`. Resolved here so a mixed-up set of
-    // shares is refused before anything is dealt.
-    let leveling = match dealer_level::leveling_types(&program) {
-        Ok(types) => types,
-        Err(message) => {
-            eprintln!("Error: {}", message);
-            std::process::exit(1);
-        }
-    };
-    // The loop's body, shared with the browser. It owns the classification
-    // against both decompositions, the `average`s and `frequency`s, and the
-    // rule for when a measuring run has learnt enough.
-    let mut accumulator = match RunAccumulator::new(&program, MeasureStop::standard()) {
-        Ok(accumulator) => accumulator,
-        Err(message) => {
-            eprintln!("Error: {}", message);
-            std::process::exit(1);
-        }
-    };
-
-    // How many deals each shuffle turns into. The three switches override one
-    // another, so the last one written wins, as it does under getopt.
-    let swapping = if args.swap_three {
-        SwapMode::ThreeWay
-    } else if args.swap_two {
-        SwapMode::TwoWay
-    } else {
-        SwapMode::None
-    };
-
-    // Collect predeal configuration (shared between legacy and fast modes)
-    let mut fast_predeal_config = FastDealConfig::new();
-
-    // Apply command-line predeal switches
-    if let Some(ref cards_str) = args.north_predeal {
-        match parse_predeal_cards(cards_str) {
-            Ok(cards) => {
-                if let Err(e) = fast_predeal_config.predeal(Position::North, &cards) {
-                    eprintln!("Error predealing to North: {}", e);
-                    std::process::exit(1);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error parsing North predeal cards '{}': {}", cards_str, e);
+        // Fill the script parameters, expand the `shape{...}` shapes, then mark
+        // four-digit shape literals.
+        let mut params = dealer_parser::ScriptParams::default();
+        for spec in &args.param {
+            if let Err(message) = params.set(spec) {
+                eprintln!("Error: {}", message);
                 std::process::exit(1);
             }
         }
-    }
-
-    if let Some(ref cards_str) = args.east_predeal {
-        match parse_predeal_cards(cards_str) {
-            Ok(cards) => {
-                if let Err(e) = fast_predeal_config.predeal(Position::East, &cards) {
-                    eprintln!("Error predealing to East: {}", e);
-                    std::process::exit(1);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error parsing East predeal cards '{}': {}", cards_str, e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if let Some(ref cards_str) = args.south_predeal {
-        match parse_predeal_cards(cards_str) {
-            Ok(cards) => {
-                if let Err(e) = fast_predeal_config.predeal(Position::South, &cards) {
-                    eprintln!("Error predealing to South: {}", e);
-                    std::process::exit(1);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error parsing South predeal cards '{}': {}", cards_str, e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if let Some(ref cards_str) = args.west_predeal {
-        match parse_predeal_cards(cards_str) {
-            Ok(cards) => {
-                if let Err(e) = fast_predeal_config.predeal(Position::West, &cards) {
-                    eprintln!("Error predealing to West: {}", e);
-                    std::process::exit(1);
-                }
-            }
-            Err(e) => {
-                eprintln!("Error parsing West predeal cards '{}': {}", cards_str, e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // Apply predeal statements from input file
-    for statement in &program.statements {
-        if let Statement::Predeal { position, cards } = statement {
-            if let Err(e) = fast_predeal_config.predeal(*position, cards) {
-                eprintln!("Predeal error: {}", e);
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // Check if we have any predeal
-    let has_predeal = fast_predeal_config.predeal_count(Position::North) > 0
-        || fast_predeal_config.predeal_count(Position::East) > 0
-        || fast_predeal_config.predeal_count(Position::South) > 0
-        || fast_predeal_config.predeal_count(Position::West) > 0;
-
-    // Swapping rearranges whole hands after the deal, so a predeal to a seat it
-    // moves would be honoured on the first deal of each shuffle and quietly
-    // broken on the rest. The original does exactly that and says nothing; here
-    // it is refused, and only for the seats actually at risk — `predeal north`
-    // with `-3`, a fixed declarer against six defensive layouts, is the whole
-    // point of the switch and keeps working.
-    let clashing_predeals: Vec<Position> = swapping
-        .moves()
-        .iter()
-        .copied()
-        .filter(|seat| fast_predeal_config.predeal_count(*seat) > 0)
-        .collect();
-    if !clashing_predeals.is_empty() {
-        eprintln!(
-            "Error: '{}' swapping moves the cards of {}, so it cannot be combined with a \
-             predeal to {}.",
-            swapping.switch(),
-            describe_seats(swapping.moves()),
-            describe_seats(&clashing_predeals)
-        );
-        eprintln!();
-        eprintln!(
-            "Reason: swapping exchanges whole hands between seats after the deal, which \
-             would move predealt cards to a seat the script did not ask for."
-        );
-        eprintln!();
-        eprintln!(
-            "Suggestion: predeal only to {}, which '{}' leaves in place, or drop the switch.",
-            describe_seats(&unmoved_seats(swapping)),
-            swapping.switch()
-        );
-        std::process::exit(1);
-    }
-
-    // Validate --input-deals conflicts
-    if let Some(ref source) = args.input_deals {
-        if swapping != SwapMode::None {
+        for index in params.unused(constraint_str) {
             eprintln!(
-                "Error: '{}' swapping rearranges deals this program shuffled, so it has \
-                 nothing to do with deals read by --input-deals.",
+                "Warning: --param {} was given and the script never mentions `${}`",
+                index, index
+            );
+        }
+        let preprocessed = match dealer_parser::preprocess_all(constraint_str, &params) {
+            Ok(text) => text,
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        };
+
+        // Parse the program (may include variable assignments and action blocks)
+        let program = match dealer_parser::parse_program(&preprocessed) {
+            Ok(program) => program,
+            Err(e) => {
+                eprintln!("Parse error: {}", e);
+                std::process::exit(1);
+            }
+        };
+
+        // Names with nothing behind them. A bare expression is a legal statement, so
+        // a misspelled keyword parses rather than failing — `dealr west` is a
+        // variable reference and a compass, both discarded. dealer.exe answers
+        // `line 1: unknown variable`; without this, dealer3 dealt on quietly.
+        let unknown = dealer_parser::undefined_variables(&program);
+        if !unknown.is_empty() {
+            eprintln!(
+                "Error: {} used but never defined: {}.\n       A misspelled statement keyword \
+             looks like this — `dealr west` is a name and a compass, not a `dealer` \
+             statement.",
+                if unknown.len() == 1 {
+                    "a name is"
+                } else {
+                    "names are"
+                },
+                unknown.join(", ")
+            );
+            std::process::exit(1);
+        }
+
+        // Reported after the undefined names, not before: `dealr west` is a bare
+        // seat too, and there the misspelled keyword is the thing worth saying.
+        let dangling = dealer_parser::dangling_seats(&program);
+        if let Some(seat) = dangling.first() {
+            eprintln!(
+                "Error: `{seat}` is on its own, which does nothing.\n       \
+             A seat in a `predeal` needs its holdings — `predeal north SAKQ {seat} SJ32`, \
+             not `predeal north SAKQ {seat}`."
+            );
+            std::process::exit(1);
+        }
+
+        // Extract action block directives from the program
+        let mut produce_count_from_input: Option<usize> = None;
+        let mut generate_count_from_input: Option<usize> = None;
+        let mut format_from_input: Option<OutputFormat> = None;
+        let mut dealer_from_input: Option<DealerPosition> = None;
+        let mut vuln_from_input: Option<VulnerabilityArg> = None;
+        let mut title_from_input: Option<String> = None;
+        let mut seed_from_input: Option<u32> = None;
+
+        // `average` and `frequency` are accumulated by `dealer-run`, which reads
+        // them off the program itself — see `RunAccumulator`.
+
+        // Track CSV report statements
+        use dealer_parser::EsTerm;
+        let mut csv_reports: Vec<Vec<CsvTerm>> = Vec::new();
+        // The same lists, to stdout rather than a file.
+        let mut print_reports: Vec<Vec<CsvTerm>> = Vec::new();
+        // `printes(...)` lists, printed per matching deal in the order written.
+        let mut printes_reports: Vec<Vec<EsTerm>> = Vec::new();
+        // Seats named by `print(...)`, whose hands are laid out once at the end.
+        let mut print_hand_seats: Vec<Position> = Vec::new();
+
+        for statement in &program.statements {
+            match statement {
+                Statement::Produce(n) => produce_count_from_input = Some(*n),
+                Statement::Generate(n) => generate_count_from_input = Some(*n),
+                Statement::Action {
+                    format: action_format,
+                    printes: printes_specs,
+                    print_hands,
+                    print_reports: report_specs,
+                    ..
+                } => {
+                    print_reports.extend(report_specs.iter().cloned());
+                    // Extract format if present
+                    if let Some(action_type) = action_format {
+                        format_from_input = Some(match action_type {
+                            ActionType::PrintAll => OutputFormat::PrintAll,
+                            ActionType::PrintEW => OutputFormat::PrintEW,
+                            ActionType::PrintPBN => OutputFormat::PrintPBN,
+                            ActionType::PrintCompact => OutputFormat::PrintCompact,
+                            ActionType::PrintOneLine => OutputFormat::PrintOneLine,
+                        });
+                    }
+                    printes_reports.extend(printes_specs.iter().cloned());
+                    for seat in print_hands {
+                        if !print_hand_seats.contains(seat) {
+                            print_hand_seats.push(*seat);
+                        }
+                    }
+                }
+                Statement::Dealer(pos) => {
+                    dealer_from_input = Some(match pos {
+                        Position::North => DealerPosition::North,
+                        Position::East => DealerPosition::East,
+                        Position::South => DealerPosition::South,
+                        Position::West => DealerPosition::West,
+                    });
+                }
+                Statement::Vulnerable(vuln) => {
+                    vuln_from_input = Some(match *vuln {
+                        VulnerabilityType::None => VulnerabilityArg::None,
+                        VulnerabilityType::NS => VulnerabilityArg::NS,
+                        VulnerabilityType::EW => VulnerabilityArg::EW,
+                        VulnerabilityType::All => VulnerabilityArg::All,
+                    });
+                }
+                Statement::Title(text) => {
+                    title_from_input = Some(text.clone());
+                }
+                Statement::Seed(value) => {
+                    seed_from_input = Some(*value);
+                }
+                Statement::CsvReport(terms) => {
+                    csv_reports.push(terms.clone());
+                }
+                Statement::PrintReport(terms) => {
+                    print_reports.push(terms.clone());
+                }
+                _ => {}
+            }
+        }
+
+        // Extract variables and constraint from program (do this once before the loop)
+        // This avoids cloning expression trees on every iteration
+        let program_variables = extract_variables(&program);
+        let constraint = extract_constraint(&program);
+
+        // `None` unless the script redefines a count, which keeps the hardcoded
+        // counts on the hot path for every script that does not.
+        let point_counts = match extract_point_counts(&program) {
+            Ok(counts) => counts,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                std::process::exit(1);
+            }
+        };
+        let point_counts = point_counts.as_ref();
+
+        // Determine limits for generation
+        // -g limits total hands generated, -p limits matching hands produced
+        // When both are specified, stop when either limit is reached
+        // dealer.exe defaults: -g 10000000 (10M), -p 40
+        // IMPORTANT: We must respect the generate limit to match dealer.exe behavior.
+        // Without this, dealer3 could run forever trying to produce rare hands.
+        let max_generate = args
+            .generate
+            .or(generate_count_from_input)
+            .unwrap_or(10_000_000);
+        let produce_count = args
+            .produce
+            .or(produce_count_from_input)
+            .unwrap_or_else(|| {
+                if args.generate.is_some() {
+                    usize::MAX // No produce limit when only -g is specified
+                } else {
+                    40 // dealer.exe default for -p
+                }
+            });
+
+        // A measuring run is sized by what it is measuring, not by `-p`, and `-p`
+        // means something else here anyway — a scenario's own `produce 5000` is
+        // about the practice set, not about how well its rates are known. So
+        // `--level-measure` is the ceiling and the rarest type decides when to stop
+        // below it. Without this the measurement was whatever `-p` happened to say,
+        // which for a type at 0.2% of qualifying deals was nowhere near enough.
+        let produce_count = if characterizing {
+            args.level_measure
+        } else {
+            produce_count
+        };
+
+        let output_format = args
+            .format
+            .or(format_from_input)
+            .unwrap_or(OutputFormat::PrintAll); // Default format (matches dealer.exe)
+
+        let dealer_position = args.dealer.or(dealer_from_input);
+
+        // `-s` beats a `seed` statement, and the clock is the last resort. Resolved
+        // here rather than before parsing, because the script may name it.
+        let seed = args.seed.or(seed_from_input).unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards")
+                .as_micros() as u32
+        });
+
+        let vulnerability = args.vulnerability.or(vuln_from_input);
+
+        // `-T` beats a `title` statement, the way `-d` beats `dealer` and
+        // `--vulnerable` beats `vulnerable`.
+        let title = args.title.clone().or(title_from_input);
+
+        dealer_eval::rnd::set_seed(args.rnd_seed);
+
+        // Categories of hand the script names, for the PBN tag and for ordering a
+        // practice set. Empty for almost every script, and then nothing changes.
+        let hand_type_names = hand_types(&program);
+
+        // What the keeps are computed from, which is not always what the deals are
+        // grouped by: a scenario may level on `LevelType_` while still being tagged,
+        // ordered and reported by `HandType_`. Resolved here so a mixed-up set of
+        // shares is refused before anything is dealt.
+        let leveling = match dealer_level::leveling_types(&program) {
+            Ok(types) => types,
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        };
+        // The loop's body, shared with the browser. It owns the classification
+        // against both decompositions, the `average`s and `frequency`s, and the
+        // rule for when a measuring run has learnt enough.
+        let mut accumulator = match RunAccumulator::new(&program, MeasureStop::standard()) {
+            Ok(accumulator) => accumulator,
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        };
+
+        // How many deals each shuffle turns into. The three switches override one
+        // another, so the last one written wins, as it does under getopt.
+        let swapping = if args.swap_three {
+            SwapMode::ThreeWay
+        } else if args.swap_two {
+            SwapMode::TwoWay
+        } else {
+            SwapMode::None
+        };
+
+        // Collect predeal configuration (shared between legacy and fast modes)
+        let mut fast_predeal_config = FastDealConfig::new();
+
+        // Apply command-line predeal switches
+        if let Some(ref cards_str) = args.north_predeal {
+            match parse_predeal_cards(cards_str) {
+                Ok(cards) => {
+                    if let Err(e) = fast_predeal_config.predeal(Position::North, &cards) {
+                        eprintln!("Error predealing to North: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error parsing North predeal cards '{}': {}", cards_str, e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        if let Some(ref cards_str) = args.east_predeal {
+            match parse_predeal_cards(cards_str) {
+                Ok(cards) => {
+                    if let Err(e) = fast_predeal_config.predeal(Position::East, &cards) {
+                        eprintln!("Error predealing to East: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error parsing East predeal cards '{}': {}", cards_str, e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        if let Some(ref cards_str) = args.south_predeal {
+            match parse_predeal_cards(cards_str) {
+                Ok(cards) => {
+                    if let Err(e) = fast_predeal_config.predeal(Position::South, &cards) {
+                        eprintln!("Error predealing to South: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error parsing South predeal cards '{}': {}", cards_str, e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        if let Some(ref cards_str) = args.west_predeal {
+            match parse_predeal_cards(cards_str) {
+                Ok(cards) => {
+                    if let Err(e) = fast_predeal_config.predeal(Position::West, &cards) {
+                        eprintln!("Error predealing to West: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error parsing West predeal cards '{}': {}", cards_str, e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // Apply predeal statements from input file
+        for statement in &program.statements {
+            if let Statement::Predeal { position, cards } = statement {
+                if let Err(e) = fast_predeal_config.predeal(*position, cards) {
+                    eprintln!("Predeal error: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+
+        // Check if we have any predeal
+        let has_predeal = fast_predeal_config.predeal_count(Position::North) > 0
+            || fast_predeal_config.predeal_count(Position::East) > 0
+            || fast_predeal_config.predeal_count(Position::South) > 0
+            || fast_predeal_config.predeal_count(Position::West) > 0;
+
+        // Swapping rearranges whole hands after the deal, so a predeal to a seat it
+        // moves would be honoured on the first deal of each shuffle and quietly
+        // broken on the rest. The original does exactly that and says nothing; here
+        // it is refused, and only for the seats actually at risk — `predeal north`
+        // with `-3`, a fixed declarer against six defensive layouts, is the whole
+        // point of the switch and keeps working.
+        let clashing_predeals: Vec<Position> = swapping
+            .moves()
+            .iter()
+            .copied()
+            .filter(|seat| fast_predeal_config.predeal_count(*seat) > 0)
+            .collect();
+        if !clashing_predeals.is_empty() {
+            eprintln!(
+                "Error: '{}' swapping moves the cards of {}, so it cannot be combined with a \
+             predeal to {}.",
+                swapping.switch(),
+                describe_seats(swapping.moves()),
+                describe_seats(&clashing_predeals)
+            );
+            eprintln!();
+            eprintln!(
+                "Reason: swapping exchanges whole hands between seats after the deal, which \
+             would move predealt cards to a seat the script did not ask for."
+            );
+            eprintln!();
+            eprintln!(
+                "Suggestion: predeal only to {}, which '{}' leaves in place, or drop the switch.",
+                describe_seats(&unmoved_seats(swapping)),
                 swapping.switch()
             );
             std::process::exit(1);
         }
-        if has_predeal {
-            eprintln!(
-                "Error: --input-deals cannot be combined with predeal (command-line or script)"
-            );
-            std::process::exit(1);
-        }
-        // `--input-deals -` reads deals from stdin, but stdin is already consumed by the
-        // script when no script file argument is given. Require an explicit script file.
-        if source == "-" && args.input_file.is_none() {
-            eprintln!(
-                "Error: --input-deals - reads deals from stdin, but the script is also being \
-                 read from stdin.\n       Pass the script as a file argument instead, e.g.: \
-                 dealer script.dlr --input-deals -"
-            );
-            std::process::exit(1);
-        }
-        if args.seed.is_some() {
-            eprintln!("Warning: --seed is ignored when using --input-deals");
-        }
-    }
 
-    let mut produced = 0;
-    let mut generated: usize = 0;
-
-    // `print(...)` lays its hands out at the end, four boards to a page, so it
-    // is the one action that needs every produced deal kept. Nothing is kept
-    // unless a script asks for it.
-    let mut printed_deals: Vec<Deal> = Vec::new();
-
-    // `--interleave` cannot print as it goes: the order is not known until
-    // every deal is in. Each entry is one deal and the type it matched, held
-    // unrendered because the board number depends on where it lands.
-    let mut held: Vec<(Option<String>, Deal)> = Vec::new();
-
-    // Verbose flag for stats output (matches dealer.exe behavior)
-    // Default is true (stats shown), -v toggles it off
-    // -X forces stats on (cannot be toggled off)
-    // Note: We intentionally don't replicate dealer.exe's PBN verbose toggle bug
-    // dealer.exe behavior: stats hidden by default, -v shows them
-    let verbose_stats = args.force_verbose || args.verbose;
-
-    // Progress meter variables (matches dealer.exe behavior)
-    let progress_interval = 10000; // Show progress every 10,000 deals
-    let mut last_progress_report = 0;
-
-    // Track if we timed out
-    let mut timed_out = false;
-
-    // Only a measuring run stops early, and only it needs to ask.
-    let measuring = args.write_leveled.is_some();
-
-    // The body of the loop, for the deals the condition accepted. Classifying
-    // and counting is `dealer-run`'s; what is left here is what a terminal does
-    // with a deal and a browser does not.
-    //
-    // The accumulator is a parameter rather than captured so the loop outside
-    // can ask it whether a measuring run has finished — which is what the
-    // `Cell` this replaces was working around.
-    let mut process_matching_deal =
-        |deal: &Deal,
-         produced: usize,
-         accumulator: &mut RunAccumulator,
-         csv_writer: &mut Option<BufWriter<std::fs::File>>,
-         printed_deals: &mut Vec<Deal>| {
-            if !print_hand_seats.is_empty() {
-                printed_deals.push(deal.clone());
-            }
-
-            let matched = accumulator
-                .observe(deal, &program_variables, point_counts)
-                .unwrap_or_else(|e| {
-                    // With the deal, when there is one to show: two definitions
-                    // written pages apart overlap on a corner neither author
-                    // had in mind, and the corner is what has to be looked at.
-                    match e.deal() {
-                        Some(deal) => eprintln!(
-                            "Error: {}\n       The deal:\n       {}",
-                            e,
-                            format_oneline(deal).trim_end()
-                        ),
-                        None => eprintln!("Error: {}", e),
-                    }
-                    std::process::exit(1);
-                });
-            let hand_type = matched
-                .hand_type
-                .map(|i| accumulator.hand_type_labels()[i].as_str());
-
-            // printes: the script's own formatted output, with nothing added
-            // between terms and no line ending unless the script asked for one.
-            if !printes_reports.is_empty() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-                for terms in &printes_reports {
-                    for term in terms {
-                        match term {
-                            EsTerm::String(text) => print!("{}", text),
-                            EsTerm::Newline => println!(),
-                            EsTerm::Expression(expr) => match eval(expr, &ctx) {
-                                Ok(value) => print!("{}", value),
-                                Err(e) => {
-                                    eprintln!("printes evaluation error: {}", e);
-                                    std::process::exit(1);
-                                }
-                            },
-                        }
-                    }
-                }
-            }
-
-            // In quiet mode, don't print deals (only statistics)
-            if !args.quiet {
-                // `--interleave` holds the deal rather than the rendered
-                // board: the board number belongs to the position a deal ends
-                // up in, which is not known until every deal is in.
-                if args.interleave {
-                    held.push((hand_type.map(str::to_string), deal.clone()));
-                } else {
-                    print!(
-                        "{}",
-                        render_board(
-                            deal,
-                            produced,
-                            hand_type,
-                            output_format,
-                            dealer_position.map(|d| d.into()),
-                            vulnerability.map(|v| v.into()),
-                            title.as_deref(),
-                            seed,
-                            args.input_file.as_deref(),
-                        )
-                    );
-                }
-            }
-
-            // Report rows: `csvrpt` to the file, `printrpt` to stdout. One
-            // renderer, because DealerV2_4's two statements differ only in
-            // where the row goes — same terms, same quoting, same commas.
-            if (!csv_reports.is_empty() && csv_writer.is_some()) || !print_reports.is_empty() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-
-                for csv_terms in &csv_reports {
-                    let row = report_row(csv_terms, deal, &ctx);
-                    if let Some(writer) = csv_writer.as_mut() {
-                        writeln!(writer, " {}", row).unwrap_or_else(|e| {
-                            eprintln!("Error writing CSV: {}", e);
-                            std::process::exit(1);
-                        });
-                    }
-                }
-                for terms in &print_reports {
-                    println!(" {}", report_row(terms, deal, &ctx));
-                }
-            }
-        };
-
-    // Choose execution mode: input-deals, legacy, or fast (parallel)
-    if let Some(ref input_deals_source) = args.input_deals {
-        // Input-deals mode: read deals from a file or stdin, apply filter
-        use bridge_encodings::DealReader;
-        use std::io::{BufRead, BufReader};
-
-        // `-` means stdin; the guard above guarantees the script came from a file.
-        let source: Box<dyn BufRead> = if input_deals_source == "-" {
-            Box::new(BufReader::new(io::stdin()))
-        } else {
-            let file = std::fs::File::open(input_deals_source).unwrap_or_else(|e| {
+        // Validate --input-deals conflicts
+        if let Some(ref source) = args.input_deals {
+            if swapping != SwapMode::None {
                 eprintln!(
-                    "Error opening input deals file '{}': {}",
-                    input_deals_source, e
+                    "Error: '{}' swapping rearranges deals this program shuffled, so it has \
+                 nothing to do with deals read by --input-deals.",
+                    swapping.switch()
                 );
                 std::process::exit(1);
-            });
-            Box::new(BufReader::new(file))
-        };
-        let deal_reader = DealReader::new(source);
-
-        // DealReader silently ignores lines it does not recognise as deals, which is
-        // what lets PBN metadata and stats output be fed in directly. It only yields
-        // Err for I/O failures (e.g. invalid UTF-8 mid-stream). Those are recoverable,
-        // so skip rather than abort, and report the total at exit. Because unreadable
-        // *content* is indistinguishable from metadata, callers that need to know every
-        // deal arrived should compare the reported count against an expected total.
-        let mut skipped: usize = 0;
-        const MAX_SKIP_WARNINGS: usize = 10;
-
-        for deal_result in deal_reader {
-            // Check timeout every 1000 deals
-            if let Some(timeout_secs) = args.timeout {
-                if generated.is_multiple_of(1000) {
-                    let elapsed = start_time.elapsed().unwrap().as_secs();
-                    if elapsed >= timeout_secs {
-                        timed_out = true;
-                        eprintln!(
-                            "Timeout after {} seconds ({} generated, {} produced)",
-                            elapsed, generated, produced
-                        );
-                        break;
-                    }
-                }
             }
-
-            let bt_deal = match deal_result {
-                Ok(d) => d,
-                Err(e) => {
-                    skipped += 1;
-                    if skipped <= MAX_SKIP_WARNINGS {
-                        eprintln!("Warning: skipping unreadable deal: {}", e);
-                        if skipped == MAX_SKIP_WARNINGS {
-                            eprintln!(
-                                "Warning: further malformed-deal warnings suppressed; \
-                                 total will be reported at exit"
-                            );
-                        }
-                    }
-                    continue;
-                }
-            };
-
-            // Convert bridge_types::Deal → dealer_core::Deal
-            let deal: Deal = bt_deal.into();
-            generated += 1;
-
-            // Show progress meter if enabled
-            if args.progress && generated - last_progress_report >= progress_interval {
-                let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+            if has_predeal {
                 eprintln!(
-                    "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
-                    generated, produced, elapsed
+                    "Error: --input-deals cannot be combined with predeal (command-line or script)"
                 );
-                last_progress_report = generated;
+                std::process::exit(1);
             }
-
-            // Evaluate constraint
-            let eval_result = match constraint {
-                Some(expr) => {
-                    eval_with_context_and_counts(expr, &program_variables, &deal, point_counts)
-                }
-                None => Ok(1),
-            };
-
-            match eval_result {
-                Ok(result) if result != 0 => {
-                    process_matching_deal(
-                        &deal,
-                        produced,
-                        &mut accumulator,
-                        &mut csv_writer,
-                        &mut printed_deals,
-                    );
-                    produced += 1;
-                    if produced >= produce_count {
-                        break;
-                    }
-                }
-                Ok(_) => continue,
-                Err(e) => {
-                    eprintln!("Evaluation error: {}", e);
-                    std::process::exit(1);
-                }
+            // `--input-deals -` reads deals from stdin, but stdin is already consumed by the
+            // script when no script file argument is given. Require an explicit script file.
+            if source == "-" && args.input_file.is_none() {
+                eprintln!(
+                    "Error: --input-deals - reads deals from stdin, but the script is also being \
+                 read from stdin.\n       Pass the script as a file argument instead, e.g.: \
+                 dealer script.dlr --input-deals -"
+                );
+                std::process::exit(1);
             }
-
-            if generated >= max_generate {
-                break;
+            if args.seed.is_some() {
+                eprintln!("Warning: --seed is ignored when using --input-deals");
             }
         }
 
-        if skipped > 0 {
-            eprintln!("Warning: skipped {} unreadable deal(s) from input", skipped);
-        }
-    } else {
-        // Fast mode: parallel execution with xoshiro256++ RNG
-        // Deals are independent - same seed produces same sequence
-        let config = FastParallelConfig {
-            num_threads: args.threads,
-        };
+        let mut produced = 0;
+        let mut generated: usize = 0;
 
-        let mut supervisor = if has_predeal {
-            FastSupervisor::with_predeal(seed as u64, fast_predeal_config, config)
-        } else {
-            FastSupervisor::new(seed as u64, config)
-        }
-        .with_swapping(swapping);
+        // `print(...)` lays its hands out at the end, four boards to a page, so it
+        // is the one action that needs every produced deal kept. Nothing is kept
+        // unless a script asks for it.
+        let mut printed_deals: Vec<Deal> = Vec::new();
 
-        let actual_batch_size = if args.batch_size == 0 {
-            200 * if args.threads == 0 {
-                std::thread::available_parallelism()
-                    .map(|n| n.get())
-                    .unwrap_or(1)
-            } else {
-                args.threads
-            }
-        } else {
-            args.batch_size
-        };
+        // `--interleave` cannot print as it goes: the order is not known until
+        // every deal is in. Each entry is one deal and the type it matched, held
+        // unrendered because the board number depends on where it lands.
+        let mut held: Vec<(Option<String>, Deal)> = Vec::new();
 
-        while produced < produce_count && generated < max_generate {
-            // Enough of every hand type to divide by, which is the only thing a
-            // measuring run is for.
-            // `measuring &&` because the accumulator answers for any script
-            // whose categories are all well sampled; only a measuring run has
-            // reason to stop there. The flag this replaced was set nowhere else,
-            // so the guard was implicit.
-            if measuring && accumulator.measure_satisfied() {
-                break;
-            }
-            // Check timeout before each batch
-            if let Some(timeout_secs) = args.timeout {
-                let elapsed = start_time.elapsed().unwrap().as_secs();
-                if elapsed >= timeout_secs {
-                    timed_out = true;
-                    eprintln!(
-                        "Timeout after {} seconds ({} generated, {} produced)",
-                        elapsed, generated, produced
-                    );
-                    break;
+        // Verbose flag for stats output (matches dealer.exe behavior)
+        // Default is true (stats shown), -v toggles it off
+        // -X forces stats on (cannot be toggled off)
+        // Note: We intentionally don't replicate dealer.exe's PBN verbose toggle bug
+        // dealer.exe behavior: stats hidden by default, -v shows them
+        let verbose_stats = args.force_verbose || args.verbose;
+
+        // Progress meter variables (matches dealer.exe behavior)
+        let progress_interval = 10000; // Show progress every 10,000 deals
+        let mut last_progress_report = 0;
+
+        // Only a measuring run stops early, and only it needs to ask.
+        let measuring = characterizing;
+
+        // The body of the loop, for the deals the condition accepted. Classifying
+        // and counting is `dealer-run`'s; what is left here is what a terminal does
+        // with a deal and a browser does not.
+        //
+        // The accumulator is a parameter rather than captured so the loop outside
+        // can ask it whether a measuring run has finished — which is what the
+        // `Cell` this replaces was working around.
+        let mut process_matching_deal =
+            |deal: &Deal,
+             produced: usize,
+             accumulator: &mut RunAccumulator,
+             csv_writer: &mut Option<BufWriter<std::fs::File>>,
+             printed_deals: &mut Vec<Deal>| {
+                // Nothing a characterizing pass sees is output: those deals
+                // exist to be counted and thrown away, and `--write-leveled` on its
+                // own still shows them because that pass *is* its run.
+                let emit = !(characterizing && args.level);
+                if emit && !print_hand_seats.is_empty() {
+                    printed_deals.push(deal.clone());
                 }
-            }
 
-            // The measuring run's own clock, so a scenario whose rarest type is
-            // desperately rare stops on a deadline instead of grinding to
-            // `--level-measure`. Not an error: the levelling is written with
-            // what was measured and the shortfall reported.
-            if args.write_leveled.is_some() {
-                let elapsed = start_time.elapsed().unwrap().as_secs();
-                if elapsed >= args.level_timeout {
-                    eprintln!(
-                        "Note: stopped measuring after {}s ({} produced). \
-                         Raise --level-timeout to measure for longer.",
-                        elapsed, produced
-                    );
-                    break;
-                }
-            }
+                let matched = accumulator
+                    .observe(deal, &program_variables, point_counts)
+                    .unwrap_or_else(|e| {
+                        // With the deal, when there is one to show: two definitions
+                        // written pages apart overlap on a corner neither author
+                        // had in mind, and the corner is what has to be looked at.
+                        match e.deal() {
+                            Some(deal) => eprintln!(
+                                "Error: {}\n       The deal:\n       {}",
+                                e,
+                                format_oneline(deal).trim_end()
+                            ),
+                            None => eprintln!("Error: {}", e),
+                        }
+                        std::process::exit(1);
+                    });
+                let hand_type = matched
+                    .hand_type
+                    .map(|i| accumulator.hand_type_labels()[i].as_str());
 
-            // Calculate batch size for this iteration
-            let remaining_to_generate = max_generate - generated;
-            let batch_size = actual_batch_size.min(remaining_to_generate);
-
-            if batch_size == 0 {
-                break;
-            }
-
-            // Process batch in parallel
-            // The filter closure evaluates the constraint for each deal
-            let results = supervisor.process_batch(batch_size, |deal| {
-                match constraint {
-                    Some(expr) => {
-                        // Note: This creates a new EvalContext for each deal in parallel
-                        // The program_variables are shared (read-only)
-                        match eval_with_context_and_counts(
-                            expr,
-                            &program_variables,
-                            deal,
-                            point_counts,
-                        ) {
-                            Ok(result) => result != 0,
-                            Err(_) => false, // Treat errors as non-matching
+                // printes: the script's own formatted output, with nothing added
+                // between terms and no line ending unless the script asked for one.
+                if emit && !printes_reports.is_empty() {
+                    let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+                    for terms in &printes_reports {
+                        for term in terms {
+                            match term {
+                                EsTerm::String(text) => print!("{}", text),
+                                EsTerm::Newline => println!(),
+                                EsTerm::Expression(expr) => match eval(expr, &ctx) {
+                                    Ok(value) => print!("{}", value),
+                                    Err(e) => {
+                                        eprintln!("printes evaluation error: {}", e);
+                                        std::process::exit(1);
+                                    }
+                                },
+                            }
                         }
                     }
-                    None => true, // No constraint = always match
                 }
-            });
 
-            // Process results in order, stopping when we have enough
-            for result in results {
+                // In quiet mode, don't print deals (only statistics)
+                if emit && !args.quiet {
+                    // `--interleave` holds the deal rather than the rendered
+                    // board: the board number belongs to the position a deal ends
+                    // up in, which is not known until every deal is in.
+                    if args.interleave {
+                        held.push((hand_type.map(str::to_string), deal.clone()));
+                    } else {
+                        print!(
+                            "{}",
+                            render_board(
+                                deal,
+                                produced,
+                                hand_type,
+                                output_format,
+                                dealer_position.map(|d| d.into()),
+                                vulnerability.map(|v| v.into()),
+                                title.as_deref(),
+                                seed,
+                                args.input_file.as_deref(),
+                            )
+                        );
+                    }
+                }
+
+                // Report rows: `csvrpt` to the file, `printrpt` to stdout. One
+                // renderer, because DealerV2_4's two statements differ only in
+                // where the row goes — same terms, same quoting, same commas.
+                if emit
+                    && ((!csv_reports.is_empty() && csv_writer.is_some())
+                        || !print_reports.is_empty())
+                {
+                    let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
+
+                    for csv_terms in &csv_reports {
+                        let row = report_row(csv_terms, deal, &ctx);
+                        if let Some(writer) = csv_writer.as_mut() {
+                            writeln!(writer, " {}", row).unwrap_or_else(|e| {
+                                eprintln!("Error writing CSV: {}", e);
+                                std::process::exit(1);
+                            });
+                        }
+                    }
+                    for terms in &print_reports {
+                        println!(" {}", report_row(terms, deal, &ctx));
+                    }
+                }
+            };
+
+        // Choose execution mode: input-deals, legacy, or fast (parallel)
+        if let Some(ref input_deals_source) = args.input_deals {
+            // Input-deals mode: read deals from a file or stdin, apply filter
+            use bridge_encodings::DealReader;
+            use std::io::{BufRead, BufReader};
+
+            // `-` means stdin; the guard above guarantees the script came from a file.
+            let source: Box<dyn BufRead> = if input_deals_source == "-" {
+                Box::new(BufReader::new(io::stdin()))
+            } else {
+                let file = std::fs::File::open(input_deals_source).unwrap_or_else(|e| {
+                    eprintln!(
+                        "Error opening input deals file '{}': {}",
+                        input_deals_source, e
+                    );
+                    std::process::exit(1);
+                });
+                Box::new(BufReader::new(file))
+            };
+            let deal_reader = DealReader::new(source);
+
+            // DealReader silently ignores lines it does not recognise as deals, which is
+            // what lets PBN metadata and stats output be fed in directly. It only yields
+            // Err for I/O failures (e.g. invalid UTF-8 mid-stream). Those are recoverable,
+            // so skip rather than abort, and report the total at exit. Because unreadable
+            // *content* is indistinguishable from metadata, callers that need to know every
+            // deal arrived should compare the reported count against an expected total.
+            let mut skipped: usize = 0;
+            const MAX_SKIP_WARNINGS: usize = 10;
+
+            for deal_result in deal_reader {
+                // Check timeout every 1000 deals
+                if let Some(timeout_secs) = args.timeout {
+                    if generated.is_multiple_of(1000) {
+                        let elapsed = start_time.elapsed().unwrap().as_secs();
+                        if elapsed >= timeout_secs {
+                            timed_out = true;
+                            eprintln!(
+                                "Timeout after {} seconds ({} generated, {} produced)",
+                                elapsed, generated, produced
+                            );
+                            break;
+                        }
+                    }
+                }
+
+                let bt_deal = match deal_result {
+                    Ok(d) => d,
+                    Err(e) => {
+                        skipped += 1;
+                        if skipped <= MAX_SKIP_WARNINGS {
+                            eprintln!("Warning: skipping unreadable deal: {}", e);
+                            if skipped == MAX_SKIP_WARNINGS {
+                                eprintln!(
+                                    "Warning: further malformed-deal warnings suppressed; \
+                                 total will be reported at exit"
+                                );
+                            }
+                        }
+                        continue;
+                    }
+                };
+
+                // Convert bridge_types::Deal → dealer_core::Deal
+                let deal: Deal = bt_deal.into();
                 generated += 1;
 
                 // Show progress meter if enabled
@@ -1667,239 +1577,404 @@ fn main() {
                     last_progress_report = generated;
                 }
 
-                if result.passed && produced < produce_count {
-                    process_matching_deal(
-                        &result.deal,
-                        produced,
-                        &mut accumulator,
-                        &mut csv_writer,
-                        &mut printed_deals,
-                    );
-                    produced += 1;
+                // Evaluate constraint
+                let eval_result = match constraint {
+                    Some(expr) => {
+                        eval_with_context_and_counts(expr, &program_variables, &deal, point_counts)
+                    }
+                    None => Ok(1),
+                };
 
-                    // Stop counting generated deals once we've produced enough
-                    // This matches dealer.exe behavior where it stops at the deal that
-                    // satisfied the produce count
-                    if produced >= produce_count {
+                match eval_result {
+                    Ok(result) if result != 0 => {
+                        process_matching_deal(
+                            &deal,
+                            produced,
+                            &mut accumulator,
+                            &mut csv_writer,
+                            &mut printed_deals,
+                        );
+                        produced += 1;
+                        if produced >= produce_count {
+                            break;
+                        }
+                    }
+                    Ok(_) => continue,
+                    Err(e) => {
+                        eprintln!("Evaluation error: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+
+                if generated >= max_generate {
+                    break;
+                }
+            }
+
+            if skipped > 0 {
+                eprintln!("Warning: skipped {} unreadable deal(s) from input", skipped);
+            }
+        } else {
+            // Fast mode: parallel execution with xoshiro256++ RNG
+            // Deals are independent - same seed produces same sequence
+            let config = FastParallelConfig {
+                num_threads: args.threads,
+            };
+
+            let mut supervisor = if has_predeal {
+                FastSupervisor::with_predeal(seed as u64, fast_predeal_config, config)
+            } else {
+                FastSupervisor::new(seed as u64, config)
+            }
+            .with_swapping(swapping);
+
+            let actual_batch_size = if args.batch_size == 0 {
+                200 * if args.threads == 0 {
+                    std::thread::available_parallelism()
+                        .map(|n| n.get())
+                        .unwrap_or(1)
+                } else {
+                    args.threads
+                }
+            } else {
+                args.batch_size
+            };
+
+            while produced < produce_count && generated < max_generate {
+                // Enough of every hand type to divide by, which is the only thing a
+                // measuring run is for.
+                // `measuring &&` because the accumulator answers for any script
+                // whose categories are all well sampled; only a measuring run has
+                // reason to stop there. The flag this replaced was set nowhere else,
+                // so the guard was implicit.
+                if measuring && accumulator.measure_satisfied() {
+                    break;
+                }
+                // Check timeout before each batch
+                if let Some(timeout_secs) = args.timeout {
+                    let elapsed = start_time.elapsed().unwrap().as_secs();
+                    if elapsed >= timeout_secs {
+                        timed_out = true;
+                        eprintln!(
+                            "Timeout after {} seconds ({} generated, {} produced)",
+                            elapsed, generated, produced
+                        );
                         break;
                     }
+                }
 
-                    // A measuring run stops on the very deal that finished the
-                    // job, not at the end of the batch it fell in. Batches are
-                    // 200 deals per thread, so stopping at a batch boundary
-                    // would make the measurement — and the generated file that
-                    // comes out of it — depend on how many cores the machine
-                    // has. The example pair in `examples/` is regenerated and
-                    // diffed by CI, which would fail on any machine but the one
-                    // it was written on.
-                    if measuring && accumulator.measure_satisfied() {
+                // The measuring run's own clock, so a scenario whose rarest type is
+                // desperately rare stops on a deadline instead of grinding to
+                // `--level-measure`. Not an error: the levelling is written with
+                // what was measured and the shortfall reported.
+                if characterizing {
+                    let elapsed = start_time.elapsed().unwrap().as_secs();
+                    if elapsed >= args.level_timeout {
+                        eprintln!(
+                            "Note: stopped measuring after {}s ({} produced). \
+                         Raise --level-timeout to measure for longer.",
+                            elapsed, produced
+                        );
                         break;
+                    }
+                }
+
+                // Calculate batch size for this iteration
+                let remaining_to_generate = max_generate - generated;
+                let batch_size = actual_batch_size.min(remaining_to_generate);
+
+                if batch_size == 0 {
+                    break;
+                }
+
+                // Process batch in parallel
+                // The filter closure evaluates the constraint for each deal
+                let results = supervisor.process_batch(batch_size, |deal| {
+                    match constraint {
+                        Some(expr) => {
+                            // Note: This creates a new EvalContext for each deal in parallel
+                            // The program_variables are shared (read-only)
+                            match eval_with_context_and_counts(
+                                expr,
+                                &program_variables,
+                                deal,
+                                point_counts,
+                            ) {
+                                Ok(result) => result != 0,
+                                Err(_) => false, // Treat errors as non-matching
+                            }
+                        }
+                        None => true, // No constraint = always match
+                    }
+                });
+
+                // Process results in order, stopping when we have enough
+                for result in results {
+                    generated += 1;
+
+                    // Show progress meter if enabled
+                    if args.progress && generated - last_progress_report >= progress_interval {
+                        let elapsed = start_time.elapsed().unwrap().as_secs_f64();
+                        eprintln!(
+                            "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                            generated, produced, elapsed
+                        );
+                        last_progress_report = generated;
+                    }
+
+                    if result.passed && produced < produce_count {
+                        process_matching_deal(
+                            &result.deal,
+                            produced,
+                            &mut accumulator,
+                            &mut csv_writer,
+                            &mut printed_deals,
+                        );
+                        produced += 1;
+
+                        // Stop counting generated deals once we've produced enough
+                        // This matches dealer.exe behavior where it stops at the deal that
+                        // satisfied the produce count
+                        if produced >= produce_count {
+                            break;
+                        }
+
+                        // A measuring run stops on the very deal that finished the
+                        // job, not at the end of the batch it fell in. Batches are
+                        // 200 deals per thread, so stopping at a batch boundary
+                        // would make the measurement — and the generated file that
+                        // comes out of it — depend on how many cores the machine
+                        // has. The example pair in `examples/` is regenerated and
+                        // diffed by CI, which would fail on any machine but the one
+                        // it was written on.
+                        if measuring && accumulator.measure_satisfied() {
+                            break;
+                        }
                     }
                 }
             }
         }
-    }
 
-    // Calculate elapsed time
-    let elapsed = start_time.elapsed().unwrap();
-    let elapsed_secs = elapsed.as_secs_f64();
+        // Calculate elapsed time
+        let elapsed = start_time.elapsed().unwrap();
+        let elapsed_secs = elapsed.as_secs_f64();
 
-    // Taken before `finish` consumes the accumulator, which is what bins the
-    // frequencies: the shares are wanted further down than the statistics are.
-    let hand_type_counts = accumulator.hand_type_counts().to_vec();
+        // Taken before `finish` consumes the accumulator, which is what bins the
+        // frequencies: the shares are wanted further down than the statistics are.
+        let hand_type_counts = accumulator.hand_type_counts().to_vec();
 
-    // `--level-plan`: report what would level the hand types, and stop. The
-    // run above did the measuring — every produced deal was classified — so
-    // this is arithmetic on counts already gathered.
-    if let Some(ref leveled_path) = args.write_leveled {
-        // The levelling decomposition, which is the hand types unless the
-        // scenario declared `LevelType_` variables of its own.
-        let labels = leveling.labels.clone();
-        let measured = accumulator.measurement(generated);
+        // The pass that characterized the scenario has finished, so the keeps can
+        // be worked out: every produced deal was classified as it went, and this is
+        // arithmetic on counts already gathered.
+        if characterizing {
+            // The levelling decomposition, which is the hand types unless the
+            // scenario declared `LevelType_` variables of its own.
+            let labels = leveling.labels.clone();
+            let measured = accumulator.measurement(generated);
 
-        // The switch wins over the script, as `-s` does over `seed`. Without
-        // either, the script's own `_Share` declarations answer — and those
-        // default to 1 each, which is an even mix.
-        let weights = match &args.level_target {
-            Some(spec) => match dealer_level::parse_level_target(spec, &labels) {
-                Ok(weights) => weights,
+            // The switch wins over the script, as `-s` does over `seed`. Without
+            // either, the script's own `_Share` declarations answer — and those
+            // default to 1 each, which is an even mix.
+            let weights = match &args.level_target {
+                Some(spec) => match dealer_level::parse_level_target(spec, &labels) {
+                    Ok(weights) => weights,
+                    Err(message) => {
+                        eprintln!("Error: {}", message);
+                        std::process::exit(1);
+                    }
+                },
+                None => leveling.shares.clone(),
+            };
+
+            // The prepared scenario, not the file: a placeholder written in above
+            // belongs in the copy as well, or the two would disagree.
+            let source = leveling_source.clone().unwrap_or_default();
+            let leveled = match level_from(
+                &source,
+                &measured,
+                &weights,
+                args.level_budget,
+                seed,
+                MIN_HAND_TYPE_SAMPLE,
+            ) {
+                Ok(leveled) => leveled,
                 Err(message) => {
                     eprintln!("Error: {}", message);
                     std::process::exit(1);
                 }
-            },
-            None => leveling.shares.clone(),
-        };
-
-        // The prepared scenario, not the file: a placeholder written in above
-        // belongs in the copy as well, or the two would disagree.
-        let source = leveling_source.clone().unwrap_or_default();
-        let leveled = match level_from(
-            &source,
-            &measured,
-            &weights,
-            args.level_budget,
-            seed,
-            MIN_HAND_TYPE_SAMPLE,
-        ) {
-            Ok(leveled) => leveled,
-            Err(message) => {
-                eprintln!("Error: {}", message);
-                std::process::exit(1);
-            }
-        };
-        for warning in &leveled.warnings {
-            eprintln!("Warning: {}", warning);
-        }
-        if let Err(e) = std::fs::write(leveled_path, &leveled.script) {
-            eprintln!("Error: could not write {}: {}", leveled_path.display(), e);
-            std::process::exit(1);
-        }
-        eprintln!(
-            "{}\n\nwrote {}",
-            leveling_summary(&leveled, &measured),
-            leveled_path.display()
-        );
-        return;
-    }
-
-    // Held output, reordered so a practice set walks through the categories
-    // rather than meeting them as they happen to fall.
-    if args.interleave && !held.is_empty() {
-        let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-        for (index, (hand_type, _)) in held.iter().enumerate() {
-            match buckets.iter_mut().find(|(name, _)| name == hand_type) {
-                Some((_, deals)) => deals.push(index),
-                None => buckets.push((hand_type.clone(), vec![index])),
-            }
-        }
-        if verbose_stats {
-            let mut sizes: Vec<String> = buckets
-                .iter()
-                .map(|(name, deals)| {
-                    format!("{} {}", name.as_deref().unwrap_or("(untyped)"), deals.len())
-                })
-                .collect();
-            sizes.sort();
-            eprintln!(
-                "Interleaved {} rounds: {}",
-                buckets.iter().map(|(_, d)| d.len()).max().unwrap_or(0),
-                sizes.join(", ")
-            );
-        }
-        let labels: Vec<&str> = hand_type_names.iter().map(|n| hand_type_label(n)).collect();
-        // Numbered by where a board lands, not by when it was produced. The
-        // order is the whole point of the switch, and a reader that sorts or
-        // renumbers by `[Board]` would otherwise undo it without saying so.
-        for (position, index) in interleave(&labels, buckets, seed as u64)
-            .into_iter()
-            .enumerate()
-        {
-            let (hand_type, deal) = &held[index];
-            print!(
-                "{}",
-                render_board(
-                    deal,
-                    position,
-                    hand_type.as_deref(),
-                    output_format,
-                    dealer_position.map(|d| d.into()),
-                    vulnerability.map(|v| v.into()),
-                    title.as_deref(),
-                    seed,
-                    args.input_file.as_deref(),
-                )
-            );
-        }
-    }
-
-    // `print(...)` output, before the statistics as in the original. Seats come
-    // out north, east, south, west whatever order the script named them, since
-    // the original collects them into a bitmask.
-    if !print_hand_seats.is_empty() && !printed_deals.is_empty() {
-        for seat in Position::ALL {
-            if print_hand_seats.contains(&seat) {
-                print!("{}", format_print_hands(&printed_deals, seat));
-            }
-        }
-    }
-
-    // One JSON object instead of the tables, for a tool rather than a reader.
-    // Everything a caller needs to compute levelling keeps is here: each
-    // average's value and the count it was measured over, and the frequency
-    // bins with what fell outside a declared range.
-    let dealer_run::Stats {
-        averages,
-        frequencies,
-    } = accumulator.finish();
-
-    if args.stats_json {
-        let mut out = String::from("{\n");
-        out.push_str(&format!("  \"generated\": {},\n", generated));
-        out.push_str(&format!("  \"produced\": {},\n", produced));
-        match args.input_deals {
-            Some(ref source) => {
-                out.push_str(&format!("  \"input_deals\": {},\n", json_string(source)))
-            }
-            None => out.push_str(&format!("  \"seed\": {},\n", seed)),
-        }
-        out.push_str(&format!("  \"seconds\": {},\n", json_number(elapsed_secs)));
-        out.push_str(&format!("  \"timed_out\": {},\n", timed_out));
-        // Names and shares together: checking a levelled scenario delivered
-        // its mix is the point of running one, and reading it off here saves
-        // every scenario carrying an `average` statement per type to say what
-        // the run already counted.
-        out.push_str("  \"hand_types\": [");
-        for (i, name) in hand_type_names.iter().enumerate() {
-            let label = hand_type_label(name);
-            let count = hand_type_counts.get(i).copied().unwrap_or(0);
-            let share = if produced > 0 {
-                count as f64 / produced as f64
-            } else {
-                0.0
             };
-            out.push_str(if i == 0 { "\n" } else { ",\n" });
-            out.push_str(&format!(
-                "    {{ \"name\": {}, \"produced\": {}, \"share\": {} }}",
-                json_string(label),
-                count,
-                json_number(share)
-            ));
+            for warning in &leveled.warnings {
+                eprintln!("Warning: {}", warning);
+            }
+            match &args.write_leveled {
+                Some(leveled_path) => {
+                    if let Err(e) = std::fs::write(leveled_path, &leveled.script) {
+                        eprintln!("Error: could not write {}: {}", leveled_path.display(), e);
+                        std::process::exit(1);
+                    }
+                    eprintln!(
+                        "{}\n\nwrote {}",
+                        leveling_summary(&leveled, &measured),
+                        leveled_path.display()
+                    );
+                }
+                // `--level` alone: the scenario is used and discarded, so the
+                // summary is the only account of what it was.
+                None => eprintln!("{}", leveling_summary(&leveled, &measured)),
+            }
+            // `--level` goes on to deal the levelled copy. `--write-leveled` on its
+            // own has done what it was asked and stops here, as it always has.
+            if args.level {
+                dealt_earlier += generated;
+                pass_source = leveled.script;
+                characterizing = false;
+                continue;
+            }
+            return;
         }
-        if !hand_type_names.is_empty() {
-            out.push('\n');
-            out.push_str("  ");
-        }
-        out.push_str("],\n");
 
-        out.push_str("  \"averages\": [");
-        for (i, average) in averages.iter().enumerate() {
-            out.push_str(if i == 0 { "\n" } else { ",\n" });
-            out.push_str(&format!(
-                "    {{ \"label\": {}, \"value\": {}, \"count\": {} }}",
-                match &average.label {
-                    Some(text) => json_string(text),
-                    None => "null".to_string(),
-                },
-                json_number(average.value),
-                average.count
-            ));
+        // Held output, reordered so a practice set walks through the categories
+        // rather than meeting them as they happen to fall.
+        if args.interleave && !held.is_empty() {
+            let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+            for (index, (hand_type, _)) in held.iter().enumerate() {
+                match buckets.iter_mut().find(|(name, _)| name == hand_type) {
+                    Some((_, deals)) => deals.push(index),
+                    None => buckets.push((hand_type.clone(), vec![index])),
+                }
+            }
+            if verbose_stats {
+                let mut sizes: Vec<String> = buckets
+                    .iter()
+                    .map(|(name, deals)| {
+                        format!("{} {}", name.as_deref().unwrap_or("(untyped)"), deals.len())
+                    })
+                    .collect();
+                sizes.sort();
+                eprintln!(
+                    "Interleaved {} rounds: {}",
+                    buckets.iter().map(|(_, d)| d.len()).max().unwrap_or(0),
+                    sizes.join(", ")
+                );
+            }
+            let labels: Vec<&str> = hand_type_names.iter().map(|n| hand_type_label(n)).collect();
+            // Numbered by where a board lands, not by when it was produced. The
+            // order is the whole point of the switch, and a reader that sorts or
+            // renumbers by `[Board]` would otherwise undo it without saying so.
+            for (position, index) in interleave(&labels, buckets, seed as u64)
+                .into_iter()
+                .enumerate()
+            {
+                let (hand_type, deal) = &held[index];
+                print!(
+                    "{}",
+                    render_board(
+                        deal,
+                        position,
+                        hand_type.as_deref(),
+                        output_format,
+                        dealer_position.map(|d| d.into()),
+                        vulnerability.map(|v| v.into()),
+                        title.as_deref(),
+                        seed,
+                        args.input_file.as_deref(),
+                    )
+                );
+            }
         }
-        out.push_str(if averages.is_empty() {
-            "],\n"
-        } else {
-            "\n  ],\n"
-        });
 
-        out.push_str("  \"frequencies\": [");
-        for (i, frequency) in frequencies.iter().enumerate() {
-            let bins: Vec<String> = frequency
-                .bins
-                .iter()
-                .map(|(value, count)| format!("{{ \"value\": {}, \"count\": {} }}", value, count))
-                .collect();
-            out.push_str(if i == 0 { "\n" } else { ",\n" });
+        // `print(...)` output, before the statistics as in the original. Seats come
+        // out north, east, south, west whatever order the script named them, since
+        // the original collects them into a bitmask.
+        if !print_hand_seats.is_empty() && !printed_deals.is_empty() {
+            for seat in Position::ALL {
+                if print_hand_seats.contains(&seat) {
+                    print!("{}", format_print_hands(&printed_deals, seat));
+                }
+            }
+        }
+
+        // One JSON object instead of the tables, for a tool rather than a reader.
+        // Everything a caller needs to compute levelling keeps is here: each
+        // average's value and the count it was measured over, and the frequency
+        // bins with what fell outside a declared range.
+        let dealer_run::Stats {
+            averages,
+            frequencies,
+        } = accumulator.finish();
+
+        if args.stats_json {
+            let mut out = String::from("{\n");
             out.push_str(&format!(
+                "  \"generated\": {},\n",
+                dealt_earlier + generated
+            ));
+            out.push_str(&format!("  \"produced\": {},\n", produced));
+            match args.input_deals {
+                Some(ref source) => {
+                    out.push_str(&format!("  \"input_deals\": {},\n", json_string(source)))
+                }
+                None => out.push_str(&format!("  \"seed\": {},\n", seed)),
+            }
+            out.push_str(&format!("  \"seconds\": {},\n", json_number(elapsed_secs)));
+            out.push_str(&format!("  \"timed_out\": {},\n", timed_out));
+            // Names and shares together: checking a levelled scenario delivered
+            // its mix is the point of running one, and reading it off here saves
+            // every scenario carrying an `average` statement per type to say what
+            // the run already counted.
+            out.push_str("  \"hand_types\": [");
+            for (i, name) in hand_type_names.iter().enumerate() {
+                let label = hand_type_label(name);
+                let count = hand_type_counts.get(i).copied().unwrap_or(0);
+                let share = if produced > 0 {
+                    count as f64 / produced as f64
+                } else {
+                    0.0
+                };
+                out.push_str(if i == 0 { "\n" } else { ",\n" });
+                out.push_str(&format!(
+                    "    {{ \"name\": {}, \"produced\": {}, \"share\": {} }}",
+                    json_string(label),
+                    count,
+                    json_number(share)
+                ));
+            }
+            if !hand_type_names.is_empty() {
+                out.push('\n');
+                out.push_str("  ");
+            }
+            out.push_str("],\n");
+
+            out.push_str("  \"averages\": [");
+            for (i, average) in averages.iter().enumerate() {
+                out.push_str(if i == 0 { "\n" } else { ",\n" });
+                out.push_str(&format!(
+                    "    {{ \"label\": {}, \"value\": {}, \"count\": {} }}",
+                    match &average.label {
+                        Some(text) => json_string(text),
+                        None => "null".to_string(),
+                    },
+                    json_number(average.value),
+                    average.count
+                ));
+            }
+            out.push_str(if averages.is_empty() {
+                "],\n"
+            } else {
+                "\n  ],\n"
+            });
+
+            out.push_str("  \"frequencies\": [");
+            for (i, frequency) in frequencies.iter().enumerate() {
+                let bins: Vec<String> = frequency
+                    .bins
+                    .iter()
+                    .map(|(value, count)| {
+                        format!("{{ \"value\": {}, \"count\": {} }}", value, count)
+                    })
+                    .collect();
+                out.push_str(if i == 0 { "\n" } else { ",\n" });
+                out.push_str(&format!(
                 "    {{ \"label\": {}, \"min\": {}, \"max\": {}, \"below\": {}, \"above\": {}, \"total\": {}, \"bins\": [{}] }}",
                 match &frequency.label {
                     Some(text) => json_string(text),
@@ -1918,85 +1993,88 @@ fn main() {
                 frequency.total,
                 bins.join(", ")
             ));
+            }
+            out.push_str(if frequencies.is_empty() {
+                "]\n"
+            } else {
+                "\n  ]\n"
+            });
+
+            out.push('}');
+            println!("{}", out);
+
+            if timed_out {
+                std::process::exit(2);
+            }
+            return;
         }
-        out.push_str(if frequencies.is_empty() {
-            "]\n"
-        } else {
-            "\n  ]\n"
-        });
 
-        out.push('}');
-        println!("{}", out);
-
-        if timed_out {
-            std::process::exit(2);
-        }
-        return;
-    }
-
-    // Print averages if any were requested (format matches dealer.exe %g format)
-    // dealer.exe outputs averages to stdout without any prefix
-    if !averages.is_empty() {
-        for average in &averages {
-            // Output using %g-style formatting to match dealer.exe
-            // %g removes trailing zeros and uses shortest representation
-            match &average.label {
-                Some(label) => println!("{}: {}", label, format_g(average.value)),
-                None => println!("Average: {}", format_g(average.value)),
+        // Print averages if any were requested (format matches dealer.exe %g format)
+        // dealer.exe outputs averages to stdout without any prefix
+        if !averages.is_empty() {
+            for average in &averages {
+                // Output using %g-style formatting to match dealer.exe
+                // %g removes trailing zeros and uses shortest representation
+                match &average.label {
+                    Some(label) => println!("{}: {}", label, format_g(average.value)),
+                    None => println!("Average: {}", format_g(average.value)),
+                }
             }
         }
-    }
 
-    // Print frequency tables if any were requested (format matches dealer.exe)
-    if !frequencies.is_empty() {
-        for frequency in &frequencies {
-            match &frequency.label {
-                // dealer.exe format: "Frequency <label>:" - preserve label exactly
-                Some(label) => println!("Frequency {}:", label),
-                None => println!("Frequency :"),
-            }
+        // Print frequency tables if any were requested (format matches dealer.exe)
+        if !frequencies.is_empty() {
+            for frequency in &frequencies {
+                match &frequency.label {
+                    // dealer.exe format: "Frequency <label>:" - preserve label exactly
+                    Some(label) => println!("Frequency {}:", label),
+                    None => println!("Frequency :"),
+                }
 
-            // Print frequency table (format matches dealer.exe: "%5d\t%8ld")
-            // dealer.exe prints "Low" and "High" rows for out-of-range values
-            // when a range is specified.
-            if frequency.min.is_some() && frequency.below > 0 {
-                println!("Low\t{:8}", frequency.below);
-            }
-            for (value, count) in &frequency.bins {
-                println!("{:5}\t{:8}", value, count);
-            }
-            if frequency.max.is_some() && frequency.above > 0 {
-                println!("High\t{:8}", frequency.above);
+                // Print frequency table (format matches dealer.exe: "%5d\t%8ld")
+                // dealer.exe prints "Low" and "High" rows for out-of-range values
+                // when a range is specified.
+                if frequency.min.is_some() && frequency.below > 0 {
+                    println!("Low\t{:8}", frequency.below);
+                }
+                for (value, count) in &frequency.bins {
+                    println!("{:5}\t{:8}", value, count);
+                }
+                if frequency.max.is_some() && frequency.above > 0 {
+                    println!("High\t{:8}", frequency.above);
+                }
             }
         }
-    }
 
-    // Print stats if verbose_stats is true (matches dealer.exe behavior)
-    // verbose_stats starts true and is toggled by PBN output
-    // So: PBN with odd count = no stats, PBN with even count = stats, other formats = always stats
-    if verbose_stats {
-        // Named rather than merely counted: the prefix is a convention the
-        // parser cannot check, so a misspelling shows up as a missing name
-        // instead of a set that is quietly short of a category.
-        if !hand_type_names.is_empty() {
-            println!(
-                "Hand types {}: {}",
-                hand_type_names.len(),
-                hand_type_names
-                    .iter()
-                    .map(|n| hand_type_label(n))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+        // Print stats if verbose_stats is true (matches dealer.exe behavior)
+        // verbose_stats starts true and is toggled by PBN output
+        // So: PBN with odd count = no stats, PBN with even count = stats, other formats = always stats
+        if verbose_stats {
+            // Named rather than merely counted: the prefix is a convention the
+            // parser cannot check, so a misspelling shows up as a missing name
+            // instead of a set that is quietly short of a category.
+            if !hand_type_names.is_empty() {
+                println!(
+                    "Hand types {}: {}",
+                    hand_type_names.len(),
+                    hand_type_names
+                        .iter()
+                        .map(|n| hand_type_label(n))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            println!("Generated {} hands", dealt_earlier + generated);
+            println!("Produced {} hands", produced);
+            if let Some(ref source) = args.input_deals {
+                println!("Input deals from {}", source);
+            } else {
+                println!("Initial random seed {}", seed);
+            }
+            println!("Time needed  {:7.3} sec", elapsed_secs);
         }
-        println!("Generated {} hands", generated);
-        println!("Produced {} hands", produced);
-        if let Some(ref source) = args.input_deals {
-            println!("Input deals from {}", source);
-        } else {
-            println!("Initial random seed {}", seed);
-        }
-        println!("Time needed  {:7.3} sec", elapsed_secs);
+
+        break;
     }
 
     // Exit with error code if timed out
