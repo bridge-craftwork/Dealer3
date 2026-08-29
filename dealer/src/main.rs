@@ -637,16 +637,8 @@ fn leveling_summary(levelling: &dealer_run::LevelingReport) -> String {
             width = width
         ));
     }
-    let rarest = leveled
-        .plans
-        .iter()
-        .min_by(|a, b| a.natural.total_cmp(&b.natural))
-        .expect("at least one hand type");
-    let relative = if rarest.seen > 0 {
-        (rarest.natural * (1.0 - rarest.natural) / measured.produced as f64).sqrt() / rarest.natural
-    } else {
-        f64::INFINITY
-    };
+    let rarest = levelling.rarest().expect("at least one hand type");
+    let relative = levelling.precision();
     out.push_str(&format!(
         "\n  exactness {:.3}{}\n  acceptance {:.4} of qualifying deals\n  about {:.0} deals \
          dealt per deal kept\n  keeps pinned down by `{}`, the rarest, seen {} times: +-{:.1}%",

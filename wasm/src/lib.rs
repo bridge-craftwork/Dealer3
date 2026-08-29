@@ -160,10 +160,16 @@ struct LevelingResult {
     cost: f64,
     /// How many deals the keeps were measured over.
     measured: usize,
-    /// The rarest type's count in the measuring pass, and what that is worth as
-    /// a relative error — the precision of the whole levelling rests on it.
+    /// The rarest type's count, and what that is worth as a relative error.
+    /// The precision of the whole levelling rests on it, and this is the number
+    /// to read: a keep is `mix / natural`, so an error here is baked into the
+    /// delivered mix rather than averaging out.
     rarest: String,
     rarest_seen: usize,
+    /// Relative standard error on that rate — 0.022 at the 2,000 sightings
+    /// characterizing aims at. Absent when the type was never seen, which is a
+    /// levelling that could not be computed rather than one that is merely thin.
+    rarest_error: Option<f64>,
     /// Wall-clock seconds spent measuring, which is the pass the reader did not
     /// ask for and cannot otherwise account for.
     measure_seconds: f64,
@@ -238,6 +244,8 @@ struct Page<'a> {
     progress: &'a Progress,
     /// When the characterizing pass must stop, whatever it has managed.
     deadline: f64,
+    /// Deals it may take, which is the other thing that can stop it short.
+    max_generate: usize,
     /// Deals to hand back, capped: a large `produce` used to gather statistics
     /// does not have to ship every deal to JS.
     held: Vec<(Option<usize>, Deal)>,
@@ -253,6 +261,31 @@ struct Page<'a> {
     characterizing_seconds: f64,
 }
 
+impl Page<'_> {
+    /// How far this pass is likely to get, in sightings of the scarcest
+    /// category — which is what its bar is counting.
+    ///
+    /// Two limits can stop characterizing short of the goal, and both are the
+    /// page's: the clock, and the deals it is allowed. Whichever arrives first
+    /// sets the ceiling, and the rate so far projects it — `seen` sightings in
+    /// this much of the budget will be about `seen / spent` in all of it.
+    ///
+    /// Rough on purpose, and it firms up within the first moment. A bar drawn
+    /// against 2,000 that ends at 61 looks broken; the same bar with the mark
+    /// at 63 says the run is doing what it can and will not reach the goal,
+    /// which is the thing worth knowing.
+    fn reachable(&self, seen: usize, generated: usize, goal: usize) -> usize {
+        if seen == 0 || generated == 0 {
+            return goal;
+        }
+        let by_deals = seen as f64 * self.max_generate as f64 / generated as f64;
+        let spent = (now_ms() - self.characterizing_started).max(1.0);
+        let budget = (self.deadline - self.characterizing_started).max(1.0);
+        let by_clock = seen as f64 * budget / spent;
+        (by_deals.min(by_clock).round() as usize).clamp(seen.max(1), goal)
+    }
+}
+
 impl RunHost for Page<'_> {
     fn should_stop(
         &mut self,
@@ -261,8 +294,13 @@ impl RunHost for Page<'_> {
         generated: usize,
         target: usize,
     ) -> bool {
+        let expected = if phase == Phase::Characterizing {
+            self.reachable(produced, generated, target)
+        } else {
+            target
+        };
         self.progress
-            .report(phase, produced, generated, target, false);
+            .report(phase, produced, generated, target, expected, false);
         if phase == Phase::Characterizing && now_ms() >= self.deadline {
             self.ran_out = true;
             return true;
@@ -274,8 +312,11 @@ impl RunHost for Page<'_> {
         if phase == Phase::Characterizing {
             self.characterizing_seconds = (now_ms() - self.characterizing_started) / 1000.0;
         }
+        // A finished pass reached exactly what it reached, so that is the mark
+        // too — a bar arriving at its own expectation rather than stopping
+        // somewhere short of a figure it was never going to meet.
         self.progress
-            .report(phase, produced, generated, target, true);
+            .report(phase, produced, generated, target, produced.max(1), true);
     }
 
     fn produced(&mut self, deal: &Produced) -> Result<(), String> {
@@ -366,6 +407,7 @@ pub fn generate(
     let mut page = Page {
         progress: &progress,
         deadline: started + MEASURE_BUDGET_MS,
+        max_generate,
         held: Vec::new(),
         printed: String::new(),
         ran_out: false,
@@ -475,10 +517,7 @@ pub fn generate(
     };
 
     let leveling = report.leveling.as_ref().map(|levelling| {
-        let rarest = levelling
-            .plans
-            .iter()
-            .min_by(|a, b| a.natural.total_cmp(&b.natural));
+        let rarest = levelling.rarest();
         LevelingResult {
             script: levelling.script.clone(),
             shares: hand_types.clone(),
@@ -488,6 +527,7 @@ pub fn generate(
             measured: levelling.measured.produced,
             rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
             rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
+            rarest_error: Some(levelling.precision()).filter(|e| e.is_finite()),
             measure_seconds: page.characterizing_seconds,
             warnings: levelling.warnings.clone(),
             characterized: levelling.characterized,
@@ -580,7 +620,18 @@ impl Progress {
 
     /// Report, unless one went out too recently. `force` overrides that, for
     /// the end of a phase — otherwise a bar can stop short of its own total.
-    fn report(&self, phase: Phase, produced: usize, generated: usize, target: usize, force: bool) {
+    #[allow(clippy::too_many_arguments)]
+    fn report(
+        &self,
+        phase: Phase,
+        produced: usize,
+        generated: usize,
+        target: usize,
+        // How far this pass is expected to get, which is `target` unless a
+        // limit will stop it short.
+        expected: usize,
+        force: bool,
+    ) {
         let Some(to) = &self.to else { return };
         let now = now_ms();
         if !force && now - self.last_ms.get() < PROGRESS_EVERY_MS {
@@ -589,11 +640,12 @@ impl Progress {
         self.last_ms.set(now);
 
         let message = format!(
-            r#"{{"phase":"{}","produced":{},"generated":{},"target":{}}}"#,
+            r#"{{"phase":"{}","produced":{},"generated":{},"target":{},"expected":{}}}"#,
             phase.name(),
             produced,
             generated,
-            target
+            target,
+            expected
         );
         // A caller that throws is not worth stopping the run for: the deals are
         // the point and the bar is decoration.
