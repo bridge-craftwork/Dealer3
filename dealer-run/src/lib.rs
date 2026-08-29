@@ -32,6 +32,11 @@
 //! its own. The condition and `printes` stay with the caller, which builds its
 //! own for those.
 
+pub mod leveled;
+pub use leveled::{
+    level_and_generate, Deals, LevelRunOptions, LevelRunReport, Phase, Produced, RunHost,
+};
+
 use dealer_core::Deal;
 use dealer_eval::{eval, EvalContext, PointCounts, Variables};
 use dealer_parser::{Expr, Program, Statement};
