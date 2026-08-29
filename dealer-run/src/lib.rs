@@ -21,12 +21,16 @@
 //!
 //! # What this deliberately does not do
 //!
-//! It does not merge the [`EvalContext`]s the front ends build per matching
-//! deal. Each block — the condition, the `average`s, the classification —
-//! starting a fresh context is what gives a `rnd()` in one a different draw
-//! from a `rnd()` in another, which is what the original does, evaluating them
-//! as separate calls. Sharing one context would be faster and would change the
-//! numbers. The caller therefore passes the context in.
+//! It does not merge the [`EvalContext`]s a matching deal gets. Each block —
+//! the condition, the `average`s, the classification — starting a fresh
+//! context is what gives a `rnd()` in one a different draw from a `rnd()` in
+//! another, which is what the original does, evaluating them as separate
+//! calls. Sharing one context would be faster and would change the numbers.
+//!
+//! So where the boundaries fall is compatibility, not preference, and not a
+//! thing for two front ends to each decide: [`RunAccumulator::observe`] builds
+//! its own. The condition and `printes` stay with the caller, which builds its
+//! own for those.
 
 use dealer_core::Deal;
 use dealer_eval::{eval, EvalContext, PointCounts, Variables};
@@ -293,28 +297,43 @@ impl<'a> RunAccumulator<'a> {
 
     /// Observe one deal the condition accepted.
     ///
-    /// `ctx` is the caller's, so the front end keeps control of how many
-    /// contexts a deal gets — see the note on `rnd()` in the module docs. Pass
-    /// one built for `deal`; passing a context for a different deal would count
-    /// one deal's cards under another's categories.
-    pub fn observe(&mut self, deal: &Deal, ctx: &EvalContext) -> Result<Matched, RunError> {
-        for average in self.averages.iter_mut() {
-            let value = eval(average.expr, ctx).map_err(|e| RunError::Eval {
-                what: "Average evaluation error".to_string(),
-                message: e.to_string(),
-            })?;
-            average.sum += value as f64;
-            average.count += 1;
-        }
-        for frequency in self.frequencies.iter_mut() {
-            let value = eval(frequency.expr, ctx).map_err(|e| RunError::Eval {
-                what: "Frequency evaluation error".to_string(),
-                message: e.to_string(),
-            })?;
-            *frequency.counts.entry(value).or_insert(0) += 1;
+    /// Contexts are built here rather than passed in: where their boundaries
+    /// fall is what a `rnd()` in an `average` draws against a `rnd()` in a hand
+    /// type, and that is compatibility rather than preference. Drawn exactly
+    /// where both front ends drew them — one shared by the `average`s and the
+    /// `frequency`s, one for the hand types, one for the levelling types — and
+    /// each built only when something needs it.
+    pub fn observe<'d>(
+        &mut self,
+        deal: &'d Deal,
+        variables: &'d Variables<'d>,
+        counts: Option<&'d PointCounts>,
+    ) -> Result<Matched, RunError> {
+        if !self.averages.is_empty() || !self.frequencies.is_empty() {
+            let ctx = EvalContext::with_counts(deal, variables, counts);
+            for average in self.averages.iter_mut() {
+                let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
+                    what: "Average evaluation error".to_string(),
+                    message: e.to_string(),
+                })?;
+                average.sum += value as f64;
+                average.count += 1;
+            }
+            for frequency in self.frequencies.iter_mut() {
+                let value = eval(frequency.expr, &ctx).map_err(|e| RunError::Eval {
+                    what: "Frequency evaluation error".to_string(),
+                    message: e.to_string(),
+                })?;
+                *frequency.counts.entry(value).or_insert(0) += 1;
+            }
         }
 
-        let hand_type = pick(&self.hand_type_names, ctx, deal, "Hand")?;
+        let hand_type = if self.hand_type_names.is_empty() {
+            None
+        } else {
+            let ctx = EvalContext::with_counts(deal, variables, counts);
+            pick(&self.hand_type_names, &ctx, deal, "Hand")?
+        };
         if let Some(i) = hand_type {
             self.hand_type_counts[i] += 1;
         }
@@ -324,7 +343,8 @@ impl<'a> RunAccumulator<'a> {
         let level_type = if self.level_type_names.is_empty() {
             hand_type
         } else {
-            pick(&self.level_type_names, ctx, deal, "Level")?
+            let ctx = EvalContext::with_counts(deal, variables, counts);
+            pick(&self.level_type_names, &ctx, deal, "Level")?
         };
         if let Some(i) = level_type {
             self.leveling_counts[i] += 1;
@@ -483,18 +503,6 @@ fn pick(
     Ok(matched)
 }
 
-/// Build a context for `deal` the way both front ends do.
-///
-/// Here so the two spell it the same way, not to encourage sharing one: see the
-/// module docs on `rnd()`.
-pub fn context<'a>(
-    deal: &'a Deal,
-    variables: &'a Variables<'a>,
-    counts: Option<&'a PointCounts>,
-) -> EvalContext<'a> {
-    EvalContext::with_counts(deal, variables, counts)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,8 +523,7 @@ mod tests {
         let mut matched = Vec::new();
         for _ in 0..count {
             let deal = generator.next_deal();
-            let ctx = context(&deal, &variables, None);
-            matched.push(acc.observe(&deal, &ctx).expect("observe"));
+            matched.push(acc.observe(&deal, &variables, None).expect("observe"));
         }
         (acc, matched)
     }
@@ -573,8 +580,7 @@ condition 1
 
         let error = loop {
             let deal = generator.next_deal();
-            let ctx = context(&deal, &variables, None);
-            if let Err(e) = acc.observe(&deal, &ctx) {
+            if let Err(e) = acc.observe(&deal, &variables, None) {
                 break e;
             }
         };
@@ -608,8 +614,7 @@ condition 1
         let mut generator = FastDealGenerator::new(20260829);
         while !acc.measure_satisfied() {
             let deal = generator.next_deal();
-            let ctx = context(&deal, &variables, None);
-            acc.observe(&deal, &ctx).expect("observe");
+            acc.observe(&deal, &variables, None).expect("observe");
             assert!(
                 acc.produced() < 10_000,
                 "should have stopped long before now"
@@ -720,6 +725,44 @@ action printall,
         assert!(
             freq.below > 0 && freq.above > 0,
             "10..16 leaves both tails out"
+        );
+    }
+
+    /// The boundary that keeps `rnd()` compatible with the original.
+    ///
+    /// The `average`s and the hand types are evaluated in separate contexts, so
+    /// each starts the deal's `rnd()` stream afresh and a hand type's draw does
+    /// not depend on how many `average`s were declared. Share one context and
+    /// adding an unrelated `average` silently reclassifies deals — which is why
+    /// this is asserted rather than left to the comment explaining it.
+    ///
+    /// One rnd-driven type, not two: the hand types share a context with each
+    /// other, so a second would draw a different number from the same stream
+    /// and the two could claim the same deal.
+    #[test]
+    fn an_average_calling_rnd_does_not_move_a_hand_type_calling_rnd() {
+        let bands = "HandType_Coin = rnd(100) < 50\ncondition 1\n";
+        let alone = parse(bands);
+        let (without, _) = observe_all(&alone, MeasureStop::standard(), 400);
+
+        let with_average = parse(&format!(
+            "{}action printall,\n  average \"noise\" rnd(100)\n",
+            bands
+        ));
+        let (with, _) = observe_all(&with_average, MeasureStop::standard(), 400);
+
+        assert_eq!(
+            without.hand_type_counts(),
+            with.hand_type_counts(),
+            "declaring an average that draws from rnd() moved the hand type's \
+             own draw, so the two share a context when they must not"
+        );
+        // And the draws really are being made, or the test proves nothing.
+        let heads = without.hand_type_counts()[0];
+        assert!(
+            heads > 0 && heads < 400,
+            "a coin landed the same way 400 times: {}",
+            heads
         );
     }
 

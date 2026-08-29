@@ -8,6 +8,7 @@ license = "Unlicense"
 dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-level = { path = "../dealer-level" }
+dealer-run = { path = "../dealer-run" }
 dealer-eval = { path = "../dealer-eval" }
 dealer-pbn = { path = "../dealer-pbn" }
 bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }

@@ -19,13 +19,14 @@ use dealer_eval::{
 };
 use dealer_level::{
     check_leveling_source, hand_type_label, hand_types, insert_leveling_block, interleave,
-    level_from, Leveled, Measurement, MEASURE_GOAL, MIN_HAND_TYPE_SAMPLE,
+    level_from, Leveled, Measurement, MIN_HAND_TYPE_SAMPLE,
 };
-use dealer_parser::{ActionType, CsvTerm, Expr, Side, Statement, VulnerabilityType};
+use dealer_parser::{ActionType, CsvTerm, Side, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
     format_printpbn, PbnBoard, Vulnerability,
 };
+use dealer_run::{MeasureStop, RunAccumulator};
 use fast_parallel::{FastParallelConfig, FastSupervisor};
 use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Read, Write};
@@ -979,18 +980,8 @@ fn main() {
     let mut title_from_input: Option<String> = None;
     let mut seed_from_input: Option<u32> = None;
 
-    // Track average statements: (label, expression, sum, count)
-    let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
-
-    // Track frequency statements: (label, expression, histogram, range)
-    use std::collections::HashMap;
-    #[allow(clippy::type_complexity)]
-    let mut frequencies: Vec<(
-        Option<String>,
-        Expr,
-        HashMap<i32, usize>,
-        Option<(i32, i32)>,
-    )> = Vec::new();
+    // `average` and `frequency` are accumulated by `dealer-run`, which reads
+    // them off the program itself — see `RunAccumulator`.
 
     // Track CSV report statements
     use dealer_parser::EsTerm;
@@ -1007,12 +998,11 @@ fn main() {
             Statement::Produce(n) => produce_count_from_input = Some(*n),
             Statement::Generate(n) => generate_count_from_input = Some(*n),
             Statement::Action {
-                averages: avg_specs,
-                frequencies: freq_specs,
                 format: action_format,
                 printes: printes_specs,
                 print_hands,
                 print_reports: report_specs,
+                ..
             } => {
                 print_reports.extend(report_specs.iter().cloned());
                 // Extract format if present
@@ -1024,19 +1014,6 @@ fn main() {
                         ActionType::PrintCompact => OutputFormat::PrintCompact,
                         ActionType::PrintOneLine => OutputFormat::PrintOneLine,
                     });
-                }
-                // Extract averages if present
-                for avg_spec in avg_specs {
-                    averages.push((avg_spec.label.clone(), avg_spec.expr.clone(), 0.0, 0));
-                }
-                // Extract frequencies if present
-                for freq_spec in freq_specs {
-                    frequencies.push((
-                        freq_spec.label.clone(),
-                        freq_spec.expr.clone(),
-                        HashMap::new(),
-                        freq_spec.range,
-                    ));
                 }
                 printes_reports.extend(printes_specs.iter().cloned());
                 for seat in print_hands {
@@ -1168,7 +1145,16 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let level_type_names: Vec<&str> = dealer_level::level_types(&program);
+    // The loop's body, shared with the browser. It owns the classification
+    // against both decompositions, the `average`s and `frequency`s, and the
+    // rule for when a measuring run has learnt enough.
+    let mut accumulator = match RunAccumulator::new(&program, MeasureStop::standard()) {
+        Ok(accumulator) => accumulator,
+        Err(message) => {
+            eprintln!("Error: {}", message);
+            std::process::exit(1);
+        }
+    };
 
     // How many deals each shuffle turns into. The three switches override one
     // another, so the last one written wins, as it does under getopt.
@@ -1338,26 +1324,6 @@ fn main() {
     // unrendered because the board number depends on where it lands.
     let mut held: Vec<(Option<String>, Deal)> = Vec::new();
 
-    // How often each hand type came up, for the statistics and the panel.
-    let mut hand_type_counts: HashMap<String, usize> = hand_type_names
-        .iter()
-        .map(|n| (hand_type_label(n).to_string(), 0usize))
-        .collect();
-
-    // And how often each *levelling* category came up, which is the same thing
-    // unless the scenario declares `LevelType_` variables of its own.
-    let mut level_counts: HashMap<String, usize> = leveling
-        .labels
-        .iter()
-        .map(|l| (l.clone(), 0usize))
-        .collect();
-
-    // How the two decompositions crossed, when they differ. What a hand type
-    // delivers once the keeps are applied cannot be read off its own rate —
-    // only off how its deals were spread across the levelling categories — and
-    // that is what `{{level-mix:12_14}}` has to report.
-    let mut joint_counts: HashMap<(String, String), usize> = HashMap::new();
-
     // Verbose flag for stats output (matches dealer.exe behavior)
     // Default is true (stats shown), -v toggles it off
     // -X forces stats on (cannot be toggled off)
@@ -1372,159 +1338,45 @@ fn main() {
     // Track if we timed out
     let mut timed_out = false;
 
-    // Set the moment every hand type has been seen enough times to divide by,
-    // which is when a measuring run has nothing left to learn. A `Cell` so the
-    // loop can read it while the closure below holds the counts.
-    let enough_measured = std::cell::Cell::new(false);
+    // Only a measuring run stops early, and only it needs to ask.
     let measuring = args.write_leveled.is_some();
-    let level_count_wanted = leveling.labels.len();
 
-    // Helper closure to process a matching deal (averages, frequencies, output, CSV)
-    #[allow(clippy::type_complexity)]
-    // `held` and `hand_type_counts` are captured rather than passed: the
-    // parameter list was already at the edge of readable, and unlike the others
-    // nothing touches these two until the run is over.
+    // The body of the loop, for the deals the condition accepted. Classifying
+    // and counting is `dealer-run`'s; what is left here is what a terminal does
+    // with a deal and a browser does not.
+    //
+    // The accumulator is a parameter rather than captured so the loop outside
+    // can ask it whether a measuring run has finished — which is what the
+    // `Cell` this replaces was working around.
     let mut process_matching_deal =
         |deal: &Deal,
          produced: usize,
-         averages: &mut Vec<(Option<String>, Expr, f64, usize)>,
-         frequencies: &mut Vec<(
-            Option<String>,
-            Expr,
-            HashMap<i32, usize>,
-            Option<(i32, i32)>,
-        )>,
+         accumulator: &mut RunAccumulator,
          csv_writer: &mut Option<BufWriter<std::fs::File>>,
          printed_deals: &mut Vec<Deal>| {
             if !print_hand_seats.is_empty() {
                 printed_deals.push(deal.clone());
             }
-            // Calculate averages for this matching deal
-            if !averages.is_empty() || !frequencies.is_empty() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
-                for (_, expr, sum, count) in averages.iter_mut() {
-                    match eval(expr, &ctx) {
-                        Ok(val) => {
-                            *sum += val as f64;
-                            *count += 1;
-                        }
-                        Err(e) => {
-                            eprintln!("Average evaluation error: {}", e);
-                            std::process::exit(1);
-                        }
+            let matched = accumulator
+                .observe(deal, &program_variables, point_counts)
+                .unwrap_or_else(|e| {
+                    // With the deal, when there is one to show: two definitions
+                    // written pages apart overlap on a corner neither author
+                    // had in mind, and the corner is what has to be looked at.
+                    match e.deal() {
+                        Some(deal) => eprintln!(
+                            "Error: {}\n       The deal:\n       {}",
+                            e,
+                            format_oneline(deal).trim_end()
+                        ),
+                        None => eprintln!("Error: {}", e),
                     }
-                }
-
-                // Calculate frequencies for this matching deal
-                for (_, expr, histogram, _) in frequencies.iter_mut() {
-                    match eval(expr, &ctx) {
-                        Ok(val) => {
-                            *histogram.entry(val).or_insert(0) += 1;
-                        }
-                        Err(e) => {
-                            eprintln!("Frequency evaluation error: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            }
-
-            // Which category of hand this is, when the script names any. Two
-            // matching is refused: the categories are meant to partition the deals,
-            // and a tag that silently picked the first would leave a practice set
-            // quietly wrong about what it contains.
-            let hand_type = if hand_type_names.is_empty() {
-                None
-            } else {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-                let mut matched: Option<&str> = None;
-                for name in &hand_type_names {
-                    match eval(&Expr::Variable(name.to_string()), &ctx) {
-                        Ok(0) => {}
-                        Ok(_) => match matched {
-                            None => matched = Some(name),
-                            Some(first) => {
-                                // With the deal: two definitions written pages
-                                // apart overlap on a corner neither author had
-                                // in mind, and the corner is what has to be
-                                // looked at.
-                                eprintln!(
-                                    "Error: a deal is both `{}` and `{}`. Hand types have to \
-                                     partition the deals, so at most one may match.\n       \
-                                     The deal:\n       {}",
-                                    first,
-                                    name,
-                                    format_oneline(deal).trim_end()
-                                );
-                                std::process::exit(1);
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("Hand type `{}` could not be evaluated: {}", name, e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                matched.map(hand_type_label)
-            };
-            if let Some(label) = hand_type {
-                *hand_type_counts.entry(label.to_string()).or_insert(0) += 1;
-            }
-
-            // The levelling categories, counted separately. Usually the same
-            // variables as above — `leveling.names` is the hand types unless
-            // the scenario declares `LevelType_` — but they are an independent
-            // decomposition when it does, so a deal is classified twice.
-            if !level_type_names.is_empty() {
-                let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
-                let mut matched: Option<&str> = None;
-                for name in &level_type_names {
-                    match eval(&Expr::Variable(name.to_string()), &ctx) {
-                        Ok(0) => {}
-                        Ok(_) => match matched {
-                            None => matched = Some(name),
-                            Some(first) => {
-                                eprintln!(
-                                    "Error: a deal is both `{}` and `{}`. Level types have to \
-                                     partition the deals, so at most one may match.\n       \
-                                     The deal:\n       {}",
-                                    first,
-                                    name,
-                                    format_oneline(deal).trim_end()
-                                );
-                                std::process::exit(1);
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("Level type `{}` could not be evaluated: {}", name, e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                if let Some(name) = matched {
-                    let label = dealer_level::level_type_label(name).to_string();
-                    *level_counts.entry(label.clone()).or_insert(0) += 1;
-                    if let Some(group) = hand_type {
-                        *joint_counts.entry((group.to_string(), label)).or_insert(0) += 1;
-                    }
-                }
-            } else if let Some(label) = hand_type {
-                // No separate decomposition, so the hand types are what gets
-                // levelled and their counts serve for both.
-                *level_counts.entry(label.to_string()).or_insert(0) += 1;
-            }
-
-            // A measuring run stops as soon as the rarest levelling category is
-            // worth dividing by, and this is where that becomes knowable. The
-            // flag is a `Cell` because the counts are borrowed by this closure
-            // for the whole run, so the loop outside cannot read them.
-            if measuring
-                && level_counts.len() == level_count_wanted
-                && level_counts.values().all(|n| *n >= MEASURE_GOAL)
-            {
-                enough_measured.set(true);
-            }
+                    std::process::exit(1);
+                });
+            let hand_type = matched
+                .hand_type
+                .map(|i| accumulator.hand_type_labels()[i].as_str());
 
             // printes: the script's own formatted output, with nothing added
             // between terms and no line ending unless the script asked for one.
@@ -1683,8 +1535,7 @@ fn main() {
                     process_matching_deal(
                         &deal,
                         produced,
-                        &mut averages,
-                        &mut frequencies,
+                        &mut accumulator,
                         &mut csv_writer,
                         &mut printed_deals,
                     );
@@ -1737,7 +1588,11 @@ fn main() {
         while produced < produce_count && generated < max_generate {
             // Enough of every hand type to divide by, which is the only thing a
             // measuring run is for.
-            if enough_measured.get() {
+            // `measuring &&` because the accumulator answers for any script
+            // whose categories are all well sampled; only a measuring run has
+            // reason to stop there. The flag this replaced was set nowhere else,
+            // so the guard was implicit.
+            if measuring && accumulator.measure_satisfied() {
                 break;
             }
             // Check timeout before each batch
@@ -1816,8 +1671,7 @@ fn main() {
                     process_matching_deal(
                         &result.deal,
                         produced,
-                        &mut averages,
-                        &mut frequencies,
+                        &mut accumulator,
                         &mut csv_writer,
                         &mut printed_deals,
                     );
@@ -1838,7 +1692,7 @@ fn main() {
                     // has. The example pair in `examples/` is regenerated and
                     // diffed by CI, which would fail on any machine but the one
                     // it was written on.
-                    if enough_measured.get() {
+                    if measuring && accumulator.measure_satisfied() {
                         break;
                     }
                 }
@@ -1850,6 +1704,10 @@ fn main() {
     let elapsed = start_time.elapsed().unwrap();
     let elapsed_secs = elapsed.as_secs_f64();
 
+    // Taken before `finish` consumes the accumulator, which is what bins the
+    // frequencies: the shares are wanted further down than the statistics are.
+    let hand_type_counts = accumulator.hand_type_counts().to_vec();
+
     // `--level-plan`: report what would level the hand types, and stop. The
     // run above did the measuring — every produced deal was classified — so
     // this is arithmetic on counts already gathered.
@@ -1857,43 +1715,7 @@ fn main() {
         // The levelling decomposition, which is the hand types unless the
         // scenario declared `LevelType_` variables of its own.
         let labels = leveling.labels.clone();
-        let measured = Measurement {
-            produced,
-            generated,
-            counts: labels
-                .iter()
-                .map(|l| level_counts.get(l).copied().unwrap_or(0))
-                .collect(),
-            names: labels.clone(),
-            prefix: leveling.prefix,
-            groups: if level_type_names.is_empty() {
-                Vec::new()
-            } else {
-                hand_type_names
-                    .iter()
-                    .map(|n| hand_type_label(n).to_string())
-                    .collect()
-            },
-            joint: if level_type_names.is_empty() {
-                Vec::new()
-            } else {
-                hand_type_names
-                    .iter()
-                    .map(|n| {
-                        let group = hand_type_label(n).to_string();
-                        labels
-                            .iter()
-                            .map(|l| {
-                                joint_counts
-                                    .get(&(group.clone(), l.clone()))
-                                    .copied()
-                                    .unwrap_or(0)
-                            })
-                            .collect()
-                    })
-                    .collect()
-            },
-        };
+        let measured = accumulator.measurement(generated);
 
         // The switch wins over the script, as `-s` does over `seed`. Without
         // either, the script's own `_Share` declarations answer — and those
@@ -2006,6 +1828,11 @@ fn main() {
     // Everything a caller needs to compute levelling keeps is here: each
     // average's value and the count it was measured over, and the frequency
     // bins with what fell outside a declared range.
+    let dealer_run::Stats {
+        averages,
+        frequencies,
+    } = accumulator.finish();
+
     if args.stats_json {
         let mut out = String::from("{\n");
         out.push_str(&format!("  \"generated\": {},\n", generated));
@@ -2025,7 +1852,7 @@ fn main() {
         out.push_str("  \"hand_types\": [");
         for (i, name) in hand_type_names.iter().enumerate() {
             let label = hand_type_label(name);
-            let count = hand_type_counts.get(label).copied().unwrap_or(0);
+            let count = hand_type_counts.get(i).copied().unwrap_or(0);
             let share = if produced > 0 {
                 count as f64 / produced as f64
             } else {
@@ -2046,21 +1873,16 @@ fn main() {
         out.push_str("],\n");
 
         out.push_str("  \"averages\": [");
-        for (i, (label, _, sum, count)) in averages.iter().enumerate() {
-            let value = if *count > 0 {
-                sum / (*count as f64)
-            } else {
-                0.0
-            };
+        for (i, average) in averages.iter().enumerate() {
             out.push_str(if i == 0 { "\n" } else { ",\n" });
             out.push_str(&format!(
                 "    {{ \"label\": {}, \"value\": {}, \"count\": {} }}",
-                match label {
+                match &average.label {
                     Some(text) => json_string(text),
                     None => "null".to_string(),
                 },
-                json_number(value),
-                count
+                json_number(average.value),
+                average.count
             ));
         }
         out.push_str(if averages.is_empty() {
@@ -2070,52 +1892,30 @@ fn main() {
         });
 
         out.push_str("  \"frequencies\": [");
-        for (i, (label, _, histogram, range)) in frequencies.iter().enumerate() {
-            let (min_val, max_val) = match range {
-                Some((min, max)) => (*min, *max),
-                None if !histogram.is_empty() => (
-                    *histogram.keys().min().unwrap_or(&0),
-                    *histogram.keys().max().unwrap_or(&0),
-                ),
-                None => (0, 0),
-            };
-            let below: usize = histogram
+        for (i, frequency) in frequencies.iter().enumerate() {
+            let bins: Vec<String> = frequency
+                .bins
                 .iter()
-                .filter(|(&k, _)| k < min_val)
-                .map(|(_, &v)| v)
-                .sum();
-            let above: usize = histogram
-                .iter()
-                .filter(|(&k, _)| k > max_val)
-                .map(|(_, &v)| v)
-                .sum();
-            let bins: Vec<String> = (min_val..=max_val)
-                .map(|v| {
-                    format!(
-                        "{{ \"value\": {}, \"count\": {} }}",
-                        v,
-                        histogram.get(&v).unwrap_or(&0)
-                    )
-                })
+                .map(|(value, count)| format!("{{ \"value\": {}, \"count\": {} }}", value, count))
                 .collect();
             out.push_str(if i == 0 { "\n" } else { ",\n" });
             out.push_str(&format!(
                 "    {{ \"label\": {}, \"min\": {}, \"max\": {}, \"below\": {}, \"above\": {}, \"total\": {}, \"bins\": [{}] }}",
-                match label {
+                match &frequency.label {
                     Some(text) => json_string(text),
                     None => "null".to_string(),
                 },
-                match range {
-                    Some((min, _)) => min.to_string(),
+                match frequency.min {
+                    Some(min) => min.to_string(),
                     None => "null".to_string(),
                 },
-                match range {
-                    Some((_, max)) => max.to_string(),
+                match frequency.max {
+                    Some(max) => max.to_string(),
                     None => "null".to_string(),
                 },
-                below,
-                above,
-                histogram.values().sum::<usize>(),
+                frequency.below,
+                frequency.above,
+                frequency.total,
                 bins.join(", ")
             ));
         }
@@ -2137,72 +1937,36 @@ fn main() {
     // Print averages if any were requested (format matches dealer.exe %g format)
     // dealer.exe outputs averages to stdout without any prefix
     if !averages.is_empty() {
-        for (label, _, sum, count) in &averages {
-            let avg = if *count > 0 {
-                sum / (*count as f64)
-            } else {
-                0.0
-            };
+        for average in &averages {
             // Output using %g-style formatting to match dealer.exe
             // %g removes trailing zeros and uses shortest representation
-            if let Some(label_text) = label {
-                println!("{}: {}", label_text, format_g(avg));
-            } else {
-                println!("Average: {}", format_g(avg));
+            match &average.label {
+                Some(label) => println!("{}: {}", label, format_g(average.value)),
+                None => println!("Average: {}", format_g(average.value)),
             }
         }
     }
 
     // Print frequency tables if any were requested (format matches dealer.exe)
     if !frequencies.is_empty() {
-        for (label, _, histogram, range) in &frequencies {
-            if let Some(label_text) = label {
-                // dealer.exe format: "Frequency <label>:" - preserve label exactly as defined
-                println!("Frequency {}:", label_text);
-            } else {
-                println!("Frequency :");
+        for frequency in &frequencies {
+            match &frequency.label {
+                // dealer.exe format: "Frequency <label>:" - preserve label exactly
+                Some(label) => println!("Frequency {}:", label),
+                None => println!("Frequency :"),
             }
-
-            // Determine range to display
-            let (min_val, max_val) = if let Some((min, max)) = range {
-                (*min, *max)
-            } else if !histogram.is_empty() {
-                let min = *histogram.keys().min().unwrap();
-                let max = *histogram.keys().max().unwrap();
-                (min, max)
-            } else {
-                (0, 0)
-            };
 
             // Print frequency table (format matches dealer.exe: "%5d\t%8ld")
-            // dealer.exe prints "Low" and "High" rows for out-of-range values when a range is specified
-            if range.is_some() {
-                // Count values below the range
-                let low_count: usize = histogram
-                    .iter()
-                    .filter(|(&k, _)| k < min_val)
-                    .map(|(_, &v)| v)
-                    .sum();
-                if low_count > 0 {
-                    println!("Low\t{:8}", low_count);
-                }
+            // dealer.exe prints "Low" and "High" rows for out-of-range values
+            // when a range is specified.
+            if frequency.min.is_some() && frequency.below > 0 {
+                println!("Low\t{:8}", frequency.below);
             }
-
-            for val in min_val..=max_val {
-                let count = histogram.get(&val).unwrap_or(&0);
-                println!("{:5}\t{:8}", val, count);
+            for (value, count) in &frequency.bins {
+                println!("{:5}\t{:8}", value, count);
             }
-
-            if range.is_some() {
-                // Count values above the range
-                let high_count: usize = histogram
-                    .iter()
-                    .filter(|(&k, _)| k > max_val)
-                    .map(|(_, &v)| v)
-                    .sum();
-                if high_count > 0 {
-                    println!("High\t{:8}", high_count);
-                }
+            if frequency.max.is_some() && frequency.above > 0 {
+                println!("High\t{:8}", frequency.above);
             }
         }
     }
