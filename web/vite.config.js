@@ -7,6 +7,13 @@ const entry = (name) => fileURLToPath(new URL(name, import.meta.url))
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
+/// What `SharedArrayBuffer` needs, and so what wasm threads need. Kept in step
+/// with `public/_headers`, which is what production serves.
+const ISOLATION = {
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+}
+
 export default defineConfig({
   plugins: [vue()],
 
@@ -55,6 +62,14 @@ export default defineConfig({
   },
 
   worker: { format: 'es' },
+
+  // A threaded engine needs `SharedArrayBuffer`, which a browser only exposes
+  // to a cross-origin isolated page. In production Cloudflare sends these from
+  // `public/_headers`; dev and preview need them here or the pool silently
+  // fails to start and every run falls back to one thread — the same deals,
+  // several times slower, with nothing on screen to say why.
+  server: { headers: ISOLATION },
+  preview: { headers: ISOLATION },
 
   // `wasm-pack --target web` loads the binary with
   // `new URL('..._bg.wasm', import.meta.url)`. Excluding it from dep

@@ -6,9 +6,11 @@
   "description": "Write and run bridge dealer scripts in the browser",
   "scripts": {
     "wasm": "wasm-pack build ../wasm --release --target web --out-dir ../web/src/wasm --no-typescript",
+    "wasm:threaded": "cd ../wasm && ./build.sh threaded ../web/src/wasm",
     "dev": "npm run wasm && vite",
     "build": "vite build",
     "build:all": "npm run wasm && vite build",
+    "build:threaded": "npm run wasm:threaded && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },
