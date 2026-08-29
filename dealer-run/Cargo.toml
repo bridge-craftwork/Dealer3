@@ -1,0 +1,11 @@
+[package]
+name = "dealer-run"
+version = "1.0.0"
+edition = "2021"
+license = "Unlicense"
+
+[dependencies]
+dealer-core = { path = "../dealer-core" }
+dealer-parser = { path = "../dealer-parser" }
+dealer-eval = { path = "../dealer-eval" }
+dealer-level = { path = "../dealer-level" }
