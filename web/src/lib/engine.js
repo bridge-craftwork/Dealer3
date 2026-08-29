@@ -185,7 +185,9 @@ export async function generate(
     // `delivered` what the keeps produced; otherwise the two agree.
     handTypes: raw.hand_types,
     // Present only when the run was levelled: the scenario that actually ran,
-    // and what it cost. Numbers only — the page draws the bars.
+    // and what it cost. Numbers only — the page draws the bars. `rarest_error`
+    // is the relative standard error on the rate every keep divides by, which
+    // is the one figure that says whether a levelling is worth trusting.
     leveling: raw.leveling,
     // `deals` is capped by the engine; `produced` counts every match. A script
     // gathering statistics over 50,000 deals returns statistics for all of them

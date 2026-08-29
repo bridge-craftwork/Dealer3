@@ -131,8 +131,17 @@
                 :class="{ indeterminate: bar.fraction === null }"
                 :style="bar.fraction === null ? null : { width: (100 * bar.fraction).toFixed(1) + '%' }"
               ></span>
+              <!-- Where this pass is expected to end, when that is short of the
+                   goal. Without it a bar that stops at 3% looks broken, when in
+                   fact it is doing all it can. -->
+              <span
+                v-if="bar.expected !== null"
+                class="progress-mark"
+                :style="{ left: (100 * bar.expected).toFixed(1) + '%' }"
+                :title="bar.expectedHint"
+              ></span>
             </span>
-            <span class="progress-count">{{ bar.count }}</span>
+            <span class="progress-count" :title="bar.expectedHint || undefined">{{ bar.count }}</span>
           </div>
         </div>
 
@@ -262,10 +271,19 @@ const progressBars = computed(() =>
     .map((key) => {
       const p = phases.value[key]
       const target = p.target > 0 ? p.target : 0
+      // Only worth drawing when it says something the bar does not: a pass on
+      // course for its goal has its mark at the far end, which is just the end.
+      const short = target && p.expected > 0 && p.expected < target * 0.98
       return {
         key,
         label: PHASE_LABELS[key],
         fraction: target ? Math.min(1, p.produced / target) : null,
+        expected: short ? Math.min(1, p.expected / target) : null,
+        expectedHint: short
+          ? `On course for about ${p.expected.toLocaleString()} of ${target.toLocaleString()} — ` +
+            'the deal limit or the time budget will stop it first. ' +
+            'The levelling still works; its rarest rate is just less well known.'
+          : '',
         count: target
           ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
           : p.produced.toLocaleString(),
@@ -657,7 +675,11 @@ body {
   font-size: 11px; color: var(--fg-muted); font-family: var(--mono);
 }
 .progress-track {
-  height: 5px; border-radius: 3px; background: var(--line); overflow: hidden;
+  height: 5px; border-radius: 3px; background: var(--line);
+  /* `relative` for the expected mark, which is positioned within it, and not
+     `overflow: hidden` because that mark stands slightly proud of a 5px bar to
+     be visible at all. The fill rounds its own corners. */
+  position: relative;
 }
 .progress-fill {
   display: block; height: 100%; border-radius: 3px;
@@ -675,6 +697,13 @@ body {
   100% { transform: translateX(300%); }
 }
 .progress-count { font-variant-numeric: tabular-nums; }
+/* Where the pass is expected to end. A hairline rather than a block: it marks a
+   position, and the bar filling up to it is the thing to watch. */
+.progress-mark {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--warn, #b45309); border-radius: 1px;
+  transition: left 0.3s ease-out;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }

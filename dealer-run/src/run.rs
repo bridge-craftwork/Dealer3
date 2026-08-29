@@ -165,6 +165,36 @@ impl LevelingReport {
     pub fn cost(&self) -> f64 {
         1.0 / (self.base_rate * self.acceptance)
     }
+
+    /// The rarest category, which is what the whole levelling's precision rests
+    /// on: every other one was seen more often and is better known.
+    pub fn rarest(&self) -> Option<&dealer_level::LevelPlan> {
+        self.plans
+            .iter()
+            .min_by(|a, b| a.natural.total_cmp(&b.natural))
+    }
+
+    /// How well the rarest category's rate is known, as a relative standard
+    /// error — 0.022 for the 2,000 sightings characterizing aims at.
+    ///
+    /// The number worth reading, and the reason a sighting count is reported at
+    /// all. A keep is `mix / natural`, so this error passes straight into the
+    /// delivered mix and does not average out over a longer run: dealing more
+    /// afterwards converges on the wrong number rather than scattering around
+    /// the right one.
+    ///
+    /// Infinite when the rarest was never seen, which is a levelling that could
+    /// not be computed rather than one that is merely thin.
+    pub fn precision(&self) -> f64 {
+        let Some(rarest) = self.rarest() else {
+            return f64::INFINITY;
+        };
+        if rarest.seen == 0 || self.measured.produced == 0 {
+            return f64::INFINITY;
+        }
+        (rarest.natural * (1.0 - rarest.natural) / self.measured.produced as f64).sqrt()
+            / rarest.natural
+    }
 }
 
 /// What a front end supplies to a run: when to stop, and where produced deals

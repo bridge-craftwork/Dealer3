@@ -49,7 +49,8 @@
           Levelled over {{ leveling.measured.toLocaleString() }} measured deals ·
           {{ Math.round(leveling.cost).toLocaleString() }} dealt per deal kept ·
           keeps pinned down by <strong>{{ leveling.rarest }}</strong>, seen
-          {{ leveling.rarest_seen.toLocaleString() }} times
+          {{ leveling.rarest_seen.toLocaleString() }} times<template v-if="precision">,
+          <strong :class="precisionClass">±{{ precision }}</strong> on that rate</template>
         </p>
         <!-- A thin measurement is the one error levelling cannot recover from:
              the keep is `mix / natural`, so an error in a rate measured on too
@@ -265,6 +266,35 @@ const producedSeconds = computed(() =>
   Math.max(0, (props.result?.seconds || 0) - (measuredThisRun.value?.measure_seconds || 0)),
 )
 
+/// How well the rarest category's rate is known, which is the number that says
+/// whether a levelling is worth trusting.
+///
+/// The command line has always printed this; the page printed the sighting
+/// count alone, which asks a reader to know that 61 sightings is ±13% and 2,000
+/// is ±2.2%. A keep is `mix / natural`, so this error is baked into the
+/// delivered mix and does not average out with a longer run.
+const precision = computed(() => {
+  const e = props.leveling?.rarest_error
+  if (typeof e !== 'number' || !isFinite(e)) return null
+  // A decimal where the number is small enough for one to mean something, as
+  // the command line prints it: `2.2%` reads as a measurement, `2%` as a
+  // rounding. Past ten percent the decimal is noise.
+  const percent = e * 100
+  return percent < 10 ? `${percent.toFixed(1)}%` : `${percent.toFixed(0)}%`
+})
+
+/// Coloured once it is worth noticing, and not before.
+///
+/// One threshold rather than a scale: at a tenth or worse the mix this delivers
+/// can be a couple of points off its target and stay there, which is worth an
+/// eye; above that the number speaks for itself. An earlier version dimmed the
+/// middle band, which had it backwards — a measurement that is merely adequate
+/// should not be quieter than a good one.
+const precisionClass = computed(() => {
+  const e = props.leveling?.rarest_error
+  return typeof e === 'number' && isFinite(e) && e >= 0.1 ? 'ht-thin' : ''
+})
+
 const timingHint = computed(
   () =>
     'Levelling deals the scenario twice: once to characterize it — how often each hand type ' +
@@ -436,6 +466,10 @@ const formatValue = formatAverage
   font-size: 0.86em;
 }
 
+/* A rate known to a tenth or worse: the mix this delivers can be a couple of
+   points off its target, permanently. Not an error, so it is coloured rather
+   than boxed. */
+.ht-thin { color: var(--warn, #b45309); }
 .ht-warn {
   margin: 0.35rem 0 0.6rem;
   padding: 0.45rem 0.6rem;
