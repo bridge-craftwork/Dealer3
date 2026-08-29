@@ -1,0 +1,24 @@
+[package]
+name = "dealer-run"
+version = "1.0.0"
+edition = "2021"
+license = "Unlicense"
+
+[dependencies]
+dealer-core = { path = "../dealer-core" }
+dealer-parser = { path = "../dealer-parser" }
+dealer-eval = { path = "../dealer-eval" }
+dealer-level = { path = "../dealer-level" }
+dealer-pbn = { path = "../dealer-pbn" }
+
+# Threading is the engine's, not a caller's: a front end that had to supply it
+# would be as fast as it happened to bother being, and the browser — which
+# cannot spawn threads today but will be able to — would be single-threaded by
+# construction rather than by circumstance. Optional because wasm32 has no
+# threads to build on until the page is served with COOP/COEP and built for
+# them; enabling this feature is then the whole of what it takes.
+rayon = { version = "1.10", optional = true }
+
+[features]
+default = []
+parallel = ["dep:rayon"]

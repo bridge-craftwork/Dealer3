@@ -6,7 +6,16 @@
     <template v-else>
       <!-- The CLI's trailing stats block. -->
       <div class="stats">
-        <span><strong>{{ result.generated.toLocaleString() }}</strong> generated</span>
+        <!-- Every deal the run looked at, both passes. It counted only the
+             second until 2026-08-29, which read as 1,701 beside "levelled over
+             52,771 measured deals" — the same deals, counted honestly. -->
+        <span :title="generatedHint">
+          <strong>{{ result.generated.toLocaleString() }}</strong> generated
+          <span v-if="measuredThisRun" class="stats-split">
+            = {{ measuredThisRun.characterized.toLocaleString() }} characterizing
+            + {{ additionalGenerated.toLocaleString() }} additional
+          </span>
+        </span>
         <span><strong>{{ result.produced.toLocaleString() }}</strong> produced</span>
         <!-- Split when levelling, because the run then deals the scenario
              twice — once to find out what it does, once to do it — and a
@@ -15,8 +24,8 @@
         <span v-if="measuredThisRun" :title="timingHint">
           <strong>{{ result.seconds.toFixed(2) }}</strong> sec
           <span class="stats-split">
-            = {{ measuredThisRun.measure_seconds.toFixed(2) }} measuring
-            + {{ producedSeconds.toFixed(2) }} dealing
+            = {{ measuredThisRun.measure_seconds.toFixed(2) }} characterizing
+            + {{ producedSeconds.toFixed(2) }} additional dealing
           </span>
         </span>
         <span v-else><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
@@ -237,7 +246,17 @@ const leveling = computed(() => props.leveling)
 /// being left over from the levelling that produced the script.
 const measuredThisRun = computed(() => props.result?.leveling || null)
 
-/// What the run itself cost, once the measuring pass is taken off.
+/// Deals the producing pass had to deal for itself.
+///
+/// Usually none, and that is the point: a levelled scenario is the
+/// characterizing pass's scenario with the keeps added, so every deal it can
+/// produce is one that pass already dealt. It deals its own only when more were
+/// wanted than were kept.
+const additionalGenerated = computed(() =>
+  Math.max(0, (props.result?.generated || 0) - (measuredThisRun.value?.characterized || 0)),
+)
+
+/// What the run itself cost, once the characterizing pass is taken off.
 ///
 /// Subtracted rather than timed separately: the two together are the number on
 /// the clock, and a reader comparing this against a re-run of the levelled
@@ -248,8 +267,17 @@ const producedSeconds = computed(() =>
 
 const timingHint = computed(
   () =>
-    'Levelling deals the scenario twice: once to measure how often each hand type comes up, ' +
-    'then again to produce the deals. Running the levelled scenario on its own costs only the second.',
+    'Levelling deals the scenario twice: once to characterize it — how often each hand type ' +
+    'comes up — then again to produce the deals. Running the levelled scenario on its own ' +
+    'costs only the second.',
+)
+
+const generatedHint = computed(() =>
+  measuredThisRun.value
+    ? 'Every deal the run looked at. Characterizing is nearly all of it: the deals it produces ' +
+      'are a filter over the deals that pass already dealt, so they are re-used rather than ' +
+      'dealt again, and the second figure is only what was still wanted after that.'
+    : 'Deals examined, including those the condition rejected.',
 )
 
 // One palette for the whole panel, so a type is the same colour in its row, on

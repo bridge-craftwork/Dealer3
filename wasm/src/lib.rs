@@ -16,18 +16,12 @@
 //! Output is byte-identical to the native binary for the same seed and script,
 //! so the Tier 2 regression hashes pin this build too.
 
-use dealer_core::{Deal, FastDealConfig, FastDealGenerator, Position};
-use dealer_eval::{
-    eval, eval_with_context_and_counts, extract_constraint, extract_point_counts,
-    extract_variables, EvalContext,
-};
+use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_parser::vocabulary;
-use dealer_parser::{EsTerm, Expr, Statement, VulnerabilityType};
-use dealer_pbn::{
-    format_hand_pbn, format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability,
-};
+use dealer_parser::{Statement, VulnerabilityType};
+use dealer_pbn::{format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability};
+use dealer_run::{Deals, LevelingOptions, Phase, Produced, RunHost, RunOptions};
 use serde::Serialize;
-use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 /// Upper bound on deals returned to the caller. A script may ask for tens of
@@ -137,7 +131,7 @@ struct FrequencyResult {
 
 /// What nature offered against what the levelled run delivered, per hand type.
 /// The page draws its bars straight from these.
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct HandTypeShare {
     name: String,
     natural: f64,
@@ -176,6 +170,9 @@ struct LevelingResult {
     /// Anything worth saying out loud that does not make the levelling wrong —
     /// a measurement thinner than the goal, above all.
     warnings: Vec<String>,
+    /// Deals dealt while characterizing, which is nearly all of a levelled
+    /// run's work and almost none of what it returns.
+    characterized: usize,
 }
 
 #[derive(Serialize)]
@@ -231,6 +228,77 @@ fn now_ms() -> f64 {
 /// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
 /// filter must not be able to hang it. Callers should surface `hit_limit`
 /// rather than silently showing a short result.
+/// A page's side of a run: it holds deals, collects what the script printed,
+/// paints a bar and answers a clock.
+///
+/// Everything else — the stream, the condition, the categories, the levelling
+/// and the deals it re-uses rather than deals twice — belongs to `dealer-run`,
+/// which is why this is short.
+struct Page<'a> {
+    progress: &'a Progress,
+    /// When the characterizing pass must stop, whatever it has managed.
+    deadline: f64,
+    /// Deals to hand back, capped: a large `produce` used to gather statistics
+    /// does not have to ship every deal to JS.
+    held: Vec<(Option<usize>, Deal)>,
+    /// Everything the script's `printes` and `printrpt` statements wrote,
+    /// capped alongside the deals so the two stay in step.
+    printed: String,
+    /// True once the clock stopped a pass, so the page can say so.
+    ran_out: bool,
+    /// Wall-clock seconds spent characterizing, which is the pass the reader
+    /// did not ask for and cannot otherwise account for. Timed here because
+    /// the engine has no clock — the one it answers to is this one.
+    characterizing_started: f64,
+    characterizing_seconds: f64,
+}
+
+impl RunHost for Page<'_> {
+    fn should_stop(
+        &mut self,
+        phase: Phase,
+        produced: usize,
+        generated: usize,
+        target: usize,
+    ) -> bool {
+        self.progress
+            .report(phase, produced, generated, target, false);
+        if phase == Phase::Characterizing && now_ms() >= self.deadline {
+            self.ran_out = true;
+            return true;
+        }
+        false
+    }
+
+    fn pass_finished(&mut self, phase: Phase, produced: usize, generated: usize, target: usize) {
+        if phase == Phase::Characterizing {
+            self.characterizing_seconds = (now_ms() - self.characterizing_started) / 1000.0;
+        }
+        self.progress
+            .report(phase, produced, generated, target, true);
+    }
+
+    fn produced(&mut self, deal: &Produced) -> Result<(), String> {
+        if self.held.len() >= MAX_RETURNED_DEALS {
+            return Ok(());
+        }
+        for row in deal.rows()?.printed {
+            self.printed.push(' ');
+            self.printed.push_str(&row);
+            self.printed.push('\n');
+        }
+        self.printed.push_str(&deal.printes()?);
+        self.held.push((deal.hand_type, deal.deal.clone()));
+        Ok(())
+    }
+}
+
+/// Generate deals from a script, as JSON.
+///
+/// With `auto_level`, the engine characterizes the scenario first — how often
+/// each `HandType_*` comes up — works out a keep rate for each and deals the
+/// levelled copy. Both passes are the engine's business; what comes back is
+/// the deals and the numbers behind them.
 #[wasm_bindgen]
 pub fn generate(
     script: &str,
@@ -254,243 +322,217 @@ pub fn generate(
     // than once and a single bar would appear to restart.
     let progress = Progress::new(on_progress);
 
-    let shares_of = |run: &RunOutcome| -> Vec<HandTypeShare> {
-        run.hand_type_names
+    let preprocessed =
+        dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
+    let program = dealer_parser::parse_program(&preprocessed)
+        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+
+    // Settings that affect how a deal is labelled rather than which deals are
+    // produced, and the predeal the run starts from.
+    let mut output = OutputContext {
+        dealer: None,
+        vulnerability: None,
+        seed,
+    };
+    let mut predeal = FastDealConfig::new();
+    for statement in &program.statements {
+        match statement {
+            Statement::Dealer(pos) => output.dealer = Some(*pos),
+            Statement::Vulnerable(v) => {
+                output.vulnerability = Some(match v {
+                    VulnerabilityType::None => Vulnerability::None,
+                    VulnerabilityType::NS => Vulnerability::NS,
+                    VulnerabilityType::EW => Vulnerability::EW,
+                    VulnerabilityType::All => Vulnerability::All,
+                })
+            }
+            Statement::Predeal { position, cards } => predeal
+                .predeal(*position, cards)
+                .map_err(|e| JsError::new(&format!("Predeal error: {}", e)))?,
+            // `print` is a paginated hand record with form feeds, written for a
+            // line printer. There is nowhere for that to go on a page, and
+            // quietly dropping it would leave a script looking as though it had
+            // run.
+            Statement::Action { print_hands, .. } if !print_hands.is_empty() => {
+                return Err(JsError::new(
+                    "print(...) writes a paginated hand record for a printer and is not \
+                     available in the browser",
+                ))
+            }
+            _ => {}
+        }
+    }
+
+    let mut page = Page {
+        progress: &progress,
+        deadline: started + MEASURE_BUDGET_MS,
+        held: Vec::new(),
+        printed: String::new(),
+        ran_out: false,
+        characterizing_started: started,
+        characterizing_seconds: 0.0,
+    };
+    let report = dealer_run::run(
+        script,
+        RunOptions {
+            seed,
+            produce,
+            max_generate,
+            deals: Deals::Shuffled {
+                predeal,
+                swap: dealer_core::SwapMode::None,
+            },
+            // A page has one thread until it is served with COOP/COEP and built
+            // for wasm threads, at which point turning on `dealer-run`'s
+            // `parallel` feature is the whole of what it takes. The headers are
+            // already set; the build is not.
+            threads: 1,
+            batch: 0,
+            params: Default::default(),
+            leveling: auto_level.then_some(LevelingOptions {
+                // The target mix comes out of the script, exactly as it does on
+                // the command line: `HandType_22_24_Share = 3` and nothing
+                // else. That is why the page needs no control for it — a
+                // scenario carries its own intended mix, and the two front ends
+                // cannot drift apart.
+                target: None,
+                budget: None,
+                // A browser has no patience for the command line's 500
+                // sightings of the rarest type, and refusing outright would
+                // teach nothing. The count it managed comes back instead, so
+                // the page can say how well the keeps are pinned down.
+                min_sample: MIN_BROWSER_SAMPLE,
+                measure_cap: max_generate,
+            }),
+        },
+        &mut page,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    // Interleaved, a set walks through the categories rather than meeting them
+    // as they fall. Numbered by where they land, so a reader that sorts on the
+    // board number cannot quietly undo the ordering.
+    let labels: Vec<String> = report.hand_types.iter().map(|(n, _)| n.clone()).collect();
+    let order: Vec<usize> = if report.leveling.is_some() && !labels.is_empty() {
+        let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
+        for (index, (matched, _)) in page.held.iter().enumerate() {
+            let label = matched.map(|i| labels[i].clone());
+            match buckets.iter_mut().find(|(name, _)| *name == label) {
+                Some((_, deals)) => deals.push(index),
+                None => buckets.push((label, vec![index])),
+            }
+        }
+        let names: Vec<&str> = labels.iter().map(String::as_str).collect();
+        dealer_level::interleave(&names, buckets, seed as u64)
+    } else {
+        (0..page.held.len()).collect()
+    };
+    let mut deals = Vec::with_capacity(order.len());
+    let mut deal_types = Vec::with_capacity(order.len());
+    for (position, index) in order.into_iter().enumerate() {
+        let (matched, deal) = &page.held[index];
+        let label = matched.map(|i| labels[i].as_str());
+        deals.push(format.render(deal, position, &output, label));
+        deal_types.push(label.map(str::to_string));
+    }
+
+    let hand_types: Vec<HandTypeShare> = match &report.leveling {
+        Some(levelling) => report
+            .hand_types
             .iter()
-            .zip(&run.hand_type_counts)
+            .enumerate()
+            .map(|(i, (name, count))| HandTypeShare {
+                name: name.clone(),
+                // What the characterizing pass saw, which is what `natural`
+                // means. The producing run has already had the keeps applied.
+                natural: levelling
+                    .natural_hand_types
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, n)| *n as f64 / levelling.measured.produced.max(1) as f64)
+                    .unwrap_or(0.0),
+                planned: planned_share(levelling, i),
+                delivered: *count as f64 / report.produced.max(1) as f64,
+                produced: *count,
+                out_of: report.produced,
+            })
+            .collect(),
+        None => report
+            .hand_types
+            .iter()
             .map(|(name, count)| {
-                let share = *count as f64 / run.produced.max(1) as f64;
+                let share = *count as f64 / report.produced.max(1) as f64;
                 HandTypeShare {
                     name: name.clone(),
                     natural: share,
                     planned: share,
                     delivered: share,
                     produced: *count,
-                    out_of: run.produced,
+                    out_of: report.produced,
                 }
             })
-            .collect()
+            .collect(),
     };
 
-    let (run, leveling) = if auto_level {
-        // The target mix comes out of the script, exactly as it does on the
-        // command line: `HandType_22_24_Share = 3` and nothing else. That is
-        // why the page needs no control for it — a scenario carries its own
-        // intended mix, and the two front ends cannot drift apart.
-        let program = dealer_parser::parse_program(
-            &dealer_parser::preprocess_all(script, &Default::default())
-                .map_err(|e| JsError::new(&e))?,
-        )
-        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
-        let weights = dealer_level::leveling_types(&program)
-            .map_err(|e| JsError::new(&e))?
-            .shares;
-
-        let opts = dealer_level::LevelOptions {
-            target: &weights,
-            budget: None,
-            seed,
-            // A browser has no patience for the command line's 500 sightings of
-            // the rarest type, and refusing outright would teach nothing. The
-            // count it managed comes back instead, so the page can say how well
-            // the keeps are pinned down.
-            min_sample: MIN_BROWSER_SAMPLE,
-            probe_produce: PROBE_PRODUCE.min(max_generate),
-            measure_cap: max_generate,
-        };
-        // What the second pass may cost. A page blocks while it deals, so the
-        // clock is the real limit here rather than a deal count — the command
-        // line can spend a minute on a scenario the browser has to answer in
-        // seconds, and the same request would mean very different waits.
-        let measure_deadline = now_ms() + MEASURE_BUDGET_MS;
-        let measured_per_ms = std::cell::Cell::new(0.0f64);
-        // Reported apart from the run itself. Levelling deals a scenario twice
-        // — once to find out what it does, once to do it — and a single total
-        // makes the second look slow when most of the wait was the first.
-        let measure_ms = std::cell::Cell::new(0.0f64);
-        let measured_passes = std::cell::Cell::new(0u32);
-        let best_measured = std::cell::Cell::new(0usize);
-        // The bars are drawn per hand type, which is not what gets levelled
-        // when a scenario declares `LevelType_`. The levelling report knows
-        // only the levelling decomposition, so the presentation one is kept
-        // from the measuring pass here: this is what `natural` means.
-        let natural_groups: std::cell::RefCell<Vec<(String, f64)>> =
-            std::cell::RefCell::new(Vec::new());
-        // And how those hand types crossed the levelling categories, which is
-        // what says where the keeps will leave each of them. It has to be the
-        // *measuring* pass: the producing run has already had the keeps
-        // applied, so weighting it by them again counts them twice.
-        let natural_joint: std::cell::RefCell<Vec<Vec<usize>>> =
-            std::cell::RefCell::new(Vec::new());
-        let (run, report) = dealer_level::level_and_run(
-            script,
-            &opts,
-            // Measuring: counts only. These deals exist to be characterised and
-            // thrown away, so none of them is rendered.
-            |script, measure_produce| {
-                // Clamped to what the clock allows, judged from how fast the
-                // probe went. Returning fewer than asked for is expected: the
-                // levelling reads the counts that come back, not the request.
-                let left = (measure_deadline - now_ms()).max(0.0);
-                let rate = measured_per_ms.get();
-                let affordable = if rate > 0.0 {
-                    ((left * rate) as usize).max(1)
-                } else {
-                    measure_produce
-                };
-                let asked = measure_produce.min(affordable);
-
-                let started = now_ms();
-                let outcome =
-                    run_script(
-                        script,
-                        seed,
-                        asked,
-                        max_generate,
-                        format,
-                        false,
-                        false,
-                        &progress,
-                        // The first call is the probe; anything after it is
-                        // the real measurement, whose size the probe decided.
-                        if measured_passes.get() == 0 {
-                            Phase::Probe
-                        } else {
-                            Phase::Measuring
-                        },
-                        Some(measure_deadline),
-                    )
-                    .map_err(|e| error_text(&e))?;
-                let spent = (now_ms() - started).max(1.0);
-                measured_per_ms.set(outcome.produced as f64 / spent);
-                measure_ms.set(measure_ms.get() + spent);
-                measured_passes.set(measured_passes.get() + 1);
-
-                // Kept from whichever pass got furthest, matching the rule
-                // `level_and_run` uses for the counts themselves: a pass that
-                // ran out of clock measured less, not more, and its rates would
-                // otherwise overwrite the good ones — a single deal reads as
-                // one type at 100% and the rest at nothing.
-                if outcome.produced > best_measured.get() {
-                    best_measured.set(outcome.produced);
-                    *natural_joint.borrow_mut() = joint_of(&outcome);
-                    *natural_groups.borrow_mut() = outcome
-                        .hand_type_names
-                        .iter()
-                        .zip(&outcome.hand_type_counts)
-                        .map(|(n, c)| (n.clone(), *c as f64 / outcome.produced.max(1) as f64))
-                        .collect();
-                }
-                Ok(measurement(&outcome))
-            },
-            // Producing: the deals the page will show, interleaved.
-            |script| {
-                let outcome =
-                    run_script(
-                        script,
-                        seed,
-                        produce,
-                        max_generate,
-                        format,
-                        true,
-                        true,
-                        &progress,
-                        Phase::Dealing,
-                        None,
-                    )
-                    .map_err(|e| error_text(&e))?;
-                let measured = measurement(&outcome);
-                Ok((outcome, measured))
-            },
-        )
-        .map_err(|e| JsError::new(&e))?;
-
-        let rarest = report
+    let leveling = report.leveling.as_ref().map(|levelling| {
+        let rarest = levelling
             .plans
             .iter()
             .min_by(|a, b| a.natural.total_cmp(&b.natural));
-        // Per hand type, always: that is what the deals are grouped by and what
-        // the reader recognises. Where the two decompositions are the same the
-        // report already says this; where they differ, `planned` comes from how
-        // each hand type's deals crossed the levelling categories.
-        let natural = natural_groups.borrow();
-        let planned = dealer_level::group_mix(
-            &natural_joint.borrow(),
-            &report.plans.iter().map(|p| p.keep).collect::<Vec<_>>(),
-        );
-        let shares: Vec<HandTypeShare> = run
-            .hand_type_names
-            .iter()
-            .zip(&run.hand_type_counts)
-            .enumerate()
-            .map(|(i, (name, count))| HandTypeShare {
-                name: name.clone(),
-                natural: natural
-                    .iter()
-                    .find(|(n, _)| n == name)
-                    .map(|(_, v)| *v)
-                    .unwrap_or(0.0),
-                planned: planned.get(i).copied().unwrap_or(0.0),
-                delivered: *count as f64 / run.produced.max(1) as f64,
-                produced: *count,
-                out_of: run.produced,
-            })
-            .collect();
-
-        let leveling = LevelingResult {
-            script: report.script,
-            shares,
-            exactness: report.lambda,
-            acceptance: report.acceptance,
-            cost: report.cost,
-            measured: report.measured,
+        LevelingResult {
+            script: levelling.script.clone(),
+            shares: hand_types.clone(),
+            exactness: levelling.lambda,
+            acceptance: levelling.acceptance,
+            cost: levelling.cost(),
+            measured: levelling.measured.produced,
             rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
             rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
-            measure_seconds: measure_ms.get() / 1000.0,
-            warnings: report.warnings.clone(),
-        };
-        (run, Some(leveling))
-    } else {
-        let run = run_script(
-            script,
-            seed,
-            produce,
-            max_generate,
-            format,
-            true,
-            false,
-            &progress,
-            Phase::Dealing,
-            None,
-        )?;
-        (run, None)
-    };
-
-    let hand_types = match &leveling {
-        Some(leveled) => leveled
-            .shares
-            .iter()
-            .map(|s| HandTypeShare {
-                name: s.name.clone(),
-                natural: s.natural,
-                planned: s.planned,
-                delivered: s.delivered,
-                produced: s.produced,
-                out_of: s.out_of,
-            })
-            .collect(),
-        None => shares_of(&run),
-    };
+            measure_seconds: page.characterizing_seconds,
+            warnings: levelling.warnings.clone(),
+            characterized: levelling.characterized,
+        }
+    });
 
     let result = GenerateResult {
-        deals: run.deals,
-        deal_types: run.deal_types,
-        generated: run.generated,
-        produced: run.produced,
-        hit_limit: run.hit_limit,
-        averages: run.averages,
-        frequencies: run.frequencies,
-        printes: run.printes,
+        deals,
+        deal_types,
+        generated: report.generated,
+        produced: report.produced,
+        hit_limit: report.hit_limit,
+        averages: report
+            .stats
+            .averages
+            .iter()
+            .map(|a| AverageResult {
+                is_hand_type: a.is_hand_type,
+                label: a.label.clone(),
+                value: a.value,
+                count: a.count,
+            })
+            .collect(),
+        frequencies: report
+            .stats
+            .frequencies
+            .iter()
+            .map(|f| FrequencyResult {
+                label: f.label.clone(),
+                min: f.min,
+                max: f.max,
+                bins: f
+                    .bins
+                    .iter()
+                    .map(|(value, count)| FrequencyBin {
+                        value: *value,
+                        count: *count,
+                    })
+                    .collect(),
+                below: f.below,
+                above: f.above,
+                total: f.total,
+            })
+            .collect(),
+        printes: page.printed,
         hand_types,
         leveling,
         seconds: (now_ms() - started) / 1000.0,
@@ -498,44 +540,30 @@ pub fn generate(
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
 }
 
-/// How many deals to measure a levelling over in a browser.
+/// A hand type's share of a levelled run once the keeps are applied.
 ///
-/// The rarest hand type sets the precision of the whole thing, so this is the
-/// number that matters. Ten thousand is a second or two and pins a type of a
-/// few percent to within a point; the page reports where it actually landed.
-/// Reports how far a run has got, for a caller that can paint it.
-///
-/// Throttled by the clock rather than by a deal count: a bare `hcp` condition
-/// and one calling `tricks()` differ by orders of magnitude in how long a deal
-/// takes, so any fixed count is either a flood of messages or a long silence.
+/// Its own natural rate cannot say this when the scenario levels on a separate
+/// `LevelType_` decomposition: what a hand type delivers then depends on how
+/// its deals were spread across the levelling categories.
+fn planned_share(levelling: &dealer_run::LevelingReport, index: usize) -> f64 {
+    let keeps: Vec<f64> = levelling.plans.iter().map(|p| p.keep).collect();
+    if levelling.natural_joint.is_empty() {
+        return levelling
+            .plans
+            .get(index)
+            .map(|p| p.mix)
+            .unwrap_or_default();
+    }
+    dealer_level::group_mix(&levelling.natural_joint, &keeps)
+        .get(index)
+        .copied()
+        .unwrap_or(0.0)
+}
+
 struct Progress {
     to: Option<js_sys::Function>,
     /// When the last report went out, so they arrive at a readable rate.
     last_ms: std::cell::Cell<f64>,
-}
-
-/// Which pass a report belongs to.
-///
-/// A levelled run deals the scenario up to three times, and without this the
-/// one bar would appear to finish and start over.
-#[derive(Clone, Copy)]
-enum Phase {
-    /// Finding out how rare the rarest hand type is.
-    Probe,
-    /// Measuring it properly, now that we know how much that takes.
-    Measuring,
-    /// Producing the deals that were actually asked for.
-    Dealing,
-}
-
-impl Phase {
-    fn name(self) -> &'static str {
-        match self {
-            Phase::Probe => "probe",
-            Phase::Measuring => "measuring",
-            Phase::Dealing => "dealing",
-        }
-    }
 }
 
 /// Shortest gap between reports. Fast enough to look live, slow enough that
@@ -573,9 +601,7 @@ impl Progress {
     }
 }
 
-const PROBE_PRODUCE: usize = 10_000;
-
-/// How long the browser will go on measuring after the probe.
+/// How long the browser will go on characterizing a scenario.
 ///
 /// A page blocks while it deals, so this is a clock rather than a deal count —
 /// which is also what lets one number serve every scenario. Falling short of
@@ -590,16 +616,6 @@ const MEASURE_BUDGET_MS: f64 = 6_000.0;
 /// teach nothing, so it goes ahead from 50 and says how well the keeps are
 /// pinned down.
 const MIN_BROWSER_SAMPLE: usize = 50;
-
-/// A `JsError` has no readable message on the Rust side, so errors crossing
-/// into the engine's closures carry their text instead.
-fn error_text(error: &JsError) -> String {
-    let value: wasm_bindgen::JsValue = error.clone().into();
-    value
-        .as_string()
-        .or_else(|| js_sys::Reflect::get(&value, &"message".into()).ok()?.as_string())
-        .unwrap_or_else(|| "the run failed".to_string())
-}
 
 /// The counts a levelling needs, taken from a run.
 /// Where a name is first used, so an undefined-name report can point at it.
@@ -657,517 +673,6 @@ fn locate_name(script: &str, name: &str) -> Option<(usize, usize)> {
 
 fn is_name_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
-}
-
-/// One `printrpt` row, without its leading space./// One `printrpt` row, without its leading space.
-///
-/// The same shape the command line writes for `csvrpt` and `printrpt`: strings
-/// in single quotes, hands in PBN notation, everything else an integer, commas
-/// between. Kept in step with the CLI's `report_row` by
-/// `dealer/tests/print_report.rs`, which compares the two.
-fn report_row(
-    terms: &[dealer_parser::CsvTerm],
-    deal: &Deal,
-    ctx: &EvalContext,
-) -> Result<String, JsError> {
-    use dealer_parser::{CsvTerm, Side};
-    let mut parts: Vec<String> = Vec::new();
-    for term in terms {
-        match term {
-            CsvTerm::Expression(expr) => {
-                let value = eval(expr, ctx).map_err(|e| {
-                    JsError::new(&format!("printrpt evaluation error: {}", e))
-                })?;
-                parts.push(value.to_string());
-            }
-            CsvTerm::String(text) => parts.push(format!("'{}'", text)),
-            CsvTerm::Compass(pos) => parts.push(format_hand_pbn(deal.hand(*pos))),
-            CsvTerm::Side(side) => {
-                let (a, b) = match side {
-                    Side::NS => (Position::North, Position::South),
-                    Side::EW => (Position::East, Position::West),
-                };
-                parts.push(format!(
-                    "{} {}",
-                    format_hand_pbn(deal.hand(a)),
-                    format_hand_pbn(deal.hand(b))
-                ));
-            }
-            CsvTerm::Deal => parts.push(format!(
-                "{} {} {} {}",
-                format_hand_pbn(deal.hand(Position::North)),
-                format_hand_pbn(deal.hand(Position::East)),
-                format_hand_pbn(deal.hand(Position::South)),
-                format_hand_pbn(deal.hand(Position::West))
-            )),
-        }
-    }
-    Ok(parts.join(","))
-}
-
-/// The run's hand types crossed with its levelling categories.
-///
-/// Empty when the two are the same decomposition, in which case a hand type's
-/// planned share is simply its own plan and there is nothing to cross.
-fn joint_of(run: &RunOutcome) -> Vec<Vec<usize>> {
-    if run.level_type_names.is_empty() {
-        // One category each, so the crossing is the identity: hand type `i`
-        // draws all of its deals from levelling category `i`.
-        (0..run.hand_type_names.len())
-            .map(|i| {
-                let mut row = vec![0usize; run.hand_type_names.len()];
-                row[i] = run.hand_type_counts[i];
-                row
-            })
-            .collect()
-    } else {
-        run.joint.clone()
-    }
-}
-
-fn measurement(run: &RunOutcome) -> dealer_level::Measurement {
-    // The levelling decomposition when the scenario declares one, the hand
-    // types otherwise — the same rule the command line follows.
-    if run.level_type_names.is_empty() {
-        dealer_level::Measurement {
-            produced: run.produced,
-            generated: run.generated,
-            names: run.hand_type_names.clone(),
-            counts: run.hand_type_counts.clone(),
-            prefix: dealer_level::HAND_TYPE_PREFIX,
-            groups: Vec::new(),
-            joint: Vec::new(),
-        }
-    } else {
-        dealer_level::Measurement {
-            produced: run.produced,
-            generated: run.generated,
-            names: run.level_type_names.clone(),
-            counts: run.level_counts.clone(),
-            prefix: dealer_level::LEVEL_TYPE_PREFIX,
-            groups: run.hand_type_names.clone(),
-            joint: run.joint.clone(),
-        }
-    }
-}
-
-/// One pass over the deals: what a run produces, before any levelling.
-struct RunOutcome {
-    deals: Vec<String>,
-    /// The hand type each returned deal matched, parallel to `deals`.
-    deal_types: Vec<Option<String>>,
-    generated: usize,
-    produced: usize,
-    averages: Vec<AverageResult>,
-    frequencies: Vec<FrequencyResult>,
-    printes: String,
-    hit_limit: bool,
-    /// The script's `HandType_*` variables, in declaration order.
-    hand_type_names: Vec<String>,
-    /// How many produced deals matched each, parallel to `hand_type_names`.
-    hand_type_counts: Vec<usize>,
-    /// The levelling decomposition's labels, empty unless the scenario declares
-    /// `LevelType_` variables of its own.
-    level_type_names: Vec<String>,
-    /// How many produced deals matched each, parallel to `level_type_names`.
-    level_counts: Vec<usize>,
-    /// `joint[hand type][level type]` counts, empty unless the two differ.
-    joint: Vec<Vec<usize>>,
-}
-
-/// Run a script once.
-///
-/// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
-/// filter must not be able to hang it.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
-fn run_script(
-    script: &str,
-    seed: u32,
-    produce: usize,
-    max_generate: usize,
-    format: Format,
-    keep_deals: bool,
-    interleave: bool,
-    progress: &Progress,
-    phase: Phase,
-    // When to stop regardless of what has been produced. Set for the measuring
-    // passes, which answer to a clock; `None` for the run the reader asked for,
-    // which answers to the deal count they gave.
-    deadline: Option<f64>,
-) -> Result<RunOutcome, JsError> {
-
-    let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
-    let program = dealer_parser::parse_program(&preprocessed)
-        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
-
-    // The script's categories of hand. A naming convention rather than syntax,
-    // so a script using it still parses on BBO.
-    let hand_type_names = dealer_level::hand_types(&program);
-    let hand_type_labels: Vec<String> = hand_type_names
-        .iter()
-        .map(|n| dealer_level::hand_type_label(n).to_string())
-        .collect();
-    let mut hand_type_counts = vec![0usize; hand_type_names.len()];
-
-    // What the keeps are computed from, which is the hand types unless the
-    // scenario declares `LevelType_` variables of its own. Counted separately,
-    // because the two decompositions are independent.
-    let level_type_names = dealer_level::level_types(&program);
-    let level_type_labels: Vec<String> = level_type_names
-        .iter()
-        .map(|n| dealer_level::level_type_label(n).to_string())
-        .collect();
-    let mut level_counts = vec![0usize; level_type_names.len()];
-    // `joint[hand type][level type]`, for working out what a hand type will
-    // deliver once the keeps are applied — which its own rate cannot say, the
-    // two decompositions being independent.
-    let mut joint = vec![vec![0usize; level_type_names.len()]; hand_type_names.len()];
-    let mut deal_types: Vec<Option<String>> = Vec::new();
-
-    let variables = extract_variables(&program);
-    let constraint = extract_constraint(&program);
-    let point_counts = extract_point_counts(&program)
-        .map_err(|e| JsError::new(&format!("Point count error: {}", e)))?;
-    let point_counts = point_counts.as_ref();
-
-    // `average` and `frequency` accumulate over matching deals only, mirroring
-    // the CLI. Collected up front so the per-deal loop stays a tight walk.
-    let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
-    let mut freqs: Vec<(
-        Option<String>,
-        Expr,
-        HashMap<i32, usize>,
-        Option<(i32, i32)>,
-    )> = Vec::new();
-    let mut printes_specs: Vec<Vec<EsTerm>> = Vec::new();
-    // `printrpt` writes to stdout, which here is the same Text view `printes`
-    // reaches. `csvrpt` is not collected: that one writes a file, and a page
-    // has nowhere to put it.
-    let mut printrpt_specs: Vec<Vec<dealer_parser::CsvTerm>> = Vec::new();
-    for statement in &program.statements {
-        if let Statement::PrintReport(terms) = statement {
-            printrpt_specs.push(terms.clone());
-        }
-        if let Statement::Action {
-            averages: avg_specs,
-            frequencies: freq_specs,
-            printes,
-            print_hands,
-            print_reports,
-            ..
-        } = statement
-        {
-            printes_specs.extend(printes.iter().cloned());
-            printrpt_specs.extend(print_reports.iter().cloned());
-            // `print` is a paginated hand record with form feeds, written for a
-            // line printer. There is nowhere for that to go on a page, and
-            // quietly dropping it would leave a script looking as though it had
-            // run.
-            if !print_hands.is_empty() {
-                return Err(JsError::new(
-                    "print(...) writes a paginated hand record for a printer and is not \
-                     available in the browser",
-                ));
-            }
-            for a in avg_specs {
-                averages.push((a.label.clone(), a.expr.clone(), 0.0, 0));
-            }
-            for f in freq_specs {
-                freqs.push((f.label.clone(), f.expr.clone(), HashMap::new(), f.range));
-            }
-        }
-    }
-    let collecting_stats = !averages.is_empty() || !freqs.is_empty();
-
-    // `dealer` and `vulnerable` statements do not affect which deals are
-    // produced, only how they are labelled in PBN output.
-    let mut output = OutputContext {
-        dealer: None,
-        vulnerability: None,
-        seed,
-    };
-    for statement in &program.statements {
-        match statement {
-            Statement::Dealer(pos) => output.dealer = Some(*pos),
-            Statement::Vulnerable(v) => {
-                output.vulnerability = Some(match v {
-                    VulnerabilityType::None => Vulnerability::None,
-                    VulnerabilityType::NS => Vulnerability::NS,
-                    VulnerabilityType::EW => Vulnerability::EW,
-                    VulnerabilityType::All => Vulnerability::All,
-                })
-            }
-            _ => {}
-        }
-    }
-
-    // Predeal fixes cards before shuffling. Missing this silently produced deals
-    // that ignored the script's `predeal` lines, which verify.mjs caught by
-    // diffing against the CLI.
-    let mut predeal_config = FastDealConfig::new();
-    let mut has_predeal = false;
-    for statement in &program.statements {
-        if let Statement::Predeal { position, cards } = statement {
-            predeal_config
-                .predeal(*position, cards)
-                .map_err(|e| JsError::new(&format!("Predeal error: {}", e)))?;
-            has_predeal = true;
-        }
-    }
-    debug_assert!(
-        !has_predeal
-            || [
-                Position::North,
-                Position::East,
-                Position::South,
-                Position::West
-            ]
-            .iter()
-            .any(|p| predeal_config.predeal_count(*p) > 0)
-    );
-
-    let mut generator = if has_predeal {
-        FastDealGenerator::with_config(seed as u64, predeal_config)
-    } else {
-        FastDealGenerator::new(seed as u64)
-    };
-    // Held rather than rendered as they come: a board's number belongs to where
-    // it lands, and interleaving does not decide that until every deal is in.
-    let mut held: Vec<(Option<usize>, Deal)> = Vec::new();
-    let mut printes_output = String::new();
-    let mut generated = 0usize;
-    let mut produced = 0usize;
-
-    while produced < produce && generated < max_generate {
-        let deal = generator.next_deal();
-        generated += 1;
-        progress.report(phase, produced, generated, produce, false);
-
-        // Checked here because the clock is already being read for the report
-        // above, and every few thousand deals rather than every one because a
-        // selective condition rejects most of them without a `now_ms()` of its
-        // own being worth it.
-        if let Some(deadline) = deadline {
-            if generated % 4096 == 0 && now_ms() >= deadline {
-                break;
-            }
-        }
-
-        let matched = match constraint {
-            Some(expr) => {
-                eval_with_context_and_counts(expr, &variables, &deal, point_counts)
-                    .map_err(|e| JsError::new(&format!("Evaluation error: {}", e)))?
-                    != 0
-            }
-            None => true,
-        };
-        if !matched {
-            continue;
-        }
-
-        if collecting_stats {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for (_, expr, sum, count) in averages.iter_mut() {
-                let v = eval(expr, &ctx)
-                    .map_err(|e| JsError::new(&format!("Average evaluation error: {}", e)))?;
-                *sum += v as f64;
-                *count += 1;
-            }
-            for (_, expr, histogram, _) in freqs.iter_mut() {
-                let v = eval(expr, &ctx)
-                    .map_err(|e| JsError::new(&format!("Frequency evaluation error: {}", e)))?;
-                *histogram.entry(v).or_insert(0) += 1;
-            }
-        }
-
-        // `printes` writes to a terminal in the CLI; here it is collected and
-        // handed back for the page to show. Capped alongside the deals for the
-        // same reason, and by the same count, so the two stay in step.
-        if !printrpt_specs.is_empty() && held.len() < MAX_RETURNED_DEALS {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for terms in &printrpt_specs {
-                printes_output.push(' ');
-                printes_output.push_str(&report_row(terms, &deal, &ctx)?);
-                printes_output.push('\n');
-            }
-        }
-
-        if !printes_specs.is_empty() && held.len() < MAX_RETURNED_DEALS {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for terms in &printes_specs {
-                for term in terms {
-                    match term {
-                        EsTerm::String(text) => printes_output.push_str(text),
-                        EsTerm::Newline => printes_output.push('\n'),
-                        EsTerm::Expression(expr) => {
-                            let value = eval(expr, &ctx).map_err(|e| {
-                                JsError::new(&format!("printes evaluation error: {}", e))
-                            })?;
-                            printes_output.push_str(&value.to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        // Which category of hand this is. Two matching is refused, as in the
-        // CLI: the types are meant to partition the deals, and a tag that
-        // silently picked the first would leave a set wrong about what it holds.
-        let mut matched_type: Option<usize> = None;
-        if !hand_type_names.is_empty() {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for (i, name) in hand_type_names.iter().enumerate() {
-                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
-                    JsError::new(&format!("Hand type `{}` could not be evaluated: {}", name, e))
-                })?;
-                if value != 0 {
-                    if let Some(first) = matched_type {
-                        return Err(JsError::new(&format!(
-                            "A deal is both `{}` and `{}`. Hand types have to partition the \
-                             deals, so at most one may match.",
-                            hand_type_names[first], name
-                        )));
-                    }
-                    matched_type = Some(i);
-                }
-            }
-            if let Some(i) = matched_type {
-                hand_type_counts[i] += 1;
-            }
-        }
-
-        if !level_type_names.is_empty() {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            let mut matched: Option<usize> = None;
-            for (i, name) in level_type_names.iter().enumerate() {
-                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
-                    JsError::new(&format!("Level type `{}` could not be evaluated: {}", name, e))
-                })?;
-                if value != 0 {
-                    if let Some(first) = matched {
-                        return Err(JsError::new(&format!(
-                            "A deal is both `{}` and `{}`. Level types have to partition the \
-                             deals, so at most one may match.",
-                            level_type_names[first], name
-                        )));
-                    }
-                    matched = Some(i);
-                }
-            }
-            if let Some(i) = matched {
-                level_counts[i] += 1;
-                if let Some(g) = matched_type {
-                    joint[g][i] += 1;
-                }
-            }
-        }
-
-        // Deals are capped independently of `produced` so a large `produce` used
-        // purely to gather statistics does not have to ship every deal to JS.
-        if keep_deals && held.len() < MAX_RETURNED_DEALS {
-            held.push((matched_type, deal.clone()));
-        }
-        produced += 1;
-    }
-
-    let averages = averages
-        .into_iter()
-        .map(|(label, expr, sum, count)| AverageResult {
-            is_hand_type: dealer_level::mentions_hand_type(&expr),
-            label,
-            value: if count > 0 { sum / count as f64 } else { 0.0 },
-            count,
-        })
-        .collect();
-
-    let frequencies = freqs
-        .into_iter()
-        .map(|(label, _, histogram, range)| {
-            let total: usize = histogram.values().sum();
-            let (lo, hi) = match range {
-                Some((lo, hi)) => (lo, hi),
-                None => (
-                    histogram.keys().copied().min().unwrap_or(0),
-                    histogram.keys().copied().max().unwrap_or(0),
-                ),
-            };
-            let bins = (lo..=hi)
-                .map(|value| FrequencyBin {
-                    value,
-                    count: histogram.get(&value).copied().unwrap_or(0),
-                })
-                .collect();
-            let below = histogram
-                .iter()
-                .filter(|(&k, _)| k < lo)
-                .map(|(_, &v)| v)
-                .sum();
-            let above = histogram
-                .iter()
-                .filter(|(&k, _)| k > hi)
-                .map(|(_, &v)| v)
-                .sum();
-            FrequencyResult {
-                label,
-                min: range.map(|(lo, _)| lo),
-                max: range.map(|(_, hi)| hi),
-                bins,
-                below,
-                above,
-                total,
-            }
-        })
-        .collect();
-
-    // Interleaved, a set walks through the categories rather than meeting them
-    // as they fall. Numbered by where they land, so a reader that sorts on the
-    // board number cannot quietly undo the ordering.
-    let order: Vec<usize> = if interleave && !hand_type_labels.is_empty() {
-        let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-        for (index, (matched, _)) in held.iter().enumerate() {
-            let label = matched.map(|i| hand_type_labels[i].clone());
-            match buckets.iter_mut().find(|(name, _)| *name == label) {
-                Some((_, deals)) => deals.push(index),
-                None => buckets.push((label, vec![index])),
-            }
-        }
-        let labels: Vec<&str> = hand_type_labels.iter().map(String::as_str).collect();
-        dealer_level::interleave(&labels, buckets, seed as u64)
-    } else {
-        (0..held.len()).collect()
-    };
-    let mut deals = Vec::with_capacity(order.len());
-    for (position, index) in order.into_iter().enumerate() {
-        let (matched, deal) = &held[index];
-        let label = matched.map(|i| hand_type_labels[i].as_str());
-        deals.push(format.render(deal, position, &output, label));
-        deal_types.push(label.map(str::to_string));
-    }
-
-    // Forced, so a bar reaches its own total. The throttle otherwise leaves the
-    // last hundred milliseconds of a phase unreported, and a bar frozen at 76%
-    // as the next one starts reads as something having gone wrong.
-    progress.report(phase, produced, generated, produce, true);
-
-    Ok(RunOutcome {
-        hit_limit: produced < produce && generated >= max_generate,
-        printes: printes_output,
-        produced,
-        deals,
-        deal_types,
-        generated,
-        averages,
-        frequencies,
-        // The labels, not the variable names: everything downstream — the
-        // keeps, the `{{level-mix}}` markers, the badge on a board — is written
-        // in terms of `12_14` rather than `HandType_12_14`.
-        hand_type_names: hand_type_labels.clone(),
-        hand_type_counts,
-        level_type_names: level_type_labels,
-        level_counts,
-        joint,
-    })
 }
 
 #[derive(Serialize)]

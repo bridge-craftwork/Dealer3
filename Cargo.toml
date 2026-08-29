@@ -5,6 +5,7 @@ members = [
     "dealer-pbn",
     "dealer-eval",
     "dealer-level",
+    "dealer-run",
     "dealer",
     "dealer-dds",
 ]

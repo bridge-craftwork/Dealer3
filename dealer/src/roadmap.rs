@@ -256,7 +256,7 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some(
             "Levelling gets the long-run proportions right and cannot make twenty boards \
              come out even — at that length a band carries a standard deviation of eight \
-             points. Filling quotas instead needs no measuring pass, no keeps and no roll, \
+             points. Filling quotas instead needs no characterizing pass, no keeps and no roll, \
              so it also escapes the one error levelling cannot recover from: a rate measured \
              thinly biases its keep for good. Only for sets generated here; a BBO table runs \
              the script live and cannot over-generate and discard.",

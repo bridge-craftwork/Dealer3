@@ -8,7 +8,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--level`: level a scenario and deal it in one run.** `--write-leveled`
+  writes the file and stops, which is what a scenario you keep and regenerate
+  wants; `--level` goes on to deal what `-p` asked for from the levelled copy
+  and discards it, which is what a one-off wants. Give both to do both. The
+  deals are the same either way, which nine comparison runs assert — `--level`
+  is exactly `--write-leveled` followed by a run of the generated file.
+- `--interleave` now combines with a levelling, since `--level` has a practice
+  set to order afterwards. It is still refused with `--write-leveled` alone,
+  which has nothing to walk through.
+
+### Changed
+- **One generate loop, in `dealer-run`, for both front ends.** Dealing, testing
+  the condition, classifying against `HandType_`/`LevelType_`, the `average` and
+  `frequency` accumulators, the `printrpt`/`csvrpt` renderer, threading and the
+  whole of levelling now sit behind `dealer_run::run`. `dealer/src/main.rs`
+  parses arguments and renders; `wasm/src/lib.rs` reads the page's settings and
+  renders. Neither imports the evaluator any more, and `main.rs` is 900 lines
+  lighter while `wasm/src/lib.rs` is 500.
+  - They had a loop each, written twice comment for comment, and they had
+    drifted: `mentions_hand_type` tagging reached only the browser, only the
+    terminal printed the deal when two hand types overlapped, and the rule for
+    when a measuring run had learnt enough was a single early-stopping pass on
+    one side and a probe sizing a second pass on the other.
+- **A levelled run makes one pass over the deals, not three.** The probe is
+  gone. A levelled scenario is the characterized one with the keeps added, so
+  every deal it can produce is a deal the characterizing pass already dealt:
+  those are kept by the eight-byte seed that reproduces them and re-run, rather
+  than dealt again. The producing pass now deals nothing at all in the ordinary
+  case.
+  - On the command line that is 968,666 deals down to 952,305 for the same 200.
+  - In the browser, a selective scenario capped at a million deals went from
+    5.13s to 1.58s for the same result.
+- **`-R`/`--threads` and `--batch-size` are the engine's.** `fast_parallel.rs`
+  is gone; `dealer-run` spawns the threads, behind a `parallel` feature that is
+  on for the command line and off for wasm, which has none to spawn until the
+  page is built for them. Turning it on is then the whole of what the browser
+  needs. Jacoby 2NT over a million deals: 1.878s to 1.750s single-threaded,
+  0.466s to 0.418s on twelve.
+  - Filtering alone would not have done: how much of a deal is the shuffle and
+    how much the condition is the *script's* business, ranging from 7% filter
+    for `Stayman` to 62% for `Fourth_Suit_Forcing` to essentially all of it for
+    a `tricks()` condition. Both halves go through one parallel map.
+- **The browser's phases are `characterizing` and `additional dealing`.** The
+  first reports sightings of the scarcest category against the number needed to
+  divide by, so its bar means something.
+
 ### Fixed
+- **`generated` counted one pass of a levelled run, not all of them.** It read
+  `1,844` beside "levelled over 47,733 measured deals" — the same deals, counted
+  honestly the second time. Both front ends now count every deal the run looked
+  at, and the browser splits it the way it already split the seconds.
+- **The browser spent its whole measuring budget on the probe.** On a scenario
+  slow enough for the 6-second clock to bind, the probe used all of it and the
+  pass it had just sized never ran. The measurement that survived was the
+  probe's — 97 sightings of the rarest category against a goal of 2,000, so a
+  keep divided by a rate carrying about 10% error, baked into the generated
+  scenario for good, and no warning because the browser's floor is 50.
 - **The timing split read a stale measurement on the Leveled tab.** That run
   measures nothing, but the page holds the previous levelling so the natural
   bars survive it — and the split was taking `measuring` from that while the

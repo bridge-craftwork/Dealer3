@@ -247,17 +247,17 @@ function stopProgress() {
 
 /// One bar per phase the run has reached, in the order they happen.
 ///
-/// The measuring bar has no total until the probe has finished — how much
-/// measuring a scenario needs depends on how rare its rarest hand type is, and
-/// that is what the probe is for. Until then it runs indeterminate rather than
-/// inventing a denominator.
+/// The characterizing bar counts sightings of the scarcest category against the
+/// number needed to divide by, not deals: a run that has dealt a million is no
+/// further along than its scarcest category says it is, and that is what the
+/// keeps are computed from.
 const PHASE_LABELS = {
-  probe: 'sampling',
-  measuring: 'measuring',
+  characterizing: 'characterizing',
   dealing: 'dealing',
+  'additional dealing': 'additional dealing',
 }
 const progressBars = computed(() =>
-  ['probe', 'measuring', 'dealing']
+  ['characterizing', 'dealing', 'additional dealing']
     .filter((key) => phases.value[key])
     .map((key) => {
       const p = phases.value[key]
@@ -492,7 +492,7 @@ async function run() {
     // paints its disabled state at once, a second click cannot queue up behind
     // a frozen thread, and the engine can report how far along it is.
     // On the Leveled tab, run the generated scenario as it stands: no
-    // measuring pass, no new keeps, the same script every time. So pressing Run
+    // characterizing pass, no new keeps, the same script every time. So Run
     // again is another sample of one levelling rather than a fresh levelling —
     // which is what you want when comparing runs, and what makes the script in
     // the pane worth reading rather than something that moves under you.
@@ -664,8 +664,8 @@ body {
   background: var(--accent);
   transition: width 0.12s linear;
 }
-/* No total yet — the probe decides how much measuring this scenario needs, so
-   until it finishes there is no honest denominator to draw against. */
+/* No total to draw against — a plain run is bounded by the deals asked for, but
+   nothing says how many it will have to look at to find them. */
 .progress-fill.indeterminate {
   width: 35%;
   animation: progress-sweep 1.1s ease-in-out infinite;

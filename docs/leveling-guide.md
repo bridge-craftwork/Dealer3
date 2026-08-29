@@ -352,15 +352,27 @@ At <https://dealer.bridge-classroom.org>.
 - It is greyed when there are no hand types to level, with a tooltip saying what
   to add.
 
-Press Run and both passes happen: enough deals to measure the natural mix, then
-your requested number through the levelled scenario. The measuring pass sizes
-itself — a 10,000-deal probe to find out how rare the rarest category is, then
-as much again as that suggests, within a few seconds. The stats line splits the
-two, since a levelled run deals the scenario twice:
+Press Run and both passes happen: first the scenario is **characterized** — dealt
+as written until every category has been seen often enough to divide by — and
+then the levelled copy produces the deals you asked for. Characterizing stops
+when the rarest category reaches 2,000 sightings, or when it runs out of clock
+or deal budget, whichever comes first.
+
+The stats line splits both the deals and the seconds, since a levelled run deals
+the scenario twice:
 
 ```
-79,135 generated   400 produced   5.63 sec = 5.42 measuring + 0.20 dealing
+952,305 generated = 952,305 characterizing + 0 additional
+200 produced
+1.94 sec = 1.92 characterizing + 0.02 additional dealing
 ```
+
+**"0 additional" is the ordinary case, and it is worth understanding.** A
+levelled scenario is the characterized one with the keeps added, so every deal
+it can produce is a deal that first pass already dealt. They are re-used rather
+than dealt again, and the second pass only deals for itself if it wants more
+than were kept. Which is why nearly all of a levelled run's work — and its wait
+— is the characterizing.
 
 **A Hand types panel** appears above the averages, since when a scenario is
 levelled this is the thing it was levelled for. Each type gets a bar showing
@@ -384,7 +396,7 @@ through the types rather than arriving in the order they fell. See
 
 The target mix comes from the script's own `_Share` declarations, so there is
 nothing to set here that the scenario does not already say. What the browser
-does not offer is `--level-budget`, and a measuring pass longer than its own
+does not offer is `--level-budget`, and characterizing for longer than its own
 few-second budget: for either, use the command line.
 
 A run is cancellable, and after a second it shows how far along each pass is.
@@ -401,7 +413,7 @@ generated from it that should never be edited.
 dealer stock.dlr -q -s 1 --write-leveled leveled.dlr
 ```
 
-No `-p`: the measuring run sizes itself, and `-s` sets the seed. Regenerating
+No `-p`: characterizing sizes itself, and `-s` sets the seed. Regenerating
 gives the same file byte for byte — it stops on the exact deal that finishes the
 job rather than at a batch boundary, so the core count cannot change it — which
 is how CI checks the committed example has not drifted from the tool.
@@ -438,13 +450,34 @@ that hash in your build.**
 
 | switch | what it does |
 |---|---|
-| `--write-leveled FILE` | measure this scenario and write the levelled copy to `FILE` |
+| `--level` | level this scenario and deal it, in one run |
+| `--write-leveled FILE` | characterize this scenario and write the levelled copy to `FILE` |
 | `--level-target MIX` | `even` (the default), or one weight per hand type |
 | `--level-budget N` | cap the cost at `N` deals dealt per deal kept, relaxing exactness to fit |
-| `--level-measure N` | cap the measuring pass at `N` produced deals (default 2,000,000) |
+| `--level-measure N` | cap characterizing at `N` produced deals (default 2,000,000) |
 | `--level-timeout SECS` | cap it at `SECS` seconds (default 60) |
 | `--interleave` | order the output so each type appears before any repeats |
 | `--stats-json` | report the statistics as JSON instead of tables |
+
+### Levelling and dealing in one go
+
+`--write-leveled` writes the file and stops, which is what you want for a
+scenario you will keep and regenerate. For a one-off, `--level` does both:
+
+```bash
+dealer stock.dlr --level -p 40
+```
+
+It characterizes, works out the keeps, prints the same summary to stderr, and
+then deals the 40 you asked for from the levelled copy — which it discards. Add
+`--write-leveled` alongside to keep it as well.
+
+The deals are the same either way. `--level` is exactly `--write-leveled`
+followed by a run of the generated file, and there is a test that says so; what
+it saves is the file, and the second pass's dealing. A levelled scenario is the
+characterized one with the keeps added, so every deal it can produce is one the
+first pass already dealt — those are re-used rather than dealt again, and the
+run reports `Generated` for both passes together.
 
 ### Verifying the result
 
@@ -571,9 +604,10 @@ twenty-four.
 - **Boards are numbered by where they land, not when they were dealt.** The
   order lives in the file and `[Board]` is what a reader sorts on. Dealer and
   vulnerability rotate with the number, so they follow too.
-- **It does not combine with `--write-leveled`.** That run measures the scenario
-  as it stands, so there is no practice set to walk through. Level first, then
-  interleave the generated file.
+- **It does not combine with `--write-leveled` alone.** That run characterizes
+  the scenario as it stands and writes a file, so there is no practice set to
+  walk through. It does combine with `--level`, which goes on to deal the
+  levelled copy — and with a run of an already-generated file.
 
 Deals matching no type come out last, in the order they were produced.
 
@@ -627,8 +661,8 @@ at all.
 
 ### Are the keeps right? Check the number it reports.
 
-A keep is `mix / natural`, and that divisor is measured. If the measuring pass
-saw a type too few times, its keep is wrong — and **wrong permanently**, because
+A keep is `mix / natural`, and that divisor is measured. If characterizing saw a
+type too few times, its keep is wrong — and **wrong permanently**, because
 there is nothing random left to average out. Producing more deals afterwards
 converges on the wrong number rather than scattering around the right one.
 
@@ -638,13 +672,18 @@ Both front ends report where they landed, and that figure is the thing to read:
 keeps pinned down by `22_24`, the rarest, seen 2000 times: +-2.2%
 ```
 
-**You mostly do not have to do anything.** The measuring pass sizes itself: it
-deals until the rarest type has been seen 2,000 times and stops there, which is
-about ±2.2% on that rate. How many deals that takes depends entirely on how rare
-that type is, and the range is wide — the five-band example needs 158,000
-produced and takes under a second, while a thirteen-band one whose scarcest
-value is 0.2% of qualifying deals needs 1,066,000 and takes three. No fixed
-number serves both, which is why it is worked out rather than chosen.
+**You mostly do not have to do anything.** Characterizing sizes itself: it deals
+until the rarest type has been seen 2,000 times and stops there, which is about
+±2.2% on that rate — one standard error, `1/√n`. Every other type passed that
+mark long before, so the rarest is what decides when the pass ends and how good
+the whole levelling is.
+
+How many deals that takes depends entirely on how rare that type is, and the
+range is enormous. The five-band example needs 158,000 produced and takes under
+a second. A scenario whose scarcest band is 0.2% of qualifying deals needs a
+million. One that also filters hard — where a deal has to survive a narrow
+condition *before* it can be classified — can need tens of millions. No fixed
+number serves those, which is why it is worked out rather than chosen.
 
 Two limits stop it running away, and reaching either is a warning rather than an
 error — the file is still written, with the shortfall reported and stamped into
@@ -659,10 +698,18 @@ whatever the machine — but a run stopped by the *clock* stops wherever the clo
 caught it, so it is not. Pin `--level-measure` if you need a build to produce
 the same file every time.
 
-**In the browser** there is nothing to set. It probes with 10,000 deals to find
-out how rare the rarest type is, then measures for as long as that suggests —
-bounded by a few seconds, because a page blocks while it deals. If it falls
-short it says so in the Hand types panel.
+**In the browser** there is nothing to set. It characterizes for up to a few
+seconds — a page blocks while it deals — and stops at whichever comes first: the
+2,000 sightings, that clock, or the Max generate box. If it falls short it says
+so in the Hand types panel, and the count it reached is reported there.
+
+A demanding scenario will fall short. One whose condition keeps a deal in
+several hundred, and which then splits those across five bands, can want tens of
+millions of deals to pin its rarest band down — minutes, not seconds. The
+levelling is still written and still works; its rarest divisor is simply known
+to a few percent rather than a fraction of one. **Generate the file from the
+command line when the mix has to be right**, which is what the clock there is
+for.
 
 So the action is: **read the reported count.** Below a few hundred, generate the
 file from the command line, where the clock is more generous.
@@ -677,9 +724,16 @@ came out 24% too small and the band delivered about 17% instead of 20%,
 that this one did not shrink with more deals.
 
 Sizing the measurement fixed that particular case — the same scenario now
-measures 125,787 deals and sees the band 1,589 times. The lesson survives it:
-**a levelling reports its own precision and not its own accuracy**, and the
-sighting count is the only thing on screen that speaks to either.
+characterizes over 158,323 deals and sees the band the full 2,000 times. The
+lesson survives it: **a levelling reports its own precision and not its own
+accuracy**, and the sighting count is the only thing on screen that speaks to
+either.
+
+It also survives in scenarios where the browser still cannot get there. One that
+keeps a deal in several hundred and then splits those five ways can reach only a
+few dozen sightings inside a page's few seconds — a rate known to about ±13%,
+with no warning, because the floor the browser warns below is 50. The count is
+still the thing to read.
 
 To measure a band of a given natural rate to a given relative precision:
 
@@ -730,7 +784,7 @@ make a finite set come out even.
 For a PBN generated once and handed to a class, what you want is **quotas** —
 deal, classify, take the deal if its bin has room, stop when every bin is full.
 The bins are then exact by construction rather than in expectation, and it needs
-no measuring pass, no keeps, no `roll` and no `{{level-mix}}`, so it has nothing
+no characterizing, no keeps, no `roll` and no `{{level-mix}}`, so it has nothing
 to get wrong.
 
 That is [issue #16](https://github.com/bridge-craftwork/Dealer3/issues/16), and
