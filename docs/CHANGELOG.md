@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 ### Fixed
+- **Variables are classified once per script, not once per deal — a 15x
+  speedup on scripts that build definitions on one another.** Whether a variable
+  can reach `rnd()` decides whether its value may be cached for the deal. That
+  answer depends on the expression trees alone, which never change, but it was
+  worked out inside the per-deal context: every deal walked the whole definition
+  graph again, once per variable.
+  - Quadratic in how deeply a script nests, and paid per deal. A real scenario
+    with sixty-odd variables took **9.2s** for 200,000 deals against the
+    original dealer's 0.46s. It now takes 0.62s. Reported from the browser,
+    where single-threaded it was sampling "a few a second" and would have taken
+    a quarter of an hour.
+  - The walk also shares one memo across every variable now, so classifying a
+    whole script is linear in the number of definitions rather than quadratic:
+    0.1 µs per variable at forty, eighty, a hundred and sixty or three hundred
+    and twenty, where it used to be 2.8, 4.0, 6.6 and 13.8.
+  - `extract_variables` returns a `Variables` rather than a bare map, which is
+    where the answer now lives. The filter itself is unchanged: the same
+    scenario produces the same 270 deals in 200,000 as the reference binary.
+- **The browser's measuring probe had no clock.** `MEASURE_BUDGET_MS` bounded
+  the second pass but not the 10,000-deal probe before it, so a scenario
+  producing one deal in 2,800 sat there for minutes. The measuring passes now
+  stop on a deadline, checked where the clock is already read for progress.
+  - And a pass cut short no longer replaces a better one. With the probe using
+    the whole budget the second pass got a fraction of a second, produced a
+    single deal, and that one deal became the measurement — which then failed
+    the never-seen check, and had briefly shown one hand type at 100% and the
+    rest at nothing. Whichever pass got furthest is the one that counts.
 - **Auto-level split a `condition` from its expression.** A scenario writing
   `condition` on its own line with the expression on the next got the generated
   block inserted *between* the two, so the keyword read `noLeveling` as its

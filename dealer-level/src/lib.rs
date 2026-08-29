@@ -1304,7 +1304,17 @@ pub fn level_and_run<T>(
     let probe = measure(&prepared, opts.probe_produce)?;
     let needed = needed_produce(&probe.counts, probe.produced, MEASURE_GOAL);
     let measured = if needed > probe.produced {
-        measure(&prepared, needed.min(opts.measure_cap))?
+        let bigger = measure(&prepared, needed.min(opts.measure_cap))?;
+        // Only if it actually got further. A front end answering to a clock
+        // clamps the request to what is left, so a probe that used the whole
+        // budget leaves the second pass time for almost nothing — and taking
+        // its handful of deals over the probe's thousands would throw away the
+        // measurement rather than improve it.
+        if bigger.produced > probe.produced {
+            bigger
+        } else {
+            probe
+        }
     } else {
         probe
     };

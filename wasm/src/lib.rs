@@ -309,6 +309,7 @@ pub fn generate(
         // makes the second look slow when most of the wait was the first.
         let measure_ms = std::cell::Cell::new(0.0f64);
         let measured_passes = std::cell::Cell::new(0u32);
+        let best_measured = std::cell::Cell::new(0usize);
         // The bars are drawn per hand type, which is not what gets levelled
         // when a scenario declares `LevelType_`. The levelling report knows
         // only the levelling decomposition, so the presentation one is kept
@@ -357,19 +358,29 @@ pub fn generate(
                         } else {
                             Phase::Measuring
                         },
+                        Some(measure_deadline),
                     )
                     .map_err(|e| error_text(&e))?;
                 let spent = (now_ms() - started).max(1.0);
                 measured_per_ms.set(outcome.produced as f64 / spent);
                 measure_ms.set(measure_ms.get() + spent);
                 measured_passes.set(measured_passes.get() + 1);
-                *natural_joint.borrow_mut() = joint_of(&outcome);
-                *natural_groups.borrow_mut() = outcome
-                    .hand_type_names
-                    .iter()
-                    .zip(&outcome.hand_type_counts)
-                    .map(|(n, c)| (n.clone(), *c as f64 / outcome.produced.max(1) as f64))
-                    .collect();
+
+                // Kept from whichever pass got furthest, matching the rule
+                // `level_and_run` uses for the counts themselves: a pass that
+                // ran out of clock measured less, not more, and its rates would
+                // otherwise overwrite the good ones — a single deal reads as
+                // one type at 100% and the rest at nothing.
+                if outcome.produced > best_measured.get() {
+                    best_measured.set(outcome.produced);
+                    *natural_joint.borrow_mut() = joint_of(&outcome);
+                    *natural_groups.borrow_mut() = outcome
+                        .hand_type_names
+                        .iter()
+                        .zip(&outcome.hand_type_counts)
+                        .map(|(n, c)| (n.clone(), *c as f64 / outcome.produced.max(1) as f64))
+                        .collect();
+                }
                 Ok(measurement(&outcome))
             },
             // Producing: the deals the page will show, interleaved.
@@ -385,6 +396,7 @@ pub fn generate(
                         true,
                         &progress,
                         Phase::Dealing,
+                        None,
                     )
                     .map_err(|e| error_text(&e))?;
                 let measured = measurement(&outcome);
@@ -449,6 +461,7 @@ pub fn generate(
             false,
             &progress,
             Phase::Dealing,
+            None,
         )?;
         (run, None)
     };
@@ -778,6 +791,10 @@ fn run_script(
     interleave: bool,
     progress: &Progress,
     phase: Phase,
+    // When to stop regardless of what has been produced. Set for the measuring
+    // passes, which answer to a clock; `None` for the run the reader asked for,
+    // which answers to the deal count they gave.
+    deadline: Option<f64>,
 ) -> Result<RunOutcome, JsError> {
 
     let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
@@ -926,6 +943,16 @@ fn run_script(
         let deal = generator.next_deal();
         generated += 1;
         progress.report(phase, produced, generated, produce, false);
+
+        // Checked here because the clock is already being read for the report
+        // above, and every few thousand deals rather than every one because a
+        // selective condition rejects most of them without a `now_ms()` of its
+        // own being worth it.
+        if let Some(deadline) = deadline {
+            if generated % 4096 == 0 && now_ms() >= deadline {
+                break;
+            }
+        }
 
         let matched = match constraint {
             Some(expr) => {

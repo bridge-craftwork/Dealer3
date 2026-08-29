@@ -312,16 +312,12 @@ pub struct EvalContext<'a> {
     /// Variable name -> Expression tree reference mapping
     /// Variables store references to expression trees (no cloning needed)
     /// FxHashMap uses a faster (non-cryptographic) hash function
-    pub variables: &'a FxHashMap<String, &'a Expr>,
+    pub variables: &'a Variables<'a>,
     /// Cache of evaluated variable values (per-deal)
     /// Using RefCell for interior mutability since eval takes &self
     /// Keys are &str references to avoid String cloning on cache insert
     /// FxHashMap uses a faster (non-cryptographic) hash function
     cache: RefCell<FxHashMap<&'a str, i32>>,
-    /// Which variables must not be cached, worked out once per name.
-    ///
-    /// See [`reaches_rnd`].
-    volatile: RefCell<FxHashMap<&'a str, bool>>,
     /// The stream `rnd()` draws from, seeded from the deal on first use.
     ///
     /// One per context rather than one per deal, so a `rnd()` in a `condition`
@@ -347,32 +343,56 @@ pub struct EvalContext<'a> {
 /// Follows variable references, because the property is transitive: given
 /// `a = rnd(4)` and `b = a + 1`, `b` is volatile too. `visiting` guards against
 /// a variable that refers to itself.
-fn reaches_rnd<'a>(
+/// Whether an expression can reach `rnd()`, directly or through a variable.
+///
+/// `visiting` is the cycle guard and belongs to one walk; `known` is the
+/// answers and is shared across every walk of a script, which is what makes
+/// classifying it linear in the number of definitions rather than quadratic.
+/// Without that sharing a name twenty definitions build on is walked twenty
+/// times — and this used to run per *deal*, which is how a real scenario came
+/// to spend 9.2s on what the original dealer did in 0.46s.
+fn reaches_rnd_memo<'a>(
     expr: &'a Expr,
+    // The raw map, not `Variables`: this is what decides the volatile set, so
+    // it runs while that set is still being built.
     variables: &'a FxHashMap<String, &'a Expr>,
     visiting: &mut std::collections::HashSet<&'a str>,
+    known: &mut FxHashMap<&'a str, bool>,
 ) -> bool {
     match expr {
         Expr::FunctionCall { func, args } => {
-            *func == Function::Rnd || args.iter().any(|a| reaches_rnd(a, variables, visiting))
+            *func == Function::Rnd
+                || args
+                    .iter()
+                    .any(|a| reaches_rnd_memo(a, variables, visiting, known))
         }
         Expr::BinaryOp { left, right, .. } => {
-            reaches_rnd(left, variables, visiting) || reaches_rnd(right, variables, visiting)
+            reaches_rnd_memo(left, variables, visiting, known)
+                || reaches_rnd_memo(right, variables, visiting, known)
         }
-        Expr::UnaryOp { expr, .. } => reaches_rnd(expr, variables, visiting),
+        Expr::UnaryOp { expr, .. } => reaches_rnd_memo(expr, variables, visiting, known),
         Expr::Ternary {
             condition,
             true_expr,
             false_expr,
         } => {
-            reaches_rnd(condition, variables, visiting)
-                || reaches_rnd(true_expr, variables, visiting)
-                || reaches_rnd(false_expr, variables, visiting)
+            reaches_rnd_memo(condition, variables, visiting, known)
+                || reaches_rnd_memo(true_expr, variables, visiting, known)
+                || reaches_rnd_memo(false_expr, variables, visiting, known)
         }
         Expr::Variable(name) => match variables.get_key_value(name.as_str()) {
             Some((key, referenced)) => {
+                let key = key.as_str();
+                if let Some(&answer) = known.get(key) {
+                    return answer;
+                }
                 // A cycle cannot reach `rnd()` by going round again.
-                visiting.insert(key.as_str()) && reaches_rnd(referenced, variables, visiting)
+                if !visiting.insert(key) {
+                    return false;
+                }
+                let found = reaches_rnd_memo(referenced, variables, visiting, known);
+                known.insert(key, found);
+                found
             }
             None => false,
         },
@@ -385,8 +405,8 @@ fn reaches_rnd<'a>(
 }
 
 /// Empty variables map for contexts without variables
-static EMPTY_VARIABLES: std::sync::LazyLock<FxHashMap<String, &'static Expr>> =
-    std::sync::LazyLock::new(FxHashMap::default);
+static EMPTY_VARIABLES: std::sync::LazyLock<Variables<'static>> =
+    std::sync::LazyLock::new(Variables::default);
 
 impl<'a> EvalContext<'a> {
     /// Create a context without any variables (for simple expressions)
@@ -395,36 +415,20 @@ impl<'a> EvalContext<'a> {
             deal,
             variables: &EMPTY_VARIABLES,
             cache: RefCell::new(FxHashMap::default()),
-            volatile: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts: None,
         }
     }
 
     /// Create a context with pre-defined variable references
-    pub fn with_variables(deal: &'a Deal, variables: &'a FxHashMap<String, &'a Expr>) -> Self {
+    pub fn with_variables(deal: &'a Deal, variables: &'a Variables<'a>) -> Self {
         EvalContext {
             deal,
             variables,
             cache: RefCell::new(FxHashMap::default()),
-            volatile: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts: None,
         }
-    }
-
-    /// Whether `name`'s value has to be worked out afresh at every mention.
-    ///
-    /// Answered once per name: the expression trees do not change, so neither
-    /// does the answer.
-    fn is_volatile(&self, name: &'a str, expr: &Expr) -> bool {
-        if let Some(&known) = self.volatile.borrow().get(name) {
-            return known;
-        }
-        let mut visiting = std::collections::HashSet::new();
-        let volatile = reaches_rnd(expr, self.variables, &mut visiting);
-        self.volatile.borrow_mut().insert(name, volatile);
-        volatile
     }
 
     /// The next number below `bound` from this context's `rnd()` stream.
@@ -449,14 +453,13 @@ impl<'a> EvalContext<'a> {
     /// running the hardcoded counts.
     pub fn with_counts(
         deal: &'a Deal,
-        variables: &'a FxHashMap<String, &'a Expr>,
+        variables: &'a Variables<'a>,
         counts: Option<&'a PointCounts>,
     ) -> Self {
         EvalContext {
             deal,
             variables,
             cache: RefCell::new(FxHashMap::default()),
-            volatile: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts,
         }
@@ -465,14 +468,80 @@ impl<'a> EvalContext<'a> {
 
 /// Extract variable references from a program (call once before the eval loop)
 /// Returns a FxHashMap mapping variable names to references to their expression trees
-pub fn extract_variables(program: &Program) -> FxHashMap<String, &Expr> {
-    let mut variables = FxHashMap::default();
+pub fn extract_variables(program: &Program) -> Variables<'_> {
+    let mut by_name = FxHashMap::default();
     for statement in &program.statements {
         if let Statement::Assignment { name, expr } = statement {
-            variables.insert(name.clone(), expr);
+            by_name.insert(name.clone(), expr);
         }
     }
-    variables
+    Variables::new(by_name)
+}
+
+/// A script's variables, and which of them cannot be cached for a deal.
+///
+/// The second answer is the reason this is a type rather than a map. Whether a
+/// variable can reach `rnd()` depends on the expression trees alone, and those
+/// do not change between deals — but it used to be worked out inside the
+/// per-deal context, so every deal walked the whole definition graph again,
+/// once per variable. On a scenario whose definitions build on one another
+/// that is quadratic and it dominated everything else: 200,000 deals took 9.2s
+/// against the original dealer's 0.46s, and the walk was almost all of it.
+///
+/// Worked out once here instead, when the script is read.
+pub struct Variables<'a> {
+    by_name: FxHashMap<String, &'a Expr>,
+    /// Names that must be recomputed at every mention.
+    ///
+    /// A set rather than a map of every name: the volatile ones are the rare
+    /// case — almost no script calls `rnd()` at all — so absence is the answer
+    /// for nearly every lookup.
+    volatile: std::collections::HashSet<String>,
+}
+
+impl<'a> Variables<'a> {
+    pub fn new(by_name: FxHashMap<String, &'a Expr>) -> Self {
+        // One memo across every variable, not one walk per variable: a name
+        // that twenty definitions build on is otherwise walked twenty times,
+        // which is quadratic in how deeply the script nests.
+        let mut known: FxHashMap<&str, bool> = FxHashMap::default();
+        let mut volatile = std::collections::HashSet::new();
+        for (name, expr) in &by_name {
+            let mut visiting = std::collections::HashSet::new();
+            if reaches_rnd_memo(expr, &by_name, &mut visiting, &mut known) {
+                volatile.insert(name.clone());
+            }
+        }
+        Variables { by_name, volatile }
+    }
+
+    /// The stored expression for `name`, with the key, so a cache can borrow it.
+    pub fn get_key_value(&self, name: &str) -> Option<(&String, &&'a Expr)> {
+        self.by_name.get_key_value(name)
+    }
+
+    /// Whether `name`'s value has to be worked out afresh at every mention.
+    pub fn is_volatile(&self, name: &str) -> bool {
+        self.volatile.contains(name)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_name.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_name.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &&'a Expr)> {
+        self.by_name.iter()
+    }
+}
+
+impl<'a> Default for Variables<'a> {
+    fn default() -> Self {
+        Variables::new(FxHashMap::default())
+    }
 }
 
 /// Build the count table a program defines, or `None` if it defines none.
@@ -523,7 +592,7 @@ pub fn extract_constraint(program: &Program) -> Option<&Expr> {
 /// extract_constraint() once before the loop, then call this for each deal.
 pub fn eval_with_context(
     constraint: &Expr,
-    variables: &FxHashMap<String, &Expr>,
+    variables: &Variables,
     deal: &Deal,
 ) -> Result<i32, EvalError> {
     eval_with_context_and_counts(constraint, variables, deal, None)
@@ -535,7 +604,7 @@ pub fn eval_with_context(
 /// statement, which is the case that has to stay fast.
 pub fn eval_with_context_and_counts(
     constraint: &Expr,
-    variables: &FxHashMap<String, &Expr>,
+    variables: &Variables,
     deal: &Deal,
     counts: Option<&PointCounts>,
 ) -> Result<i32, EvalError> {
@@ -585,7 +654,7 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
                     // Cache the computed value using the key reference (no clone!)
                     // — unless the variable can reach `rnd()`, whose whole point
                     // is to answer differently each time it is asked.
-                    if !ctx.is_volatile(key.as_str(), var_expr) {
+                    if !ctx.variables.is_volatile(key.as_str()) {
                         ctx.cache.borrow_mut().insert(key.as_str(), value);
                     }
                     Ok(value)
@@ -2766,13 +2835,10 @@ mod tests {
 
         for script in ["a = a\n", "a = b\nb = a\n", "a = b + 1\nb = a + rnd(4)\n"] {
             let program = parse_program(script).expect("should parse");
+            // Building the set is what walks every definition, so this is the
+            // assertion: that it returns at all.
             let variables = extract_variables(&program);
-            for (name, expr) in &variables {
-                let mut visiting = std::collections::HashSet::new();
-                // The assertion is that this returns at all.
-                let _ = reaches_rnd(expr, &variables, &mut visiting);
-                let _ = name;
-            }
+            let _ = variables.len();
         }
     }
 
