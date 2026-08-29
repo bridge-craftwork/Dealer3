@@ -22,12 +22,12 @@ use dealer_eval::{
     extract_variables, EvalContext,
 };
 use dealer_parser::vocabulary;
-use dealer_parser::{EsTerm, Expr, Statement, VulnerabilityType};
+use dealer_parser::{EsTerm, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability,
 };
+use dealer_run::{MeasureStop, RunAccumulator};
 use serde::Serialize;
-use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
 /// Upper bound on deals returned to the caller. A script may ask for tens of
@@ -341,26 +341,25 @@ pub fn generate(
                 let asked = measure_produce.min(affordable);
 
                 let started = now_ms();
-                let outcome =
-                    run_script(
-                        script,
-                        seed,
-                        asked,
-                        max_generate,
-                        format,
-                        false,
-                        false,
-                        &progress,
-                        // The first call is the probe; anything after it is
-                        // the real measurement, whose size the probe decided.
-                        if measured_passes.get() == 0 {
-                            Phase::Probe
-                        } else {
-                            Phase::Measuring
-                        },
-                        Some(measure_deadline),
-                    )
-                    .map_err(|e| error_text(&e))?;
+                let outcome = run_script(
+                    script,
+                    seed,
+                    asked,
+                    max_generate,
+                    format,
+                    false,
+                    false,
+                    &progress,
+                    // The first call is the probe; anything after it is
+                    // the real measurement, whose size the probe decided.
+                    if measured_passes.get() == 0 {
+                        Phase::Probe
+                    } else {
+                        Phase::Measuring
+                    },
+                    Some(measure_deadline),
+                )
+                .map_err(|e| error_text(&e))?;
                 let spent = (now_ms() - started).max(1.0);
                 measured_per_ms.set(outcome.produced as f64 / spent);
                 measure_ms.set(measure_ms.get() + spent);
@@ -385,20 +384,19 @@ pub fn generate(
             },
             // Producing: the deals the page will show, interleaved.
             |script| {
-                let outcome =
-                    run_script(
-                        script,
-                        seed,
-                        produce,
-                        max_generate,
-                        format,
-                        true,
-                        true,
-                        &progress,
-                        Phase::Dealing,
-                        None,
-                    )
-                    .map_err(|e| error_text(&e))?;
+                let outcome = run_script(
+                    script,
+                    seed,
+                    produce,
+                    max_generate,
+                    format,
+                    true,
+                    true,
+                    &progress,
+                    Phase::Dealing,
+                    None,
+                )
+                .map_err(|e| error_text(&e))?;
                 let measured = measurement(&outcome);
                 Ok((outcome, measured))
             },
@@ -597,7 +595,11 @@ fn error_text(error: &JsError) -> String {
     let value: wasm_bindgen::JsValue = error.clone().into();
     value
         .as_string()
-        .or_else(|| js_sys::Reflect::get(&value, &"message".into()).ok()?.as_string())
+        .or_else(|| {
+            js_sys::Reflect::get(&value, &"message".into())
+                .ok()?
+                .as_string()
+        })
         .unwrap_or_else(|| "the run failed".to_string())
 }
 
@@ -675,9 +677,8 @@ fn report_row(
     for term in terms {
         match term {
             CsvTerm::Expression(expr) => {
-                let value = eval(expr, ctx).map_err(|e| {
-                    JsError::new(&format!("printrpt evaluation error: {}", e))
-                })?;
+                let value = eval(expr, ctx)
+                    .map_err(|e| JsError::new(&format!("printrpt evaluation error: {}", e)))?;
                 parts.push(value.to_string());
             }
             CsvTerm::String(text) => parts.push(format!("'{}'", text)),
@@ -796,33 +797,27 @@ fn run_script(
     // which answers to the deal count they gave.
     deadline: Option<f64>,
 ) -> Result<RunOutcome, JsError> {
-
-    let preprocessed = dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
+    let preprocessed =
+        dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
     let program = dealer_parser::parse_program(&preprocessed)
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
 
-    // The script's categories of hand. A naming convention rather than syntax,
-    // so a script using it still parses on BBO.
-    let hand_type_names = dealer_level::hand_types(&program);
-    let hand_type_labels: Vec<String> = hand_type_names
-        .iter()
-        .map(|n| dealer_level::hand_type_label(n).to_string())
-        .collect();
-    let mut hand_type_counts = vec![0usize; hand_type_names.len()];
-
-    // What the keeps are computed from, which is the hand types unless the
-    // scenario declares `LevelType_` variables of its own. Counted separately,
-    // because the two decompositions are independent.
-    let level_type_names = dealer_level::level_types(&program);
-    let level_type_labels: Vec<String> = level_type_names
+    // Classification, counting and the `average`/`frequency` accumulation are
+    // `dealer-run`'s, shared with the command line — including which
+    // decomposition gets levelled (the `LevelType_` ones when the scenario
+    // declares any, the hand types otherwise) and how many `EvalContext`s a
+    // matching deal gets, which is what a `rnd()` in one draws against a
+    // `rnd()` in another.
+    let mut accumulator =
+        RunAccumulator::new(&program, MeasureStop::standard()).map_err(|e| JsError::new(&e))?;
+    // The labels, not the variable names: everything downstream — the keeps,
+    // the `{{level-mix}}` markers, the badge on a board — is written in terms
+    // of `12_14` rather than `HandType_12_14`.
+    let hand_type_labels: Vec<String> = accumulator.hand_type_labels().to_vec();
+    let level_type_labels: Vec<String> = dealer_level::level_types(&program)
         .iter()
         .map(|n| dealer_level::level_type_label(n).to_string())
         .collect();
-    let mut level_counts = vec![0usize; level_type_names.len()];
-    // `joint[hand type][level type]`, for working out what a hand type will
-    // deliver once the keeps are applied — which its own rate cannot say, the
-    // two decompositions being independent.
-    let mut joint = vec![vec![0usize; level_type_names.len()]; hand_type_names.len()];
     let mut deal_types: Vec<Option<String>> = Vec::new();
 
     let variables = extract_variables(&program);
@@ -831,15 +826,6 @@ fn run_script(
         .map_err(|e| JsError::new(&format!("Point count error: {}", e)))?;
     let point_counts = point_counts.as_ref();
 
-    // `average` and `frequency` accumulate over matching deals only, mirroring
-    // the CLI. Collected up front so the per-deal loop stays a tight walk.
-    let mut averages: Vec<(Option<String>, Expr, f64, usize)> = Vec::new();
-    let mut freqs: Vec<(
-        Option<String>,
-        Expr,
-        HashMap<i32, usize>,
-        Option<(i32, i32)>,
-    )> = Vec::new();
     let mut printes_specs: Vec<Vec<EsTerm>> = Vec::new();
     // `printrpt` writes to stdout, which here is the same Text view `printes`
     // reaches. `csvrpt` is not collected: that one writes a file, and a page
@@ -850,8 +836,6 @@ fn run_script(
             printrpt_specs.push(terms.clone());
         }
         if let Statement::Action {
-            averages: avg_specs,
-            frequencies: freq_specs,
             printes,
             print_hands,
             print_reports,
@@ -870,15 +854,8 @@ fn run_script(
                      available in the browser",
                 ));
             }
-            for a in avg_specs {
-                averages.push((a.label.clone(), a.expr.clone(), 0.0, 0));
-            }
-            for f in freq_specs {
-                freqs.push((f.label.clone(), f.expr.clone(), HashMap::new(), f.range));
-            }
         }
     }
-    let collecting_stats = !averages.is_empty() || !freqs.is_empty();
 
     // `dealer` and `vulnerable` statements do not affect which deals are
     // produced, only how they are labelled in PBN output.
@@ -966,20 +943,15 @@ fn run_script(
             continue;
         }
 
-        if collecting_stats {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for (_, expr, sum, count) in averages.iter_mut() {
-                let v = eval(expr, &ctx)
-                    .map_err(|e| JsError::new(&format!("Average evaluation error: {}", e)))?;
-                *sum += v as f64;
-                *count += 1;
-            }
-            for (_, expr, histogram, _) in freqs.iter_mut() {
-                let v = eval(expr, &ctx)
-                    .map_err(|e| JsError::new(&format!("Frequency evaluation error: {}", e)))?;
-                *histogram.entry(v).or_insert(0) += 1;
-            }
-        }
+        // The `average`s, the `frequency`s and both classifications, in the
+        // order and the contexts the command line uses them in. Two categories
+        // claiming one deal is refused here, not resolved: the types are meant
+        // to partition the deals, and a tag that silently picked the first
+        // would leave a set wrong about what it holds.
+        let matched_type = accumulator
+            .observe(&deal, &variables, point_counts)
+            .map_err(|e| JsError::new(&e.to_string()))?
+            .hand_type;
 
         // `printes` writes to a terminal in the CLI; here it is collected and
         // handed back for the page to show. Capped alongside the deals for the
@@ -1011,58 +983,6 @@ fn run_script(
             }
         }
 
-        // Which category of hand this is. Two matching is refused, as in the
-        // CLI: the types are meant to partition the deals, and a tag that
-        // silently picked the first would leave a set wrong about what it holds.
-        let mut matched_type: Option<usize> = None;
-        if !hand_type_names.is_empty() {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            for (i, name) in hand_type_names.iter().enumerate() {
-                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
-                    JsError::new(&format!("Hand type `{}` could not be evaluated: {}", name, e))
-                })?;
-                if value != 0 {
-                    if let Some(first) = matched_type {
-                        return Err(JsError::new(&format!(
-                            "A deal is both `{}` and `{}`. Hand types have to partition the \
-                             deals, so at most one may match.",
-                            hand_type_names[first], name
-                        )));
-                    }
-                    matched_type = Some(i);
-                }
-            }
-            if let Some(i) = matched_type {
-                hand_type_counts[i] += 1;
-            }
-        }
-
-        if !level_type_names.is_empty() {
-            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
-            let mut matched: Option<usize> = None;
-            for (i, name) in level_type_names.iter().enumerate() {
-                let value = eval(&Expr::Variable(name.to_string()), &ctx).map_err(|e| {
-                    JsError::new(&format!("Level type `{}` could not be evaluated: {}", name, e))
-                })?;
-                if value != 0 {
-                    if let Some(first) = matched {
-                        return Err(JsError::new(&format!(
-                            "A deal is both `{}` and `{}`. Level types have to partition the \
-                             deals, so at most one may match.",
-                            level_type_names[first], name
-                        )));
-                    }
-                    matched = Some(i);
-                }
-            }
-            if let Some(i) = matched {
-                level_counts[i] += 1;
-                if let Some(g) = matched_type {
-                    joint[g][i] += 1;
-                }
-            }
-        }
-
         // Deals are capped independently of `produced` so a large `produce` used
         // purely to gather statistics does not have to ship every deal to JS.
         if keep_deals && held.len() < MAX_RETURNED_DEALS {
@@ -1071,52 +991,43 @@ fn run_script(
         produced += 1;
     }
 
-    let averages = averages
+    // Taken before `finish` consumes the accumulator, which is what bins the
+    // frequencies.
+    let hand_type_counts = accumulator.hand_type_counts().to_vec();
+    let level_counts = if level_type_labels.is_empty() {
+        Vec::new()
+    } else {
+        accumulator.leveling_counts().to_vec()
+    };
+    let joint = accumulator.measurement(generated).joint;
+    let stats = accumulator.finish();
+
+    let averages = stats
+        .averages
         .into_iter()
-        .map(|(label, expr, sum, count)| AverageResult {
-            is_hand_type: dealer_level::mentions_hand_type(&expr),
-            label,
-            value: if count > 0 { sum / count as f64 } else { 0.0 },
-            count,
+        .map(|a| AverageResult {
+            is_hand_type: a.is_hand_type,
+            label: a.label,
+            value: a.value,
+            count: a.count,
         })
         .collect();
 
-    let frequencies = freqs
+    let frequencies = stats
+        .frequencies
         .into_iter()
-        .map(|(label, _, histogram, range)| {
-            let total: usize = histogram.values().sum();
-            let (lo, hi) = match range {
-                Some((lo, hi)) => (lo, hi),
-                None => (
-                    histogram.keys().copied().min().unwrap_or(0),
-                    histogram.keys().copied().max().unwrap_or(0),
-                ),
-            };
-            let bins = (lo..=hi)
-                .map(|value| FrequencyBin {
-                    value,
-                    count: histogram.get(&value).copied().unwrap_or(0),
-                })
-                .collect();
-            let below = histogram
-                .iter()
-                .filter(|(&k, _)| k < lo)
-                .map(|(_, &v)| v)
-                .sum();
-            let above = histogram
-                .iter()
-                .filter(|(&k, _)| k > hi)
-                .map(|(_, &v)| v)
-                .sum();
-            FrequencyResult {
-                label,
-                min: range.map(|(lo, _)| lo),
-                max: range.map(|(_, hi)| hi),
-                bins,
-                below,
-                above,
-                total,
-            }
+        .map(|f| FrequencyResult {
+            label: f.label,
+            min: f.min,
+            max: f.max,
+            bins: f
+                .bins
+                .into_iter()
+                .map(|(value, count)| FrequencyBin { value, count })
+                .collect(),
+            below: f.below,
+            above: f.above,
+            total: f.total,
         })
         .collect();
 
@@ -1159,9 +1070,6 @@ fn run_script(
         generated,
         averages,
         frequencies,
-        // The labels, not the variable names: everything downstream — the
-        // keeps, the `{{level-mix}}` markers, the badge on a board — is written
-        // in terms of `12_14` rather than `HandType_12_14`.
         hand_type_names: hand_type_labels.clone(),
         hand_type_counts,
         level_type_names: level_type_labels,
