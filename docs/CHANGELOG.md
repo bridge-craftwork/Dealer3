@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 ### Fixed
+- **The timing split read a stale measurement on the Leveled tab.** That run
+  measures nothing, but the page holds the previous levelling so the natural
+  bars survive it — and the split was taking `measuring` from that while the
+  total came from the run just done. It reported
+  `0.99 sec = 6.01 measuring + 0.00 dealing`, the 6.01 left over from the
+  levelling that produced the script. The split now comes from the run on the
+  clock, so a re-run shows a plain total and no split at all.
 - **Variables are classified once per script, not once per deal — a 15x
   speedup on scripts that build definitions on one another.** Whether a variable
   can reach `rnd()` decides whether its value may be cached for the deal. That

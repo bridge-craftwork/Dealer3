@@ -12,10 +12,10 @@
              twice — once to find out what it does, once to do it — and a
              single total makes the second look slow when most of the wait was
              the first. -->
-        <span v-if="leveling" :title="timingHint">
+        <span v-if="measuredThisRun" :title="timingHint">
           <strong>{{ result.seconds.toFixed(2) }}</strong> sec
           <span class="stats-split">
-            = {{ leveling.measure_seconds.toFixed(2) }} measuring
+            = {{ measuredThisRun.measure_seconds.toFixed(2) }} measuring
             + {{ producedSeconds.toFixed(2) }} dealing
           </span>
         </span>
@@ -227,13 +227,23 @@ const handTypes = computed(() => {
 
 const leveling = computed(() => props.leveling)
 
+/// The levelling *this* run did, which is not the one the bars are drawn from.
+///
+/// `leveling` is held by the page across runs, so the natural rates survive a
+/// re-run of the levelled scenario — that run measures nothing and would
+/// otherwise have no idea what "natural" meant. Timings cannot be held the same
+/// way: they belong to the run on the clock. Reading the held one gave
+/// `0.99 sec = 6.01 measuring + 0.00 dealing` on a Leveled-tab re-run, the 6.01
+/// being left over from the levelling that produced the script.
+const measuredThisRun = computed(() => props.result?.leveling || null)
+
 /// What the run itself cost, once the measuring pass is taken off.
 ///
 /// Subtracted rather than timed separately: the two together are the number on
 /// the clock, and a reader comparing this against a re-run of the levelled
 /// scenario on its own should find the second figure, not the total.
 const producedSeconds = computed(() =>
-  Math.max(0, (props.result?.seconds || 0) - (props.leveling?.measure_seconds || 0)),
+  Math.max(0, (props.result?.seconds || 0) - (measuredThisRun.value?.measure_seconds || 0)),
 )
 
 const timingHint = computed(
