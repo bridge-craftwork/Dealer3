@@ -26,7 +26,7 @@ use dealer_parser::{EsTerm, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability,
 };
-use dealer_run::{MeasureStop, RunAccumulator};
+use dealer_run::{MeasureStop, Retained, RunAccumulator};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -176,6 +176,9 @@ struct LevelingResult {
     /// Anything worth saying out loud that does not make the levelling wrong —
     /// a measurement thinner than the goal, above all.
     warnings: Vec<String>,
+    /// Deals dealt while characterizing, which is nearly all of a levelled
+    /// run's work and almost none of what it returns.
+    characterized: usize,
 }
 
 #[derive(Serialize)]
@@ -286,135 +289,97 @@ pub fn generate(
             .map_err(|e| JsError::new(&e))?
             .shares;
 
-        let opts = dealer_level::LevelOptions {
-            target: &weights,
-            budget: None,
+        // The scenario with a levelling block in it, which is what gets
+        // characterized: the same text the keeps will be written into, so the
+        // two cannot describe different scenarios.
+        let prepared = dealer_level::insert_leveling_block(script).map_err(|e| JsError::new(&e))?;
+        dealer_level::check_leveling_source(&prepared).map_err(|e| JsError::new(&e))?;
+
+        // What the characterizing pass may cost. A page blocks while it deals,
+        // so the clock is the real limit here rather than a deal count — the
+        // command line can spend a minute on a scenario the browser has to
+        // answer in seconds, and the same request would mean very different
+        // waits.
+        let characterizing_started = now_ms();
+        let characterized = run_script(
+            Run {
+                script: &prepared,
+                seed,
+                // Not a target: this pass stops when the rarest category is
+                // worth dividing by, or when the clock or the deal cap says so.
+                produce: usize::MAX,
+                max_generate,
+                format,
+                keep_deals: false,
+                interleave: false,
+                phase: Phase::Characterizing,
+                deadline: Some(characterizing_started + MEASURE_BUDGET_MS),
+                replay: &[],
+                retain: RETAIN_DEALS,
+                skip: 0,
+                until_measured: true,
+            },
+            &progress,
+        )?;
+        let measure_seconds = (now_ms() - characterizing_started) / 1000.0;
+
+        let measured = measurement(&characterized);
+        let natural_joint = joint_of(&characterized);
+        let leveled = dealer_level::level_from(
+            &prepared,
+            &measured,
+            &weights,
+            None,
             seed,
             // A browser has no patience for the command line's 500 sightings of
             // the rarest type, and refusing outright would teach nothing. The
             // count it managed comes back instead, so the page can say how well
             // the keeps are pinned down.
-            min_sample: MIN_BROWSER_SAMPLE,
-            probe_produce: PROBE_PRODUCE.min(max_generate),
-            measure_cap: max_generate,
-        };
-        // What the second pass may cost. A page blocks while it deals, so the
-        // clock is the real limit here rather than a deal count — the command
-        // line can spend a minute on a scenario the browser has to answer in
-        // seconds, and the same request would mean very different waits.
-        let measure_deadline = now_ms() + MEASURE_BUDGET_MS;
-        let measured_per_ms = std::cell::Cell::new(0.0f64);
-        // Reported apart from the run itself. Levelling deals a scenario twice
-        // — once to find out what it does, once to do it — and a single total
-        // makes the second look slow when most of the wait was the first.
-        let measure_ms = std::cell::Cell::new(0.0f64);
-        let measured_passes = std::cell::Cell::new(0u32);
-        let best_measured = std::cell::Cell::new(0usize);
-        // The bars are drawn per hand type, which is not what gets levelled
-        // when a scenario declares `LevelType_`. The levelling report knows
-        // only the levelling decomposition, so the presentation one is kept
-        // from the measuring pass here: this is what `natural` means.
-        let natural_groups: std::cell::RefCell<Vec<(String, f64)>> =
-            std::cell::RefCell::new(Vec::new());
-        // And how those hand types crossed the levelling categories, which is
-        // what says where the keeps will leave each of them. It has to be the
-        // *measuring* pass: the producing run has already had the keeps
-        // applied, so weighting it by them again counts them twice.
-        let natural_joint: std::cell::RefCell<Vec<Vec<usize>>> =
-            std::cell::RefCell::new(Vec::new());
-        let (run, report) = dealer_level::level_and_run(
-            script,
-            &opts,
-            // Measuring: counts only. These deals exist to be characterised and
-            // thrown away, so none of them is rendered.
-            |script, measure_produce| {
-                // Clamped to what the clock allows, judged from how fast the
-                // probe went. Returning fewer than asked for is expected: the
-                // levelling reads the counts that come back, not the request.
-                let left = (measure_deadline - now_ms()).max(0.0);
-                let rate = measured_per_ms.get();
-                let affordable = if rate > 0.0 {
-                    ((left * rate) as usize).max(1)
-                } else {
-                    measure_produce
-                };
-                let asked = measure_produce.min(affordable);
-
-                let started = now_ms();
-                let outcome = run_script(
-                    script,
-                    seed,
-                    asked,
-                    max_generate,
-                    format,
-                    false,
-                    false,
-                    &progress,
-                    // The first call is the probe; anything after it is
-                    // the real measurement, whose size the probe decided.
-                    if measured_passes.get() == 0 {
-                        Phase::Probe
-                    } else {
-                        Phase::Measuring
-                    },
-                    Some(measure_deadline),
-                )
-                .map_err(|e| error_text(&e))?;
-                let spent = (now_ms() - started).max(1.0);
-                measured_per_ms.set(outcome.produced as f64 / spent);
-                measure_ms.set(measure_ms.get() + spent);
-                measured_passes.set(measured_passes.get() + 1);
-
-                // Kept from whichever pass got furthest, matching the rule
-                // `level_and_run` uses for the counts themselves: a pass that
-                // ran out of clock measured less, not more, and its rates would
-                // otherwise overwrite the good ones — a single deal reads as
-                // one type at 100% and the rest at nothing.
-                if outcome.produced > best_measured.get() {
-                    best_measured.set(outcome.produced);
-                    *natural_joint.borrow_mut() = joint_of(&outcome);
-                    *natural_groups.borrow_mut() = outcome
-                        .hand_type_names
-                        .iter()
-                        .zip(&outcome.hand_type_counts)
-                        .map(|(n, c)| (n.clone(), *c as f64 / outcome.produced.max(1) as f64))
-                        .collect();
-                }
-                Ok(measurement(&outcome))
-            },
-            // Producing: the deals the page will show, interleaved.
-            |script| {
-                let outcome = run_script(
-                    script,
-                    seed,
-                    produce,
-                    max_generate,
-                    format,
-                    true,
-                    true,
-                    &progress,
-                    Phase::Dealing,
-                    None,
-                )
-                .map_err(|e| error_text(&e))?;
-                let measured = measurement(&outcome);
-                Ok((outcome, measured))
-            },
+            MIN_BROWSER_SAMPLE,
         )
         .map_err(|e| JsError::new(&e))?;
 
-        let rarest = report
+        // The deals the page will show. A levelled scenario is the one just
+        // characterized with the keeps added, so every deal it can produce is
+        // one that pass already dealt — they are re-run from their seeds rather
+        // than dealt again, and only a run that wants more than was kept deals
+        // anything itself.
+        let run = run_script(
+            Run {
+                script: &leveled.script,
+                seed,
+                produce,
+                // What the characterizing pass did not spend. Both passes walk
+                // the same stream, so one budget covers the run.
+                max_generate: max_generate.saturating_sub(characterized.generated),
+                format,
+                keep_deals: true,
+                interleave: true,
+                phase: Phase::AdditionalDealing,
+                deadline: None,
+                replay: characterized.retained.seeds(),
+                retain: 0,
+                skip: characterized.retained.through(),
+                until_measured: false,
+            },
+            &progress,
+        )?;
+
+        let rarest = leveled
             .plans
             .iter()
             .min_by(|a, b| a.natural.total_cmp(&b.natural));
         // Per hand type, always: that is what the deals are grouped by and what
         // the reader recognises. Where the two decompositions are the same the
-        // report already says this; where they differ, `planned` comes from how
+        // plans already say this; where they differ, `planned` comes from how
         // each hand type's deals crossed the levelling categories.
-        let natural = natural_groups.borrow();
+        //
+        // It has to be the *characterizing* pass: the producing run has already
+        // had the keeps applied, so weighting it by them again counts them
+        // twice.
         let planned = dealer_level::group_mix(
-            &natural_joint.borrow(),
-            &report.plans.iter().map(|p| p.keep).collect::<Vec<_>>(),
+            &natural_joint,
+            &leveled.plans.iter().map(|p| p.keep).collect::<Vec<_>>(),
         );
         let shares: Vec<HandTypeShare> = run
             .hand_type_names
@@ -423,10 +388,14 @@ pub fn generate(
             .enumerate()
             .map(|(i, (name, count))| HandTypeShare {
                 name: name.clone(),
-                natural: natural
+                natural: characterized
+                    .hand_type_names
                     .iter()
-                    .find(|(n, _)| n == name)
-                    .map(|(_, v)| *v)
+                    .position(|n| n == name)
+                    .map(|j| {
+                        characterized.hand_type_counts[j] as f64
+                            / characterized.produced.max(1) as f64
+                    })
                     .unwrap_or(0.0),
                 planned: planned.get(i).copied().unwrap_or(0.0),
                 delivered: *count as f64 / run.produced.max(1) as f64,
@@ -436,30 +405,45 @@ pub fn generate(
             .collect();
 
         let leveling = LevelingResult {
-            script: report.script,
+            script: leveled.script,
             shares,
-            exactness: report.lambda,
-            acceptance: report.acceptance,
-            cost: report.cost,
-            measured: report.measured,
+            exactness: leveled.lambda,
+            acceptance: leveled.acceptance,
+            cost: 1.0 / (leveled.base_rate * leveled.acceptance),
+            measured: characterized.produced,
             rarest: rarest.map(|p| p.name.clone()).unwrap_or_default(),
             rarest_seen: rarest.map(|p| p.seen).unwrap_or(0),
-            measure_seconds: measure_ms.get() / 1000.0,
-            warnings: report.warnings.clone(),
+            measure_seconds,
+            warnings: leveled.warnings.clone(),
+            characterized: characterized.generated,
+        };
+        // Both passes dealt from the one budget, so the count the page shows is
+        // both of them. Reporting only the second said 1,701 where the run had
+        // dealt 50,000 — and said it next to "levelled over 52,771 measured
+        // deals", which is the same deals counted honestly.
+        let run = RunOutcome {
+            generated: characterized.generated + run.generated,
+            ..run
         };
         (run, Some(leveling))
     } else {
         let run = run_script(
-            script,
-            seed,
-            produce,
-            max_generate,
-            format,
-            true,
-            false,
+            Run {
+                script,
+                seed,
+                produce,
+                max_generate,
+                format,
+                keep_deals: true,
+                interleave: false,
+                phase: Phase::Dealing,
+                deadline: None,
+                replay: &[],
+                retain: 0,
+                skip: 0,
+                until_measured: false,
+            },
             &progress,
-            Phase::Dealing,
-            None,
         )?;
         (run, None)
     };
@@ -514,24 +498,27 @@ struct Progress {
 
 /// Which pass a report belongs to.
 ///
-/// A levelled run deals the scenario up to three times, and without this the
-/// one bar would appear to finish and start over.
-#[derive(Clone, Copy)]
+/// A levelled run deals the scenario twice, and without this the one bar would
+/// appear to finish and start over.
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Phase {
-    /// Finding out how rare the rarest hand type is.
-    Probe,
-    /// Measuring it properly, now that we know how much that takes.
-    Measuring,
-    /// Producing the deals that were actually asked for.
+    /// Working out what the scenario does — how often each category comes up —
+    /// which is what the keeps are computed from.
+    Characterizing,
+    /// Producing the deals that were asked for, in a run that was not levelled.
     Dealing,
+    /// The same, for a levelled run: whatever the characterizing pass did not
+    /// already deal. Usually nothing, since a levelled run is a filter over
+    /// deals that pass has seen.
+    AdditionalDealing,
 }
 
 impl Phase {
     fn name(self) -> &'static str {
         match self {
-            Phase::Probe => "probe",
-            Phase::Measuring => "measuring",
+            Phase::Characterizing => "characterizing",
             Phase::Dealing => "dealing",
+            Phase::AdditionalDealing => "additional dealing",
         }
     }
 }
@@ -571,9 +558,17 @@ impl Progress {
     }
 }
 
-const PROBE_PRODUCE: usize = 10_000;
+/// How many of the characterizing pass's deals to keep, by seed, for the
+/// producing pass to replay.
+///
+/// Eight bytes each, so this is 8 MB at the very worst and typically a tenth of
+/// that — a characterizing pass produces a hundred thousand or so before its
+/// rarest category is pinned down. Set high enough that the producing pass
+/// almost never has to deal anything itself; when it does, it simply does, and
+/// the answer is the same either way.
+const RETAIN_DEALS: usize = 1_000_000;
 
-/// How long the browser will go on measuring after the probe.
+/// How long the browser will go on characterizing a scenario.
 ///
 /// A page blocks while it deals, so this is a clock rather than a deal count —
 /// which is also what lets one number serve every scenario. Falling short of
@@ -588,20 +583,6 @@ const MEASURE_BUDGET_MS: f64 = 6_000.0;
 /// teach nothing, so it goes ahead from 50 and says how well the keeps are
 /// pinned down.
 const MIN_BROWSER_SAMPLE: usize = 50;
-
-/// A `JsError` has no readable message on the Rust side, so errors crossing
-/// into the engine's closures carry their text instead.
-fn error_text(error: &JsError) -> String {
-    let value: wasm_bindgen::JsValue = error.clone().into();
-    value
-        .as_string()
-        .or_else(|| {
-            js_sys::Reflect::get(&value, &"message".into())
-                .ok()?
-                .as_string()
-        })
-        .unwrap_or_else(|| "the run failed".to_string())
-}
 
 /// The counts a levelling needs, taken from a run.
 /// Where a name is first used, so an undefined-name report can point at it.
@@ -774,29 +755,69 @@ struct RunOutcome {
     level_counts: Vec<usize>,
     /// `joint[hand type][level type]` counts, empty unless the two differ.
     joint: Vec<Vec<usize>>,
+    /// The seeds of matching deals, for a later pass to replay. Empty unless
+    /// the run was asked to keep them.
+    retained: Retained,
 }
 
-/// Run a script once.
+/// One pass over the deals.
 ///
-/// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
-/// filter must not be able to hang it.
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
-fn run_script(
-    script: &str,
+/// A struct rather than a parameter list: a levelled run needs the same walk
+/// with four things varied, and eleven positional arguments had already stopped
+/// being readable at the call site.
+struct Run<'a> {
+    script: &'a str,
     seed: u32,
+    /// Deals to produce. `usize::MAX` for a characterizing pass, which stops on
+    /// [`Run::until_measured`] instead.
     produce: usize,
+    /// Deals to *deal*, which bounds a browser tab that has no Ctrl-C. Replayed
+    /// deals do not count against it: they were dealt, and counted, already.
     max_generate: usize,
     format: Format,
     keep_deals: bool,
     interleave: bool,
-    progress: &Progress,
     phase: Phase,
-    // When to stop regardless of what has been produced. Set for the measuring
-    // passes, which answer to a clock; `None` for the run the reader asked for,
-    // which answers to the deal count they gave.
+    /// When to stop regardless of what has been produced. Set for the
+    /// characterizing pass, which answers to a clock; `None` for the run the
+    /// reader asked for, which answers to the deal count they gave.
     deadline: Option<f64>,
-) -> Result<RunOutcome, JsError> {
+    /// Deals to re-examine before dealing any new ones, by their seeds.
+    ///
+    /// A levelled scenario is the characterizing pass's scenario with the keeps
+    /// added, so every deal it can produce is one that pass already found. Those
+    /// deals are therefore re-run here rather than dealt again — the same deals,
+    /// since a deal is a pure function of its seed, and the whole levelled
+    /// condition is evaluated over them so a scenario whose own condition calls
+    /// `rnd()` gets the draws it would have got.
+    replay: &'a [u64],
+    /// How many matching deals' seeds to keep, for a later pass to replay.
+    retain: usize,
+    /// Deals the replayed seeds already account for, skipped before dealing
+    /// anything new. Without it a pass whose replay ran out would start again
+    /// at the first deal and produce every replayed deal a second time.
+    skip: usize,
+    /// Stop as soon as the levelling decomposition is sampled well enough to
+    /// divide by — the only thing a characterizing pass is for.
+    until_measured: bool,
+}
+
+fn run_script(run: Run, progress: &Progress) -> Result<RunOutcome, JsError> {
+    let Run {
+        script,
+        seed,
+        produce,
+        max_generate,
+        format,
+        keep_deals,
+        interleave,
+        phase,
+        deadline,
+        replay,
+        retain,
+        skip,
+        until_measured,
+    } = run;
     let preprocessed =
         dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
     let program = dealer_parser::parse_program(&preprocessed)
@@ -915,18 +936,68 @@ fn run_script(
     let mut printes_output = String::new();
     let mut generated = 0usize;
     let mut produced = 0usize;
+    let mut retained = Retained::new(retain);
+    // Deals looked at, replayed and dealt alike, so the clock is read at a
+    // steady rate whichever they are.
+    let mut examined = 0usize;
+    let mut replayed = 0usize;
+    // How far the generator has been wound on, replayed deals included.
+    let mut stepped = 0usize;
 
-    while produced < produce && generated < max_generate {
-        let deal = generator.next_deal();
-        generated += 1;
-        progress.report(phase, produced, generated, produce, false);
+    loop {
+        if produced >= produce {
+            break;
+        }
+        // Whatever the characterizing pass kept, before anything new. These
+        // deals cost a shuffle rather than a shuffle and a rejected condition,
+        // and there are typically far more of them than a run needs.
+        let deal_seed = if replayed < replay.len() {
+            let seed = replay[replayed];
+            replayed += 1;
+            seed
+        } else {
+            // The replayed deals' share of the stream, stepped past the first
+            // time a deal has to be dealt rather than replayed. A seed is one
+            // step of the generator with no shuffle behind it, so skipping a
+            // million costs less than dealing one.
+            while stepped < skip {
+                generator.next_seed();
+                stepped += 1;
+            }
+            if generated >= max_generate {
+                break;
+            }
+            generated += 1;
+            stepped += 1;
+            generator.next_seed()
+        };
+        let deal = if generator.has_predeal() {
+            dealer_core::generate_deal_from_seed(deal_seed, generator.config())
+        } else {
+            dealer_core::generate_deal_from_seed_no_predeal(deal_seed)
+        };
+        examined += 1;
+        // A characterizing pass is as far along as its scarcest category says,
+        // so that is what it reports against — a bar that means something,
+        // rather than a count with no denominator.
+        if until_measured {
+            progress.report(
+                phase,
+                accumulator.rarest_measured(),
+                generated,
+                dealer_level::MEASURE_GOAL,
+                false,
+            );
+        } else {
+            progress.report(phase, produced, generated, produce, false);
+        }
 
         // Checked here because the clock is already being read for the report
         // above, and every few thousand deals rather than every one because a
         // selective condition rejects most of them without a `now_ms()` of its
         // own being worth it.
         if let Some(deadline) = deadline {
-            if generated % 4096 == 0 && now_ms() >= deadline {
+            if examined.is_multiple_of(4096) && now_ms() >= deadline {
                 break;
             }
         }
@@ -952,6 +1023,7 @@ fn run_script(
             .observe(&deal, &variables, point_counts)
             .map_err(|e| JsError::new(&e.to_string()))?
             .hand_type;
+        retained.offer(deal_seed, generated);
 
         // `printes` writes to a terminal in the CLI; here it is collected and
         // handed back for the page to show. Capped alongside the deals for the
@@ -989,6 +1061,29 @@ fn run_script(
             held.push((matched_type, deal.clone()));
         }
         produced += 1;
+
+        // Every category seen enough times to divide by, which is the whole of
+        // what a characterizing pass is for. Checked after the deal that
+        // finished the job rather than before the next one, so the pass ends on
+        // the same deal however it was reached.
+        if until_measured && accumulator.measure_satisfied() {
+            break;
+        }
+    }
+
+    // Forced, so a bar reaches its own total. The throttle otherwise leaves the
+    // last hundred milliseconds of a phase unreported, and a bar frozen at 76%
+    // as the next one starts reads as something having gone wrong.
+    if until_measured {
+        progress.report(
+            phase,
+            accumulator.rarest_measured(),
+            generated,
+            dealer_level::MEASURE_GOAL,
+            true,
+        );
+    } else {
+        progress.report(phase, produced, generated, produce, true);
     }
 
     // Taken before `finish` consumes the accumulator, which is what bins the
@@ -1056,12 +1151,8 @@ fn run_script(
         deal_types.push(label.map(str::to_string));
     }
 
-    // Forced, so a bar reaches its own total. The throttle otherwise leaves the
-    // last hundred milliseconds of a phase unreported, and a bar frozen at 76%
-    // as the next one starts reads as something having gone wrong.
-    progress.report(phase, produced, generated, produce, true);
-
     Ok(RunOutcome {
+        retained,
         hit_limit: produced < produce && generated >= max_generate,
         printes: printes_output,
         produced,

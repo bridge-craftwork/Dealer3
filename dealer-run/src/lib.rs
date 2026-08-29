@@ -368,6 +368,15 @@ impl<'a> RunAccumulator<'a> {
         self.stop.satisfied(&self.leveling_counts)
     }
 
+    /// How many times the rarest levelling category has been seen.
+    ///
+    /// What the precision of a levelling rests on, and so the honest measure of
+    /// how far a characterizing pass has got: a run that has produced a million
+    /// deals is no further along than its scarcest category says it is.
+    pub fn rarest_measured(&self) -> usize {
+        self.leveling_counts.iter().copied().min().unwrap_or(0)
+    }
+
     /// Deals observed, which is the run's produced count.
     pub fn produced(&self) -> usize {
         self.produced
@@ -467,6 +476,75 @@ impl<'a> RunAccumulator<'a> {
             averages,
             frequencies,
         }
+    }
+}
+
+/// Deals kept from a characterizing pass, by the seed that makes them.
+///
+/// Eight bytes each, and no allocation: a deal is a pure function of one `u64`
+/// (`dealer_core::generate_deal_from_seed`), so keeping the seed keeps the deal
+/// and regenerating it needs no replay of the stream. Keeping the `Deal` itself
+/// would be four heap allocations apiece — about 25 MB for a hundred thousand
+/// of them, against 800 KB here.
+///
+/// Bounded, and deliberately so. The point of keeping them is that a levelled
+/// run is a filter over what the characterizing pass already dealt, so those
+/// deals need not be dealt again. If the bound cuts the set short the producing
+/// pass simply deals the rest itself. **The budget can never make a result
+/// wrong, only fail to save time** — which is what makes it a number worth
+/// tuning later rather than getting right first.
+///
+/// That last promise is what [`Retained::through`] is for, and it is not free.
+/// The seeds alone say which deals were kept, not where they sat in the stream,
+/// and a pass that resumed by starting a fresh generator would deal the replayed
+/// deals a second time — the same deals, produced twice. So the position of the
+/// last kept seed travels with them: everything up to it was examined and every
+/// match in it was kept, so the next pass may begin immediately after.
+#[derive(Debug, Default)]
+pub struct Retained {
+    seeds: Vec<u64>,
+    budget: usize,
+    through: usize,
+}
+
+impl Retained {
+    /// Keep at most `budget` seeds. Zero keeps none.
+    pub fn new(budget: usize) -> Self {
+        Retained {
+            seeds: Vec::new(),
+            budget,
+            through: 0,
+        }
+    }
+
+    /// Offer a matching deal's seed, kept if there is room.
+    ///
+    /// `position` is how many deals the generator had drawn, this one included.
+    pub fn offer(&mut self, seed: u64, position: usize) {
+        if self.seeds.len() < self.budget {
+            self.seeds.push(seed);
+            self.through = position;
+        }
+    }
+
+    /// The seeds, in the order the deals came.
+    pub fn seeds(&self) -> &[u64] {
+        &self.seeds
+    }
+
+    /// How far into the stream these seeds account for.
+    ///
+    /// Every deal up to here was examined and every match among them kept, so a
+    /// pass replaying [`Retained::seeds`] has covered exactly this much and must
+    /// draw its next deal from `through + 1` — not from the start, which would
+    /// produce the replayed deals all over again.
+    pub fn through(&self) -> usize {
+        self.through
+    }
+
+    /// Whether the budget stopped it keeping everything it was offered.
+    pub fn full(&self) -> bool {
+        self.seeds.len() >= self.budget
     }
 }
 
@@ -726,6 +804,38 @@ action printall,
             freq.below > 0 && freq.above > 0,
             "10..16 leaves both tails out"
         );
+    }
+
+    /// The invariant the replay rests on.
+    ///
+    /// Seeds alone say which deals were kept, not where they sat in the stream.
+    /// A pass that replayed them and then started a fresh generator would deal
+    /// the replayed deals over again — the bug this field exists to prevent,
+    /// and one that hides completely at a budget large enough never to bind.
+    #[test]
+    fn retained_seeds_say_how_far_into_the_stream_they_reach() {
+        let mut kept = Retained::new(3);
+        // Matches at stream positions 5, 11 and 40, then one it has no room for.
+        for (seed, position) in [(0xAA, 5), (0xBB, 11), (0xCC, 40), (0xDD, 77)] {
+            kept.offer(seed, position);
+        }
+        assert_eq!(kept.seeds(), [0xAA, 0xBB, 0xCC]);
+        assert!(kept.full());
+        assert_eq!(
+            kept.through(),
+            40,
+            "the position of the last seed kept, not of the last one offered — \
+             resuming at 77 would skip the deals between"
+        );
+    }
+
+    #[test]
+    fn keeping_nothing_reaches_nowhere() {
+        let mut kept = Retained::new(0);
+        kept.offer(1, 9);
+        assert!(kept.seeds().is_empty());
+        assert!(kept.full(), "a budget of nothing is full from the start");
+        assert_eq!(kept.through(), 0, "so a later pass must start from the top");
     }
 
     /// The boundary that keeps `rnd()` compatible with the original.
