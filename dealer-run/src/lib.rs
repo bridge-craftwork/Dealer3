@@ -115,6 +115,21 @@ pub enum RunError {
         what: String,
         message: String,
     },
+    /// Anything else that stopped a run: a script that would not parse, a
+    /// levelling that could not be worked out, a caller's own refusal.
+    Failed(String),
+}
+
+impl From<String> for RunError {
+    fn from(message: String) -> Self {
+        RunError::Failed(message)
+    }
+}
+
+impl From<&str> for RunError {
+    fn from(message: &str) -> Self {
+        RunError::Failed(message.to_string())
+    }
 }
 
 impl RunError {
@@ -122,7 +137,7 @@ impl RunError {
     pub fn deal(&self) -> Option<&Deal> {
         match self {
             RunError::Overlap { deal, .. } => Some(deal),
-            RunError::Eval { .. } => None,
+            RunError::Eval { .. } | RunError::Failed(_) => None,
         }
     }
 }
@@ -142,6 +157,7 @@ impl std::fmt::Display for RunError {
                 first, second, kind
             ),
             RunError::Eval { what, message } => write!(f, "{}: {}", what, message),
+            RunError::Failed(message) => write!(f, "{}", message),
         }
     }
 }

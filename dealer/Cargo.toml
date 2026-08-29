@@ -8,12 +8,13 @@ license = "Unlicense"
 dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-level = { path = "../dealer-level" }
-dealer-run = { path = "../dealer-run" }
+# `parallel` is what `-R`/`--threads` drives. A terminal has threads to spawn;
+# a browser does not yet, which is why the engine keeps it behind a feature.
+dealer-run = { path = "../dealer-run", features = ["parallel"] }
 dealer-eval = { path = "../dealer-eval" }
 dealer-pbn = { path = "../dealer-pbn" }
 bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }
 clap = { version = "4.5", features = ["derive"] }
-rayon = "1.10"
 
 [dev-dependencies]
 # Only the tests parse JSON. The binary writes it by hand rather than taking

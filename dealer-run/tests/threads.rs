@@ -39,6 +39,7 @@ fn deal(threads: usize, count: usize) -> (f64, usize) {
             leveling: None,
             threads,
             batch: 0,
+            params: Default::default(),
         },
         &mut Sink,
     )

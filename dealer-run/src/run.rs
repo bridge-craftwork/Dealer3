@@ -96,6 +96,11 @@ pub struct RunOptions {
     /// Deals to work on at a time. 0 sizes it from `threads`. Larger amortises
     /// the hand-off; smaller answers a clock sooner.
     pub batch: usize,
+    /// What `$1` and friends stand for, from the command line's `--param`.
+    /// Applied here rather than by the caller because a levelled run
+    /// preprocesses twice — the scenario, then its levelled copy — and a script
+    /// half-substituted the second time would not parse.
+    pub params: dealer_parser::ScriptParams,
 }
 
 /// What levelling a scenario needs to know.
@@ -598,6 +603,7 @@ struct Pass {
 /// Everything one pass varies.
 struct PassOptions<'a> {
     phase: Phase,
+    params: &'a dealer_parser::ScriptParams,
     /// Threads to deal and test on, and how many deals to hand them at a time.
     threads: usize,
     batch: usize,
@@ -623,8 +629,8 @@ fn run_pass(
     source: &mut Source,
     host: &mut dyn RunHost,
     opts: PassOptions,
-) -> Result<Pass, String> {
-    let preprocessed = dealer_parser::preprocess_all(script, &Default::default())?;
+) -> Result<Pass, RunError> {
+    let preprocessed = dealer_parser::preprocess_all(script, opts.params)?;
     let program =
         dealer_parser::parse_program(&preprocessed).map_err(|e| format!("Parse error: {}", e))?;
     let variables = dealer_eval::extract_variables(&program);
@@ -709,8 +715,7 @@ fn run_pass(
                 continue;
             }
             let hand_type = accumulator
-                .observe(deal, &variables, point_counts)
-                .map_err(|e: RunError| e.to_string())?
+                .observe(deal, &variables, point_counts)?
                 .hand_type;
             if from_stream {
                 retained.offer(handles[index], batch_end - (built.len() - 1 - index));
@@ -722,7 +727,8 @@ fn run_pass(
                     variables: &variables,
                     point_counts,
                     reports: &reports,
-                })?;
+                })
+                .map_err(RunError::Failed)?;
             }
             produced += 1;
             // Every category seen enough times to divide by, which is the whole
@@ -796,7 +802,7 @@ fn run_pass(
 ///
 /// With `produce` at zero nothing is dealt from the levelling, which is what a
 /// caller writing the scenario out and stopping there wants.
-pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<RunReport, String> {
+pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<RunReport, RunError> {
     let threads = resolve_threads(opts.threads);
     // Enough work per hand-off that the hand-off is not the expensive part, and
     // little enough that a caller answering to a clock is asked often.
@@ -816,6 +822,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             host,
             PassOptions {
                 phase: Phase::Dealing,
+                params: &opts.params,
                 threads,
                 batch,
                 produce: opts.produce,
@@ -849,6 +856,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         host,
         PassOptions {
             phase: Phase::Characterizing,
+            params: &opts.params,
             threads,
             batch,
             produce: leveling.measure_cap,
@@ -864,11 +872,9 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         },
     )?;
 
-    let program = dealer_parser::parse_program(&dealer_parser::preprocess_all(
-        &prepared,
-        &Default::default(),
-    )?)
-    .map_err(|e| format!("Parse error: {}", e))?;
+    let program =
+        dealer_parser::parse_program(&dealer_parser::preprocess_all(&prepared, &opts.params)?)
+            .map_err(|e| format!("Parse error: {}", e))?;
     let weights = match leveling.target {
         Some(ref target) => target.clone(),
         None => dealer_level::leveling_types(&program)?.shares,
@@ -895,6 +901,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             host,
             PassOptions {
                 phase: Phase::AdditionalDealing,
+                params: &opts.params,
                 threads,
                 batch,
                 produce: opts.produce,
@@ -1003,6 +1010,7 @@ condition 1
             },
             threads: 1,
             batch: 0,
+            params: Default::default(),
             leveling: leveling.then_some(LevelingOptions {
                 target: None,
                 budget: None,

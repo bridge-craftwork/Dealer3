@@ -388,6 +388,7 @@ pub fn generate(
             // already set; the build is not.
             threads: 1,
             batch: 0,
+            params: Default::default(),
             leveling: auto_level.then_some(LevelingOptions {
                 // The target mix comes out of the script, exactly as it does on
                 // the command line: `HandType_22_24_Share = 3` and nothing
@@ -406,7 +407,7 @@ pub fn generate(
         },
         &mut page,
     )
-    .map_err(|e| JsError::new(&e))?;
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     // Interleaved, a set walks through the categories rather than meeting them
     // as they fall. Numbered by where they land, so a reader that sorts on the
