@@ -35,7 +35,7 @@ for the same predealt deal.
 
 <!-- BEGIN GENERATED: functions -->
 
-**25 functions**, under 49 spellings — the extra 24 are alternative names, listed with the function they stand for.
+**25 functions**, under 50 spellings — the extra 25 are alternative names, listed with the function they stand for.
 
 ### Hand evaluation
 
@@ -110,6 +110,8 @@ for the same predealt deal.
 |---|---|---|
 | `tricks(compass, strain)` | Tricks that compass takes as declarer in that strain with every hand seen — the double-dummy result. Strain is a suit name, or a number: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. | `tricks(south, spades) >= 10` |
 | | Notrump is `notrump`, `notrumps`, or the number 4 — the original's spelling and dealer3's number are the same value. Solving a deal is far slower than any other function here, so a script using `tricks` wants a tight `condition` ahead of it. | |
+| `dds(compass, strain)` | Another spelling of `tricks` | `dds(south, notrump) >= 9` |
+| | There it reaches the DDS library where `tricks` reaches GIB's solver; dealer3 solves everything through bridge-solver, so the two are one function with two names. Ten of DealerV2_4's regression scripts use it. | |
 | `trick(compass, strain)` | Another spelling of `tricks` | `trick(south, spades) >= 10` |
 | `imp(scoredifference)` | Another spelling of `imps` | `imp(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
 | `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
@@ -168,6 +170,7 @@ Tightest binding first. Operators sharing a level are applied left to right.
 | `seed <number>` | Fixes the random seed, so the run reproduces. `-s` wins when both are given. | `seed 42` |
 | `predeal <compass> <holding>, <holding>, ... [<compass> <holding>, ...]` | Places cards in a hand before shuffling; the rest of the deal is dealt around them. A holding is a suit letter followed by its ranks, using T for the ten. One statement may name several seats: the holdings of a seat are separated by commas and the seats are not. | `predeal north SAKQ,HT98 south SJ32` |
 | `csvrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal. A term is an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, or the word `deal` for all four. | `csvrpt(deal, hcp(north), "north")` |
+| `printrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal to the screen. The terms are `csvrpt`'s: an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, or the word `deal` for all four. | `printrpt("deal ", deal, hcp(south))` |
 | `<name> = <expression>` | Names an expression so a long condition can be written in pieces. The name stands for the expression and is worked out afresh for every deal. | `fit = spades(north) + spades(south)` |
 | `<expression>` | An expression on its own is the condition, so the `condition` keyword can be left off. | `hcp(north) >= 20` |
 

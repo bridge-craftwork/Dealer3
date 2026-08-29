@@ -22,12 +22,16 @@ fn deals() -> Vec<Deal> {
 
 /// How many deals to compare a pair of spellings on.
 ///
-/// Forty for everything cheap. `tricks` costs a double-dummy search per deal,
-/// which is milliseconds where the rest are microseconds, and a spelling either
-/// reaches the same function or it does not — so a handful of deals settles it
-/// just as well as forty.
-fn deals_to_compare(name: &str) -> usize {
-    if name.contains("trick") {
+/// Forty for everything cheap. A double-dummy search costs milliseconds where
+/// the rest cost microseconds, and a spelling either reaches the same function
+/// or it does not — so a handful of deals settles it just as well as forty.
+///
+/// Judged by what the spelling resolves to rather than by how it is spelt:
+/// `dds` is `tricks` and costs exactly as much, but says nothing about tricks
+/// in its name.
+fn deals_to_compare(name: &str, alias_of: &str) -> usize {
+    let expensive = ["tricks", "score", "imps"];
+    if expensive.contains(&alias_of) || expensive.contains(&name) {
         4
     } else {
         40
@@ -58,7 +62,11 @@ fn every_alias_computes_what_its_counterpart_computes() {
             doc.name, target
         );
 
-        for (i, deal) in deals.iter().take(deals_to_compare(doc.name)).enumerate() {
+        for (i, deal) in deals
+            .iter()
+            .take(deals_to_compare(doc.name, target))
+            .enumerate()
+        {
             assert_eq!(
                 evaluate(&alias_script, deal),
                 evaluate(&target_script, deal),

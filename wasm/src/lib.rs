@@ -23,7 +23,9 @@ use dealer_eval::{
 };
 use dealer_parser::vocabulary;
 use dealer_parser::{EsTerm, Expr, Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability};
+use dealer_pbn::{
+    format_hand_pbn, format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability,
+};
 use serde::Serialize;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -587,6 +589,52 @@ fn error_text(error: &JsError) -> String {
 }
 
 /// The counts a levelling needs, taken from a run.
+/// One `printrpt` row, without its leading space.
+///
+/// The same shape the command line writes for `csvrpt` and `printrpt`: strings
+/// in single quotes, hands in PBN notation, everything else an integer, commas
+/// between. Kept in step with the CLI's `report_row` by
+/// `dealer/tests/print_report.rs`, which compares the two.
+fn report_row(
+    terms: &[dealer_parser::CsvTerm],
+    deal: &Deal,
+    ctx: &EvalContext,
+) -> Result<String, JsError> {
+    use dealer_parser::{CsvTerm, Side};
+    let mut parts: Vec<String> = Vec::new();
+    for term in terms {
+        match term {
+            CsvTerm::Expression(expr) => {
+                let value = eval(expr, ctx).map_err(|e| {
+                    JsError::new(&format!("printrpt evaluation error: {}", e))
+                })?;
+                parts.push(value.to_string());
+            }
+            CsvTerm::String(text) => parts.push(format!("'{}'", text)),
+            CsvTerm::Compass(pos) => parts.push(format_hand_pbn(deal.hand(*pos))),
+            CsvTerm::Side(side) => {
+                let (a, b) = match side {
+                    Side::NS => (Position::North, Position::South),
+                    Side::EW => (Position::East, Position::West),
+                };
+                parts.push(format!(
+                    "{} {}",
+                    format_hand_pbn(deal.hand(a)),
+                    format_hand_pbn(deal.hand(b))
+                ));
+            }
+            CsvTerm::Deal => parts.push(format!(
+                "{} {} {} {}",
+                format_hand_pbn(deal.hand(Position::North)),
+                format_hand_pbn(deal.hand(Position::East)),
+                format_hand_pbn(deal.hand(Position::South)),
+                format_hand_pbn(deal.hand(Position::West))
+            )),
+        }
+    }
+    Ok(parts.join(","))
+}
+
 /// The run's hand types crossed with its levelling categories.
 ///
 /// Empty when the two are the same decomposition, in which case a hand type's
@@ -719,16 +767,25 @@ fn run_script(
         Option<(i32, i32)>,
     )> = Vec::new();
     let mut printes_specs: Vec<Vec<EsTerm>> = Vec::new();
+    // `printrpt` writes to stdout, which here is the same Text view `printes`
+    // reaches. `csvrpt` is not collected: that one writes a file, and a page
+    // has nowhere to put it.
+    let mut printrpt_specs: Vec<Vec<dealer_parser::CsvTerm>> = Vec::new();
     for statement in &program.statements {
+        if let Statement::PrintReport(terms) = statement {
+            printrpt_specs.push(terms.clone());
+        }
         if let Statement::Action {
             averages: avg_specs,
             frequencies: freq_specs,
             printes,
             print_hands,
+            print_reports,
             ..
         } = statement
         {
             printes_specs.extend(printes.iter().cloned());
+            printrpt_specs.extend(print_reports.iter().cloned());
             // `print` is a paginated hand record with form feeds, written for a
             // line printer. There is nowhere for that to go on a page, and
             // quietly dropping it would leave a script looking as though it had
@@ -843,6 +900,15 @@ fn run_script(
         // `printes` writes to a terminal in the CLI; here it is collected and
         // handed back for the page to show. Capped alongside the deals for the
         // same reason, and by the same count, so the two stay in step.
+        if !printrpt_specs.is_empty() && held.len() < MAX_RETURNED_DEALS {
+            let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
+            for terms in &printrpt_specs {
+                printes_output.push(' ');
+                printes_output.push_str(&report_row(terms, &deal, &ctx)?);
+                printes_output.push('\n');
+            }
+        }
+
         if !printes_specs.is_empty() && held.len() < MAX_RETURNED_DEALS {
             let ctx = EvalContext::with_counts(&deal, &variables, point_counts);
             for terms in &printes_specs {

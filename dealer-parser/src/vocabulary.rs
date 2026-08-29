@@ -28,7 +28,7 @@ pub const FUNCTIONS: &[&str] = &[
     "top3", "top4", "top5", "c13", // Indexed point counts
     "pt0", "pt1", "pt2", "pt3", "pt4", "pt5", "pt6", "pt7", "pt8", "pt9",
     // Double-dummy and scoring
-    "tricks", "trick", "score", "imps", "imp", "rnd",
+    "tricks", "trick", "dds", "score", "imps", "imp", "rnd",
 ];
 
 /// Statement keywords that introduce a directive.
@@ -43,6 +43,7 @@ pub const STATEMENT_KEYWORDS: &[&str] = &[
     "seed",
     "predeal",
     "csvrpt",
+    "printrpt",
     "pointcount",
     "altcount",
     "average",
@@ -572,6 +573,19 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         ),
     },
     FunctionDoc {
+        name: "dds",
+        group: "Double-dummy and scoring",
+        signature: "dds(compass, strain)",
+        summary: "DealerV2_4's spelling of `tricks`.",
+        example: "dds(south, notrump) >= 9",
+        alias_of: Some("tricks"),
+        note: Some(
+            "There it reaches the DDS library where `tricks` reaches GIB's solver; dealer3 \
+             solves everything through bridge-solver, so the two are one function with two \
+             names. Ten of DealerV2_4's regression scripts use it.",
+        ),
+    },
+    FunctionDoc {
         name: "trick",
         group: "Double-dummy and scoring",
         signature: "trick(compass, strain)",
@@ -980,6 +994,20 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
                   hands, or the word `deal` for all four.",
         example: "csvrpt(deal, hcp(north), \"north\")",
         note: Some("Command-line only: the browser app has nowhere to write a file."),
+    },
+    StatementDoc {
+        keyword: Some("printrpt"),
+        form: "printrpt(<term>, <term>, ...)",
+        summary: "Writes one comma-separated row per matching deal to the screen. The terms are \
+                  `csvrpt`'s: an expression, a quoted string, a compass for that hand, `ns` or \
+                  `ew` for a partnership's two hands, or the word `deal` for all four.",
+        example: "printrpt(\"deal \", deal, hcp(south))",
+        note: Some(
+            "DealerV2_4's screen counterpart of `csvrpt`, and the same row — so the two share \
+             a renderer here rather than merely resembling one another. Thirteen of its \
+             regression scripts use it. Unlike `csvrpt` it works in the browser, where the \
+             rows appear in the Text view with `printes` output.",
+        ),
     },
     StatementDoc {
         keyword: None,

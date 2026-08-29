@@ -29,6 +29,10 @@ pub enum Statement {
         printes: Vec<Vec<EsTerm>>,
         /// Seats named by `print(...)`, whose hands are laid out at the end.
         print_hands: Vec<Position>,
+        /// `printrpt(...)` lists, one row per matching deal, in the order
+        /// written. DealerV2_4's scripts reach it through `action` far more
+        /// often than as a bare statement.
+        print_reports: Vec<Vec<CsvTerm>>,
     },
     /// Dealer statement: dealer N/E/S/W
     Dealer(Position),
@@ -51,6 +55,12 @@ pub enum Statement {
     },
     /// CSV report statement: csvrpt(terms...)
     CsvReport(Vec<CsvTerm>),
+    /// The same list, to stdout rather than a file: printrpt(terms...)
+    ///
+    /// DealerV2_4's screen counterpart of `csvrpt`, and byte-for-byte the same
+    /// row — leading space, commas between terms, strings in single quotes. It
+    /// shares `CsvTerm` because it is the same list, not a similar one.
+    PrintReport(Vec<CsvTerm>),
     /// Redefine the high card point scale: pointcount 6 4 2 1
     ///
     /// Values run from the ace downwards. Ranks not reached score nothing.
@@ -407,7 +417,7 @@ impl Function {
             "c13" | "pt9" => Some(Function::C13),
             "quality" => Some(Function::Quality),
             "cccc" => Some(Function::Cccc),
-            "tricks" | "trick" => Some(Function::Tricks),
+            "tricks" | "trick" | "dds" => Some(Function::Tricks),
             "score" => Some(Function::Score),
             "imps" | "imp" => Some(Function::Imps),
             "rnd" => Some(Function::Rnd),

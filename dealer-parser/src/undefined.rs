@@ -94,7 +94,7 @@ fn statement_exprs(statement: &Statement) -> Vec<&Expr> {
             }
             out
         }
-        Statement::CsvReport(terms) => terms
+        Statement::CsvReport(terms) | Statement::PrintReport(terms) => terms
             .iter()
             .filter_map(|term| match term {
                 crate::ast::CsvTerm::Expression(expr) => Some(expr),

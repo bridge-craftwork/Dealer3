@@ -21,7 +21,7 @@ use dealer_level::{
     check_leveling_source, hand_type_label, hand_types, insert_leveling_block, interleave,
     level_from, Leveled, Measurement, MEASURE_GOAL, MIN_HAND_TYPE_SAMPLE,
 };
-use dealer_parser::{ActionType, Expr, Statement, VulnerabilityType};
+use dealer_parser::{ActionType, CsvTerm, Expr, Side, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_hand_pbn, format_oneline, format_printall, format_printcompact, format_printew,
     format_printpbn, PbnBoard, Vulnerability,
@@ -462,6 +462,48 @@ fn render_board(
 }
 
 /// Name a set of seats for a message: "East and West", "East, South and West".
+/// One `csvrpt` or `printrpt` row, without its leading space.
+///
+/// DealerV2_4 writes strings in single quotes, hands in its own PBN-ish
+/// notation and everything else as an integer, separated by commas — and its
+/// `printrpt` output is this byte for byte, which is why the two share a
+/// renderer rather than a resemblance.
+fn report_row(terms: &[CsvTerm], deal: &Deal, ctx: &EvalContext) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for term in terms {
+        match term {
+            CsvTerm::Expression(expr) => match eval(expr, ctx) {
+                Ok(val) => parts.push(val.to_string()),
+                Err(e) => {
+                    eprintln!("Report evaluation error: {}", e);
+                    std::process::exit(1);
+                }
+            },
+            CsvTerm::String(s) => parts.push(format!("'{}'", s)),
+            CsvTerm::Compass(pos) => parts.push(format_hand_pbn(deal.hand(*pos))),
+            CsvTerm::Side(side) => {
+                let (a, b) = match side {
+                    Side::NS => (Position::North, Position::South),
+                    Side::EW => (Position::East, Position::West),
+                };
+                parts.push(format!(
+                    "{} {}",
+                    format_hand_pbn(deal.hand(a)),
+                    format_hand_pbn(deal.hand(b))
+                ));
+            }
+            CsvTerm::Deal => parts.push(format!(
+                "{} {} {} {}",
+                format_hand_pbn(deal.hand(Position::North)),
+                format_hand_pbn(deal.hand(Position::East)),
+                format_hand_pbn(deal.hand(Position::South)),
+                format_hand_pbn(deal.hand(Position::West))
+            )),
+        }
+    }
+    parts.join(",")
+}
+
 fn describe_seats(seats: &[Position]) -> String {
     let names: Vec<&str> = seats
         .iter()
@@ -951,8 +993,10 @@ fn main() {
     )> = Vec::new();
 
     // Track CSV report statements
-    use dealer_parser::{CsvTerm, EsTerm, Side};
+    use dealer_parser::EsTerm;
     let mut csv_reports: Vec<Vec<CsvTerm>> = Vec::new();
+    // The same lists, to stdout rather than a file.
+    let mut print_reports: Vec<Vec<CsvTerm>> = Vec::new();
     // `printes(...)` lists, printed per matching deal in the order written.
     let mut printes_reports: Vec<Vec<EsTerm>> = Vec::new();
     // Seats named by `print(...)`, whose hands are laid out once at the end.
@@ -968,7 +1012,9 @@ fn main() {
                 format: action_format,
                 printes: printes_specs,
                 print_hands,
+                print_reports: report_specs,
             } => {
+                print_reports.extend(report_specs.iter().cloned());
                 // Extract format if present
                 if let Some(action_type) = action_format {
                     format_from_input = Some(match action_type {
@@ -1023,6 +1069,9 @@ fn main() {
             }
             Statement::CsvReport(terms) => {
                 csv_reports.push(terms.clone());
+            }
+            Statement::PrintReport(terms) => {
+                print_reports.push(terms.clone());
             }
             _ => {}
         }
@@ -1523,65 +1572,23 @@ fn main() {
                 }
             }
 
-            // Write CSV reports if any
-            if !csv_reports.is_empty() && csv_writer.is_some() {
+            // Report rows: `csvrpt` to the file, `printrpt` to stdout. One
+            // renderer, because DealerV2_4's two statements differ only in
+            // where the row goes — same terms, same quoting, same commas.
+            if (!csv_reports.is_empty() && csv_writer.is_some()) || !print_reports.is_empty() {
                 let ctx = EvalContext::with_counts(deal, &program_variables, point_counts);
 
                 for csv_terms in &csv_reports {
-                    let mut line_parts: Vec<String> = Vec::new();
-
-                    for term in csv_terms {
-                        match term {
-                            CsvTerm::Expression(expr) => match eval(expr, &ctx) {
-                                Ok(val) => line_parts.push(val.to_string()),
-                                Err(e) => {
-                                    eprintln!("CSV evaluation error: {}", e);
-                                    std::process::exit(1);
-                                }
-                            },
-                            CsvTerm::String(s) => {
-                                line_parts.push(format!("'{}'", s));
-                            }
-                            CsvTerm::Compass(pos) => {
-                                let hand = deal.hand(*pos);
-                                line_parts.push(format_hand_pbn(hand));
-                            }
-                            CsvTerm::Side(side) => {
-                                let (pos1, pos2) = match side {
-                                    Side::NS => (Position::North, Position::South),
-                                    Side::EW => (Position::East, Position::West),
-                                };
-                                let hand1 = deal.hand(pos1);
-                                let hand2 = deal.hand(pos2);
-                                line_parts.push(format!(
-                                    "{} {}",
-                                    format_hand_pbn(hand1),
-                                    format_hand_pbn(hand2)
-                                ));
-                            }
-                            CsvTerm::Deal => {
-                                let n = deal.hand(Position::North);
-                                let e = deal.hand(Position::East);
-                                let s = deal.hand(Position::South);
-                                let w = deal.hand(Position::West);
-                                line_parts.push(format!(
-                                    "{} {} {} {}",
-                                    format_hand_pbn(n),
-                                    format_hand_pbn(e),
-                                    format_hand_pbn(s),
-                                    format_hand_pbn(w)
-                                ));
-                            }
-                        }
-                    }
-
-                    // Write line with space before first item, commas between items
+                    let row = report_row(csv_terms, deal, &ctx);
                     if let Some(writer) = csv_writer.as_mut() {
-                        writeln!(writer, " {}", line_parts.join(",")).unwrap_or_else(|e| {
-                            eprintln!("CSV write error: {}", e);
+                        writeln!(writer, " {}", row).unwrap_or_else(|e| {
+                            eprintln!("Error writing CSV: {}", e);
                             std::process::exit(1);
                         });
                     }
+                }
+                for terms in &print_reports {
+                    println!(" {}", report_row(terms, deal, &ctx));
                 }
             }
         };

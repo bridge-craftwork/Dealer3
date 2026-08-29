@@ -128,18 +128,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "`title \"...\"` as a statement",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Medium,
-        note: Some(
-            "58 of DealerV2_4's 61 regression scripts open with one, and it is the only \
-             thing standing between dealer3 and 21 of them: dropping the line takes the \
-             suite from 4 parsing to 25. dealer3 has the same thing as `-T`.",
-        ),
-    },
-    WorkItem {
         what: "`printns` and `printside(side)`",
         done_when: None,
         issue: None,
@@ -148,35 +136,12 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("dealer3 has `printew`; DealerV2_4 routes all three through one action."),
     },
     WorkItem {
-        what: "`dds(compass, strain)`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some(
-            "The same signature as `tricks()`, sent to the DDS library rather than the \
-             GIB routine. dealer3 solves everything through bridge-solver, so it is an \
-             alias here. Used by 11 regression scripts.",
-        ),
-    },
-    WorkItem {
         what: "`trix(compass)` and `trix(deal)`",
         done_when: None,
         issue: None,
         effort: Effort::Low,
         value: Value::Low,
         note: Some("Tricks in all five strains as CSV columns. The solving is already done."),
-    },
-    WorkItem {
-        what: "`printrpt(...)`: a `csvrpt` list to stdout",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some(
-            "The screen counterpart of `csvrpt` and `-C`, sharing their term list. \
-             13 regression scripts use it.",
-        ),
     },
     WorkItem {
         what: "`par(side)`: the par contract",

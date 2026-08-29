@@ -23,6 +23,7 @@ dealer_statement = {
     | seed_stmt
     | predeal_stmt
     | csvrpt_stmt
+    | printrpt_stmt
     | pointcount_stmt
     | altcount_stmt
     | average_stmt
@@ -66,6 +67,10 @@ seed_stmt = { &kw_seed ~ ^"seed" ~ literal }
 predeal_stmt = { &kw_predeal ~ ^"predeal" ~ predeal_group+ }
 predeal_group = { compass ~ predeal_card ~ ("," ~ predeal_card)* }
 csvrpt_stmt = { &kw_csvrpt ~ ^"csvrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
+// The same list to stdout. `printrpt` has to be matched before `print`, or the
+// `print` keyword swallows its first five letters — the reason the guard below
+// lists the longer spelling first.
+printrpt_stmt = { &kw_printrpt ~ ^"printrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 
 // printes(expr | string, ...) - the original's formatted per-deal output.
 printes_stmt = { &kw_printes ~ printes_spec }
@@ -90,12 +95,13 @@ csv_term = {
 side = @{ ^"ns" | ^"ew" }
 
 // Action components (can be comma-separated)
-action_component = { average_spec | frequency_spec | printes_spec | printhands_spec | action_type }
+action_component = { average_spec | frequency_spec | printrpt_spec | printes_spec | printhands_spec | action_type }
 average_spec = { ^"average" ~ string_literal? ~ expr }
 // frequency "label" (expr, min, max) - parentheses with commas
 frequency_spec = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
 
 printes_spec = { ^"printes" ~ "(" ~ es_term ~ ("," ~ es_term)* ~ ")" }
+printrpt_spec = { ^"printrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }
 printhands_spec = { ^"print" ~ "(" ~ compass ~ ("," ~ compass)* ~ ")" }
 
 // A `printes` item. `newline` is a token in its own right, because the
@@ -195,7 +201,7 @@ function_name = @{
     | "aces" | "ace"
     | "top2" | "top3" | "top4" | "top5" | "c13"
     | "pt0" | "pt1" | "pt2" | "pt3" | "pt4" | "pt5" | "pt6" | "pt7" | "pt8" | "pt9"
-    | "tricks" | "trick"
+    | "tricks" | "trick" | "dds"
     | "imps" | "imp"
     | "rnd"
     | "hearts" | "heart"
@@ -291,6 +297,7 @@ kw_seed       = @{ ^"seed"       ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_vulnerable = @{ ^"vulnerable" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_predeal    = @{ ^"predeal"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_csvrpt     = @{ ^"csvrpt"     ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_printrpt   = @{ ^"printrpt"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_pointcount = @{ ^"pointcount" ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_altcount   = @{ ^"altcount"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_average    = @{ ^"average"    ~ !(ASCII_ALPHANUMERIC | "_") }
@@ -308,7 +315,7 @@ kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^
 // names like `conditionMet` from matching the bare keyword.
 statement_keyword = @{
     kw_condition | kw_produce | kw_generate | kw_action | kw_dealer
-    | kw_vulnerable | kw_predeal | kw_csvrpt | kw_average | kw_frequency
+    | kw_vulnerable | kw_predeal | kw_csvrpt | kw_printrpt | kw_average | kw_frequency
     | kw_pointcount | kw_altcount | kw_printes | kw_print | kw_title | kw_seed
 }
 

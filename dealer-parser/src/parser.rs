@@ -146,6 +146,78 @@ fn build_print_hands(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Position>,
     Ok(seats)
 }
 
+/// The term list shared by `csvrpt` and `printrpt`.
+///
+/// One function because it is one list: DealerV2_4's `printrpt` is its
+/// `csvrpt` to the screen, down to the quoting and the commas, and two copies
+/// of this would drift the first time a term type was added.
+fn build_csv_terms(inner: Pair<Rule>) -> Result<Vec<CsvTerm>, ParseError> {
+    let mut csv_terms = Vec::new();
+
+    for term_pair in inner.into_inner() {
+        if term_pair.as_rule() == Rule::csv_term {
+            // Check if csv_term has inner content or if it's a direct match (like "deal")
+            let term_str = term_pair.as_str().to_lowercase();
+
+            let csv_term = if term_str == "deal" {
+                CsvTerm::Deal
+            } else if let Some(term_inner) = term_pair.into_inner().next() {
+                match term_inner.as_rule() {
+                    Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
+                    Rule::string_literal => {
+                        let s = term_inner.as_str();
+                        // Strip quotes
+                        CsvTerm::String(s[1..s.len() - 1].to_string())
+                    }
+                    Rule::compass => {
+                        let compass_str = term_inner.as_str().to_lowercase();
+                        let position = match compass_str.as_str() {
+                            "north" | "n" => Position::North,
+                            "south" | "s" => Position::South,
+                            "east" | "e" => Position::East,
+                            "west" | "w" => Position::West,
+                            _ => {
+                                return Err(ParseError {
+                                    message: format!("Invalid compass: {}", compass_str),
+                                })
+                            }
+                        };
+                        CsvTerm::Compass(position)
+                    }
+                    Rule::side => {
+                        let side_str = term_inner.as_str().to_lowercase();
+                        match side_str.as_str() {
+                            "ns" => CsvTerm::Side(Side::NS),
+                            "ew" => CsvTerm::Side(Side::EW),
+                            _ => {
+                                return Err(ParseError {
+                                    message: format!("Invalid side: {}", side_str),
+                                })
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(ParseError {
+                            message: format!(
+                                "Unexpected csv_term rule: {:?}",
+                                term_inner.as_rule()
+                            ),
+                        })
+                    }
+                }
+            } else {
+                return Err(ParseError {
+                    message: format!("Unexpected csv_term format: {}", term_str),
+                });
+            };
+
+            csv_terms.push(csv_term);
+        }
+    }
+
+    Ok(csv_terms)
+}
+
 /// Append the statements one written statement stands for.
 ///
 /// Almost always exactly one. `predeal` is the exception: it may name several
@@ -223,6 +295,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             let mut format = None;
             let mut printes = Vec::new();
             let mut print_hands: Vec<Position> = Vec::new();
+            let mut print_reports = Vec::new();
 
             // Parse comma-separated action components
             for component in inner.into_inner() {
@@ -293,6 +366,9 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                             Rule::printes_spec => {
                                 printes.push(build_es_terms(comp_inner)?);
                             }
+                            Rule::printrpt_spec => {
+                                print_reports.push(build_csv_terms(comp_inner)?);
+                            }
                             Rule::printhands_spec => {
                                 for seat in build_print_hands(comp_inner)? {
                                     if !print_hands.contains(&seat) {
@@ -334,6 +410,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format,
                 printes,
                 print_hands,
+                print_reports,
             })
         }
         Rule::dealer_stmt => {
@@ -420,72 +497,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
         // `predeal` is handled by `build_statements`, which is the only thing
         // that can turn one written statement into several. Reaching here means
         // something called `build_statement` directly with one.
-        Rule::csvrpt_stmt => {
-            let mut csv_terms = Vec::new();
-
-            for term_pair in inner.into_inner() {
-                if term_pair.as_rule() == Rule::csv_term {
-                    // Check if csv_term has inner content or if it's a direct match (like "deal")
-                    let term_str = term_pair.as_str().to_lowercase();
-
-                    let csv_term = if term_str == "deal" {
-                        CsvTerm::Deal
-                    } else if let Some(term_inner) = term_pair.into_inner().next() {
-                        match term_inner.as_rule() {
-                            Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
-                            Rule::string_literal => {
-                                let s = term_inner.as_str();
-                                // Strip quotes
-                                CsvTerm::String(s[1..s.len() - 1].to_string())
-                            }
-                            Rule::compass => {
-                                let compass_str = term_inner.as_str().to_lowercase();
-                                let position = match compass_str.as_str() {
-                                    "north" | "n" => Position::North,
-                                    "south" | "s" => Position::South,
-                                    "east" | "e" => Position::East,
-                                    "west" | "w" => Position::West,
-                                    _ => {
-                                        return Err(ParseError {
-                                            message: format!("Invalid compass: {}", compass_str),
-                                        })
-                                    }
-                                };
-                                CsvTerm::Compass(position)
-                            }
-                            Rule::side => {
-                                let side_str = term_inner.as_str().to_lowercase();
-                                match side_str.as_str() {
-                                    "ns" => CsvTerm::Side(Side::NS),
-                                    "ew" => CsvTerm::Side(Side::EW),
-                                    _ => {
-                                        return Err(ParseError {
-                                            message: format!("Invalid side: {}", side_str),
-                                        })
-                                    }
-                                }
-                            }
-                            _ => {
-                                return Err(ParseError {
-                                    message: format!(
-                                        "Unexpected csv_term rule: {:?}",
-                                        term_inner.as_rule()
-                                    ),
-                                })
-                            }
-                        }
-                    } else {
-                        return Err(ParseError {
-                            message: format!("Unexpected csv_term format: {}", term_str),
-                        });
-                    };
-
-                    csv_terms.push(csv_term);
-                }
-            }
-
-            Ok(Statement::CsvReport(csv_terms))
-        }
+        Rule::csvrpt_stmt => Ok(Statement::CsvReport(build_csv_terms(inner)?)),
+        Rule::printrpt_stmt => Ok(Statement::PrintReport(build_csv_terms(inner)?)),
         Rule::average_stmt => {
             // Standalone average statement: average "label"? expr
             let mut parts = inner.into_inner();
@@ -508,6 +521,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format: None,
                 printes: Vec::new(),
                 print_hands: Vec::new(),
+                print_reports: Vec::new(),
             })
         }
         Rule::frequency_stmt => {
@@ -555,6 +569,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format: None,
                 printes: Vec::new(),
                 print_hands: Vec::new(),
+                print_reports: Vec::new(),
             })
         }
         Rule::print_stmt => {
@@ -568,6 +583,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format: Some(action_type),
                 printes: Vec::new(),
                 print_hands: Vec::new(),
+                print_reports: Vec::new(),
             })
         }
         Rule::printes_stmt => {
@@ -580,6 +596,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format: None,
                 printes: vec![build_es_terms(spec)?],
                 print_hands: Vec::new(),
+                print_reports: Vec::new(),
             })
         }
         Rule::printhands_stmt => {
@@ -592,6 +609,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                 format: None,
                 printes: Vec::new(),
                 print_hands: build_print_hands(spec)?,
+                print_reports: Vec::new(),
             })
         }
         Rule::assignment => {

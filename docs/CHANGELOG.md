@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`dds(compass, strain)` and `printrpt(...)`: two more of DealerV2_4's words.**
+  Both were rated unlikely-and-low-value on the roadmap; measuring the actual
+  regression suite said otherwise, and both were cheap.
+  - `dds` is `tricks` under another name — there it reaches the DDS library
+    where `tricks` reaches GIB's solver, and dealer3 sends both through
+    bridge-solver. So it is an alias, and the existing alias test proves the two
+    agree deal by deal.
+  - `printrpt` is `csvrpt` to the screen. DealerV2_4's own reference output is
+    the same row down to the quoting and the commas, so the two share a
+    renderer here rather than merely resembling one another — with a test that
+    runs both and compares. Unlike `csvrpt` it works in the browser, where the
+    rows join `printes` in the Text view.
+  - Together they take DealerV2_4's regression suite from **29 of 61 scripts
+    parsing to 36**. What blocks the rest, in order: `evalcontract` (5),
+    `usereval` (2), `par` (2), `opc` (3), `ltc` (3), unsupplied `$n` parameters
+    (3, which is #17), 2-D `frequency` (2), `trix` (1), decimal literals (1),
+    `export` (1) and `bktfreq` (1).
+  - One delta worth knowing, and left alone rather than changed quietly:
+    dealer3's `csvrpt` writes a hand as `AT84.84.J7653.A3` where DealerV2_4
+    writes `n AT84.84.J7653.A3 ` — its compass and a trailing space. That
+    predates this and applies to both statements equally, so the two stay
+    consistent with each other; matching DealerV2_4 exactly would change
+    `csvrpt` output that scripts may already depend on.
 - **`LevelType_*`: levelling on a decomposition of its own.** Optional, and most
   scenarios will never need it — where the categories you level are also the
   ones you talk about, `HandType_` is both.
