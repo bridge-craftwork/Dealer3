@@ -56,6 +56,14 @@ the same list checked against `grammar.pest` by two tests. Highlighting cannot
 advertise a function the parser rejects, or miss one it accepts. That is the bug
 that left 19 functions uncoloured in the VS Code extension for years.
 
+The names the levelling machinery reads — `HandType_`, `LevelType_`, `_Share`,
+`levelTheDeal`, the generated block's markers and stamp — come the same way,
+from `dealer-level`'s own constants, which is why the editor can colour them
+without a second copy of the convention living in JavaScript. The one hand-kept
+list is the `# key: value` headers, because those belong to PBS and nothing in
+the engine reads them; a key on the list is coloured and anything else stays an
+ordinary comment, so a mistyped header simply does not light up.
+
 **The language reference is generated, not written.** `reference.html` renders
 every function, operator and statement from that same `language_info()`, so it
 cannot list something the parser rejects or leave out something it accepts. The

@@ -12,7 +12,12 @@
 // generated from the same vocabulary, so they agree by construction rather than
 // by anyone remembering to update two places.
 
-import { StreamLanguage, LanguageSupport } from '@codemirror/language'
+import {
+  HighlightStyle,
+  LanguageSupport,
+  StreamLanguage,
+  syntaxHighlighting,
+} from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 
 /** Longest first, so `spades` matches before `spade`. */
@@ -22,6 +27,32 @@ const byLengthDesc = (a, b) => b.length - a.length || a.localeCompare(b)
 function lowerSet(words) {
   return new Set(words.map((w) => w.toLowerCase()))
 }
+
+/**
+ * The `# key: value` headers a PBS scenario carries.
+ *
+ * Hand-kept, unlike everything else here, because these belong to PBS and not
+ * to the engine — nothing in dealer reads them, so there is no vocabulary to
+ * derive them from.
+ *
+ * What the list buys is the misspelling. A key PBS reads is coloured; anything
+ * else falls through to an ordinary comment, so `# scenario-titel:` simply does
+ * not light up, where before it looked exactly like one that works.
+ * Colouring the good rather than marking the bad, deliberately: PBS may add a
+ * key before this list hears of it, and a new key reading as a plain comment is
+ * a smaller lie than a new key marked wrong.
+ */
+export const METADATA_KEYS = [
+  'alias',
+  'auction-filter',
+  'bba-works',
+  'button-text',
+  'convention-card',
+  'convention-card-ew',
+  'convention-card-ns',
+  'gib-works',
+  'scenario-title',
+]
 
 /**
  * A CodeMirror stream tokenizer for the dealer language.
@@ -40,14 +71,42 @@ export function dlrStreamParser(info) {
     ...info.other_keywords,
   ])
   const logical = lowerSet(info.logical_words)
+  const metadataKeys = lowerSet(METADATA_KEYS)
 
   // Sorted only so the behaviour is deterministic and testable.
   const sortedFunctions = [...info.functions].sort(byLengthDesc)
 
+  // The levelling conventions, from the engine's own constants. A build too old
+  // to send them colours nothing rather than guessing at them — a second copy
+  // of `HandType` here is exactly what the rest of this file exists to avoid.
+  const level = info.leveling ?? null
+  const verdicts = new Set(level ? [...level.verdicts, level.no_leveling] : [])
+
+  /**
+   * Which levelling token, if any, a name earns.
+   *
+   * Prefixes are matched with regard to case and the share suffix without,
+   * because that is what `dealer_level` does: `handtype_12` is not a hand type
+   * and will silently not be one, so it must not be coloured as though it were,
+   * while `HandType_12_share` is a share and is.
+   */
+  const levelingToken = (name) => {
+    if (!level) return null
+    if (name.startsWith(level.hand_type_prefix) || name.startsWith(level.level_type_prefix)) {
+      // A share carries its type's prefix — a bare `foo_Share` weights nothing.
+      const tail = name.slice(-level.share_suffix.length)
+      const share =
+        name.length > level.share_suffix.length &&
+        tail.toLowerCase() === level.share_suffix.toLowerCase()
+      return share ? 'levelingShare' : 'levelingName'
+    }
+    return verdicts.has(name) ? 'levelingName' : null
+  }
+
   return {
     name: 'dlr',
 
-    startState: () => ({ inBlockComment: false }),
+    startState: () => ({ inBlockComment: false, inMetaValue: false }),
 
     token(stream, state) {
       if (state.inBlockComment) {
@@ -56,12 +115,47 @@ export function dlrStreamParser(info) {
         return 'comment'
       }
 
+      // The value half of a `# key: value` header runs to the end of its line.
+      // Without this `# scenario-title: Jacoby 2NT` would carry on into the
+      // ordinary rules and colour `Jacoby` as a variable. An empty value leaves
+      // the flag set with nothing to consume, hence the `sol` guard.
+      if (state.inMetaValue) {
+        state.inMetaValue = false
+        if (!stream.sol()) {
+          stream.skipToEnd()
+          return 'metaValue'
+        }
+      }
+
       if (stream.eatSpace()) return null
 
+      // The generated levelling block's own lines: the two markers and the
+      // stamp. They are comments — that is what lets a levelled scenario still
+      // run on BBO — so without this nothing tells them from an author's aside,
+      // and the block that must not be edited by hand looks like prose.
+      if (stream.sol() && level) {
+        if (
+          stream.match(level.block_begin) ||
+          stream.match(level.block_end) ||
+          stream.match(level.stamp)
+        ) {
+          stream.skipToEnd()
+          return 'levelingMarker'
+        }
+      }
+
       // `# key: value` headers PBS scripts carry, then ordinary comments.
-      if (stream.sol() && stream.match(/^\s*#\s*[a-zA-Z-]+:/)) {
-        stream.skipToEnd()
-        return 'docComment'
+      if (stream.sol()) {
+        const header = stream.match(/^\s*#\s*([a-zA-Z][a-zA-Z0-9-]*)\s*:/)
+        if (header) {
+          if (metadataKeys.has(header[1].toLowerCase())) {
+            state.inMetaValue = true
+            return 'metaKey'
+          }
+          // Not a key PBS reads. Left as the comment it really is.
+          stream.skipToEnd()
+          return 'comment'
+        }
       }
       if (stream.match('#') || stream.match('//')) {
         stream.skipToEnd()
@@ -90,7 +184,7 @@ export function dlrStreamParser(info) {
         if (functions.has(w)) return 'function'
         if (constants.has(w)) return 'atom'
         if (logical.has(w)) return 'operatorKeyword'
-        return 'variableName'
+        return levelingToken(word[0]) ?? 'variableName'
       }
 
       if (stream.match(/^\d+/)) return 'number'
@@ -191,6 +285,7 @@ export function tokenizeLine(parser, line, state = parser.startState()) {
 export function dlrLanguage(info) {
   return new LanguageSupport(
     StreamLanguage.define({ ...dlrStreamParser(info), tokenTable: DLR_TOKENS }),
+    [dlrHighlighting],
   )
 }
 
@@ -203,8 +298,55 @@ export function dlrLanguage(info) {
 /// Every function in every script was the colour of plain text for as long as
 /// the highlighter has existed, and the unit test asserting `hcp` tokenises as
 /// `function` passed throughout, because that much was true.
+///
+/// The levelling and header tokens are here for the same reason: they name
+/// nothing `@lezer/highlight` knows, so without an entry they would style
+/// nothing, in exactly the same silence.
 export const DLR_TOKENS = {
   function: tags.function(tags.variableName),
+
+  // Names the levelling machinery reads. `special` and `definition` are chosen
+  // for being tags a stream parser can hand back, not for what a theme makes of
+  // them — `dlrHighlighting` below is what decides how they look.
+  levelingName: tags.special(tags.variableName),
+  levelingShare: tags.definition(tags.variableName),
+  levelingMarker: tags.meta,
+
+  // The two halves of a `# key: value` header.
+  metaKey: tags.propertyName,
+  metaValue: tags.attributeValue,
 }
+
+/// Plain class names for the tokens this language adds, so the editor's theme
+/// can colour them by name.
+///
+/// A `HighlightStyle` normally generates its own class and puts the colour in
+/// it. These tokens want the opposite: the tags they map to are ones the base
+/// theme already has an opinion about — `special(variableName)` is what one-dark
+/// paints atoms — and two generated classes on one span settle it by whichever
+/// stylesheet happened to be written last. A named class the editor's theme
+/// styles wins on specificity instead, which is a fact about CSS rather than a
+/// fact about load order.
+///
+/// Exported as a map because a class here with no rule in `ScriptEditor.vue` is
+/// the same silent nothing `function` was, and a test can only check for it if
+/// it can read the list.
+export const DLR_TOKEN_CLASSES = {
+  levelingName: 'dlr-leveling-name',
+  levelingShare: 'dlr-leveling-share',
+  levelingMarker: 'dlr-leveling-marker',
+  metaKey: 'dlr-meta-key',
+  metaValue: 'dlr-meta-value',
+}
+
+/// The colours for those classes, layered over whatever base theme is in use.
+export const dlrHighlighting = syntaxHighlighting(
+  HighlightStyle.define(
+    Object.entries(DLR_TOKEN_CLASSES).map(([token, cls]) => ({
+      tag: DLR_TOKENS[token],
+      class: cls,
+    })),
+  ),
+)
 
 export const LANGUAGE_ID = 'dlr'
