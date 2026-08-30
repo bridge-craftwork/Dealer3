@@ -122,7 +122,6 @@ pub fn render_leveled(
     base_rate: f64,
     measured: usize,
     seed: u32,
-    prefix: &str,
     groups: &[(String, f64)],
 ) -> Result<String, String> {
     if source.contains(LEVEL_STAMP) {
@@ -255,11 +254,11 @@ pub fn render_leveled(
                 canonical_roll(scale.saturating_mul(100).max(scale))
             ));
         } else if keep >= scale {
-            block.push(format!("level_{0} = {1}_{0}", plan.name, prefix));
+            block.push(format!("level_{} = {}", plan.name, plan.variable));
         } else {
             block.push(format!(
-                "level_{0} = {1}_{0} and roll < {2}",
-                plan.name, prefix, keep
+                "level_{} = {} and roll < {}",
+                plan.name, plan.variable, keep
             ));
         }
     }
@@ -294,11 +293,10 @@ pub fn write_leveled(
     base_rate: f64,
     measured: usize,
     seed: u32,
-    prefix: &str,
     groups: &[(String, f64)],
 ) -> Result<String, String> {
     let generated = render_leveled(
-        source, plans, lambda, acceptance, base_rate, measured, seed, prefix, groups,
+        source, plans, lambda, acceptance, base_rate, measured, seed, groups,
     )?;
     std::fs::write(path, &generated)
         .map_err(|e| format!("could not write {}: {}", path.display(), e))?;
@@ -497,6 +495,16 @@ pub fn parse_level_target(spec: &str, labels: &[String]) -> Result<Vec<f64>, Str
 pub struct LevelPlan {
     /// The hand type's name, with the `HandType` prefix stripped.
     pub name: String,
+    /// The variable as the script declares it, which is what the generated
+    /// block has to reference.
+    ///
+    /// Not `HandType_` + `name`, because that is only true of a scenario
+    /// written the way the generator would have written it. The prefix is a
+    /// magic word matched without regard to case and the separator may be `-`,
+    /// so a script declaring `handtype_south_15` was handed a block referring
+    /// to a `HandType_south_15` that does not exist — which evaluates false
+    /// forever, and produced nothing while every number above it looked right.
+    pub variable: String,
     /// Its share of the deals the scenario produces, as measured.
     pub natural: f64,
     /// The share asked for.
@@ -526,6 +534,7 @@ pub struct LevelPlan {
 /// the affordable fraction is closed-form and there is nothing to search for.
 pub fn level_plan(
     names: &[String],
+    variables: &[String],
     natural: &[f64],
     target: &[f64],
     seen: &[usize],
@@ -563,6 +572,7 @@ pub fn level_plan(
     let plans = (0..names.len())
         .map(|i| LevelPlan {
             name: names[i].clone(),
+            variable: variables[i].clone(),
             natural: natural[i],
             target: target[i],
             mix: mix[i],
@@ -712,6 +722,23 @@ pub const HAND_TYPE_PREFIX: &str = "HandType";
 /// hand type called `12_share`, overlapping the real one.
 pub const SHARE_SUFFIX: &str = "_Share";
 
+/// Whether a name carries one of the convention's prefixes.
+///
+/// Without regard to case, as the `_Share` suffix has always been matched, and
+/// for the same reason: a name that differs only in case is not a name anybody
+/// meant to be different. `handtype_south_15` was silently an ordinary variable
+/// once, and a scenario written that way declared no hand types at all — no
+/// levelling, no PBN tags, no rounds, and nothing said so, because a script
+/// with no hand types is perfectly legal.
+///
+/// The variable itself stays case-sensitive, as it is in dealer.exe, which
+/// resolves names with `strcmp`. This decides only whether a name is one the
+/// levelling machinery reads; referring to it still means spelling it the way
+/// it was declared.
+fn has_prefix(name: &str, prefix: &str) -> bool {
+    name.len() >= prefix.len() && name[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
 /// Whether this name declares a share rather than a hand type.
 fn is_share(name: &str) -> bool {
     name.len() > SHARE_SUFFIX.len()
@@ -744,8 +771,7 @@ pub fn level_types(program: &Program) -> Vec<&str> {
 
 /// A level type's name without its prefix, and without the separator after it.
 pub fn level_type_label(name: &str) -> &str {
-    name.trim_start_matches(LEVEL_TYPE_PREFIX)
-        .trim_start_matches(['_', '-'])
+    strip_prefix(name, LEVEL_TYPE_PREFIX)
 }
 
 /// Variables with a given prefix, in declaration order, skipping shares.
@@ -756,7 +782,7 @@ fn named_with<'a>(program: &'a Program, prefix: &str) -> Vec<&'a str> {
     let mut found = Vec::new();
     for statement in &program.statements {
         if let Statement::Assignment { name, .. } = statement {
-            if name.starts_with(prefix) && !is_share(name) && !found.contains(&name.as_str()) {
+            if has_prefix(name, prefix) && !is_share(name) && !found.contains(&name.as_str()) {
                 found.push(name.as_str());
             }
         }
@@ -822,9 +848,9 @@ pub fn leveling_types(program: &Program) -> Result<LevelingTypes, String> {
             if !is_share(name) {
                 continue;
             }
-            if name.starts_with(LEVEL_TYPE_PREFIX) {
+            if has_prefix(name, LEVEL_TYPE_PREFIX) {
                 weights_level = true;
-            } else if name.starts_with(HAND_TYPE_PREFIX) {
+            } else if has_prefix(name, HAND_TYPE_PREFIX) {
                 weights_hand = true;
             }
         }
@@ -854,6 +880,24 @@ pub fn leveling_types(program: &Program) -> Result<LevelingTypes, String> {
         .iter()
         .map(|n| strip_prefix(n, prefix).to_string())
         .collect();
+    // Two declarations that come to the same label. Newly possible once the
+    // prefix stopped caring about case — `HandType_a` and `handtype_a` are two
+    // variables and one category — and worth refusing rather than resolving,
+    // because everything downstream identifies a category by its label: the PBN
+    // tag, the bar chart, the share lookup, `--interleave`. Two rows called `a`
+    // is not a thing to hand anybody.
+    for (i, label) in labels.iter().enumerate() {
+        if let Some(j) = labels[..i]
+            .iter()
+            .position(|l| l.eq_ignore_ascii_case(label))
+        {
+            return Err(format!(
+                "`{}` and `{}` are the same category, `{}`.\n       Names differing only in \
+                 case are not two hand types — rename one.",
+                names[j], names[i], label
+            ));
+        }
+    }
     let shares = shares_for(program, prefix, &labels)?;
     Ok(LevelingTypes {
         names,
@@ -864,9 +908,17 @@ pub fn leveling_types(program: &Program) -> Result<LevelingTypes, String> {
 }
 
 /// A name without its prefix, and without the separator after it.
+///
+/// Matched the way [`has_prefix`] matches, so the two cannot disagree about
+/// what a name is: `handtype_south_15` and `HandType_south_15` both label
+/// `south_15`.
 fn strip_prefix<'a>(name: &'a str, prefix: &str) -> &'a str {
-    name.trim_start_matches(prefix)
-        .trim_start_matches(['_', '-'])
+    let rest = if has_prefix(name, prefix) {
+        &name[prefix.len()..]
+    } else {
+        name
+    };
+    rest.trim_start_matches(['_', '-'])
 }
 
 /// The target share each hand type asks for, in declaration order.
@@ -970,19 +1022,25 @@ fn shares_for(program: &Program, prefix: &str, labels: &[String]) -> Result<Vec<
         let Statement::Assignment { name, expr } = statement else {
             continue;
         };
-        if !name.starts_with(prefix) || !is_share(name) {
+        if !has_prefix(name, prefix) || !is_share(name) {
             continue;
         }
         let label = strip_prefix(name, prefix);
         let label = &label[..label.len() - SHARE_SUFFIX.len()];
 
-        let index = labels.iter().position(|l| l == label).ok_or_else(|| {
-            format!(
-                "`{}` sets the share of a `{}` the scenario never \
+        // Without regard to case, like the prefix and the suffix around it, and
+        // unambiguous because two types whose labels differ only in case are
+        // refused as one category before this is reached.
+        let index = labels
+            .iter()
+            .position(|l| l.eq_ignore_ascii_case(label))
+            .ok_or_else(|| {
+                format!(
+                    "`{}` sets the share of a `{}` the scenario never \
                      declares.\n       Add `{}_{} = ...`, or correct the name.",
-                name, label, prefix, label
-            )
-        })?;
+                    name, label, prefix, label
+                )
+            })?;
 
         // A share has to be known before a card is dealt, so it is a number and
         // not an expression. Anything else is a mistake worth naming rather
@@ -1017,7 +1075,7 @@ fn shares_for(program: &Program, prefix: &str, labels: &[String]) -> Result<Vec<
 /// prose — so the expression is asked instead.
 pub fn mentions_hand_type(expr: &Expr) -> bool {
     match expr {
-        Expr::Variable(name) => name.starts_with(HAND_TYPE_PREFIX),
+        Expr::Variable(name) => has_prefix(name, HAND_TYPE_PREFIX),
         Expr::BinaryOp { left, right, .. } => mentions_hand_type(left) || mentions_hand_type(right),
         Expr::UnaryOp { expr, .. } => mentions_hand_type(expr),
         Expr::Ternary {
@@ -1037,8 +1095,7 @@ pub fn mentions_hand_type(expr: &Expr) -> bool {
 /// What goes in the `[HandType "..."]` tag: the name without its prefix, and
 /// without the separator someone will have written after it.
 pub fn hand_type_label(name: &str) -> &str {
-    name.trim_start_matches(HAND_TYPE_PREFIX)
-        .trim_start_matches(['_', '-'])
+    strip_prefix(name, HAND_TYPE_PREFIX)
 }
 
 /// What one measuring pass over a scenario found.
@@ -1054,6 +1111,9 @@ pub struct Measurement {
     /// Hand type names, with the `HandType` prefix stripped, in declaration
     /// order.
     pub names: Vec<String>,
+    /// The same, as the script declares them, parallel to `names`. What the
+    /// generated block references — see [`LevelPlan::variable`].
+    pub variables: Vec<String>,
     /// How many produced deals matched each, parallel to `names`.
     pub counts: Vec<usize>,
     /// Which prefix `names` came from — `HandType` normally, `LevelType` when
@@ -1236,6 +1296,7 @@ pub fn level_from(
     let budget_acceptance = budget.map(|b| ((1.0 / b) / base_rate).min(1.0));
     let (plans, lambda, acceptance) = level_plan(
         &measured.names,
+        &measured.variables,
         &natural,
         &target,
         &measured.counts,
@@ -1265,7 +1326,6 @@ pub fn level_from(
         base_rate,
         measured.produced,
         seed,
-        measured.prefix,
         &groups,
     )?;
     Ok(Leveled {

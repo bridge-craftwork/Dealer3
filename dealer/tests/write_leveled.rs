@@ -578,3 +578,64 @@ fn a_scenario_with_no_condition_at_all_is_refused() {
     assert_eq!(run.status, 1);
     assert!(run.stderr.contains("no condition"), "{}", run.stderr);
 }
+
+/// The prefix is a magic word matched without regard to case, so the block has
+/// to reference the variable the script *declares* rather than one built from
+/// the canonical spelling.
+///
+/// It used to build the name, which was true only of a scenario written the way
+/// the generator would have written it. A script declaring `handtype_south_15`
+/// got a block gating on a `HandType_south_15` that did not exist: the
+/// condition was false on every deal, the run produced nothing out of ten
+/// million, and every number in the summary above it looked right.
+#[test]
+fn the_block_references_the_variable_the_script_declares() {
+    const LOWER: &str = "\
+handtype_south_15 = hcp(south) == 15
+handtype_south_16 = hcp(south) == 16
+handtype_south_17 = hcp(south) == 17
+
+### BEGIN GENERATED LEVELING ###
+noLeveling = 1
+levelTheDeal = noLeveling
+### END GENERATED LEVELING ###
+
+condition hcp(south) >= 15 and hcp(south) <= 17 and levelTheDeal
+";
+    let run = level(LOWER, &[], "lowercase-prefix");
+    assert_eq!(run.status, 0, "{}", run.stderr);
+    let written = run.written.expect("a levelled scenario");
+    assert!(
+        written.contains("= handtype_south_15"),
+        "the block names a variable the script does not declare:\n{written}"
+    );
+    assert!(
+        !written.contains("HandType_south_15"),
+        "the block built the name instead of using it:\n{written}"
+    );
+
+    // And the proof that it matters: the levelled copy produces deals.
+    let path = temp("lowercase-runs", &written);
+    let output = Command::new(env!("CARGO_BIN_EXE_dealer"))
+        .args([
+            &path.display().to_string(),
+            "-q",
+            "-v",
+            "-p",
+            "20",
+            "-s",
+            "1",
+            "-g",
+            "200000",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .expect("dealer should run");
+    let _ = std::fs::remove_file(&path);
+    let report = String::from_utf8_lossy(&output.stderr).into_owned()
+        + &String::from_utf8_lossy(&output.stdout);
+    assert!(
+        report.contains("Produced 20 hands"),
+        "the levelled copy produced nothing:\n{report}"
+    );
+}

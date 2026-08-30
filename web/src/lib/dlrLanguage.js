@@ -86,14 +86,20 @@ export function dlrStreamParser(info) {
   /**
    * Which levelling token, if any, a name earns.
    *
-   * Prefixes are matched with regard to case and the share suffix without,
-   * because that is what `dealer_level` does: `handtype_12` is not a hand type
-   * and will silently not be one, so it must not be coloured as though it were,
-   * while `HandType_12_share` is a share and is.
+   * Prefix and suffix are both matched without regard to case, because that is
+   * what `dealer_level` does: `handtype_12` is a hand type, and colouring it as
+   * an ordinary variable would be the highlighter disagreeing with the run.
+   *
+   * The variable is still case-sensitive to *refer* to, as it is in dealer.exe.
+   * That is a fact about the name, not about the convention, and nothing here
+   * could show it anyway.
    */
+  const hasPrefix = (name, prefix) =>
+    name.slice(0, prefix.length).toLowerCase() === prefix.toLowerCase()
+
   const levelingToken = (name) => {
     if (!level) return null
-    if (name.startsWith(level.hand_type_prefix) || name.startsWith(level.level_type_prefix)) {
+    if (hasPrefix(name, level.hand_type_prefix) || hasPrefix(name, level.level_type_prefix)) {
       // A share carries its type's prefix — a bare `foo_Share` weights nothing.
       const tail = name.slice(-level.share_suffix.length)
       const share =

@@ -197,11 +197,21 @@ describe('the levelling conventions', () => {
     expect(tokenize('profit_Share = 3')[0][0]).toBe('variableName')
   })
 
-  it('respects the case the engine matches prefixes in', () => {
-    // `starts_with` is case-sensitive, so `handtype_12` is silently not a hand
-    // type. Colouring it as one would be the highlighter telling a lie the
-    // engine will not back up.
-    expect(tokenize('handtype_12 = 1')[0][0]).toBe('variableName')
+  it('marks a decomposition whatever case it is written in', () => {
+    // The prefix is a magic word, and a name differing only in case is not a
+    // name anybody meant to be different — `dealer_level` reads them all, so
+    // the highlighter has to as well or it would disagree with the run.
+    for (const name of ['handtype_12', 'HANDTYPE_12', 'HandType_12', 'leveltype_12']) {
+      expect(tokenize(`${name} = 1`)[0][0], name).toBe('levelingName')
+    }
+    expect(tokenize('handtype_12_SHARE = 2')[0][0]).toBe('levelingShare')
+  })
+
+  it('does not mistake a name that merely starts the same way', () => {
+    // `handtypes` is not `HandType_`-anything, and neither is a variable that
+    // happens to begin with those letters and carry on.
+    expect(tokenize('handy = 1')[0][0]).toBe('variableName')
+    expect(tokenize('level = 1')[0][0]).toBe('variableName')
   })
 
   it('marks the verdict and its placeholder', () => {

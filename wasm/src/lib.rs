@@ -1050,9 +1050,11 @@ mod docs {
 /// its own constants out, for the same reason it hands out its vocabulary:
 /// a second copy in JavaScript would be a second copy to go stale.
 ///
-/// `hand_type_prefix` and `level_type_prefix` are matched with regard to case,
-/// as `dealer_level` matches them; `share_suffix` is not, as `dealer_level`
-/// does not. A highlighter that follows suit shows an author the difference.
+/// Prefixes and the share suffix are all matched without regard to case, as
+/// `dealer_level` matches them: the prefix is a magic word, and a name that
+/// differs only in case is not a name anybody meant to be different. The
+/// variable itself stays case-sensitive to refer to, as it is in dealer.exe,
+/// but that is a fact about the name rather than about the convention.
 #[derive(Serialize)]
 struct LevelingNames {
     hand_type_prefix: &'static str,
