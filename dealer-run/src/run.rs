@@ -85,6 +85,21 @@ pub struct RunOptions {
     /// Level the scenario's categories before dealing. Absent for an ordinary
     /// run, which deals the script as written.
     pub leveling: Option<LevelingOptions>,
+    /// Divide `produce` among the scenario's hand types instead of taking deals
+    /// as they come: one of each per round, with any remainder going to
+    /// whichever types turn up next, one apiece.
+    ///
+    /// `produce` still says how many. This only says how they are chosen, which
+    /// is why it is a flag and not a second count.
+    ///
+    /// Nothing is measured, so nothing can be measured wrong — which is the
+    /// point of it. A levelling divides by a rate it estimated, and a rate
+    /// estimated 20% high delivers a mix 20% off for good, however many deals
+    /// are produced afterwards. A round robin is exact by construction.
+    ///
+    /// Refused alongside `leveling`: applying keeps as well would throw away
+    /// rare deals the round then has to wait for again.
+    pub round_robin: bool,
     /// Threads to deal and test on. 0 asks the machine what it has, 1 stays on
     /// this one. Ignored without the `parallel` feature, which is how a build
     /// with no threads to spawn — wasm32, today — gets the same answers more
@@ -126,6 +141,10 @@ pub struct RunReport {
     pub hit_limit: bool,
     /// The script's hand types and how many produced deals matched each.
     pub hand_types: Vec<(String, usize)>,
+    /// What a round-robin run was aiming at, when it was one: the count every
+    /// hand type is owed, and how many deals were left over for a partial round
+    /// at the end. Against `hand_types` it says which types came up short.
+    pub round_robin: Option<dealer_level::RoundRobinPlan>,
     /// Its `average` and `frequency` results.
     pub stats: Stats,
     /// Present only when the run was levelled.
@@ -669,6 +688,10 @@ struct PassOptions<'a> {
     /// Whether produced deals go to the host. A characterizing pass's deals
     /// exist to be counted and thrown away.
     emit: bool,
+    /// A round robin's shape, when the pass is dealing one. `produce` is
+    /// unchanged by it, so the pass ends where it always did — when it has
+    /// produced what was asked for.
+    round_robin: Option<&'a dealer_level::RoundRobinPlan>,
 }
 
 fn run_pass(
@@ -686,6 +709,9 @@ fn run_pass(
         .map_err(|e| format!("Point count error: {}", e))?;
     let point_counts = point_counts.as_ref();
     let mut accumulator = RunAccumulator::new(&program, MeasureStop::standard())?;
+    if let Some(plan) = opts.round_robin {
+        accumulator = accumulator.with_round_robin(plan.clone());
+    }
 
     let mut reports = Reports::default();
     for statement in &program.statements {
@@ -761,12 +787,18 @@ fn run_pass(
             if !matched {
                 continue;
             }
-            let hand_type = accumulator
-                .observe(deal, &variables, point_counts)?
-                .hand_type;
+            let observed = accumulator.observe(deal, &variables, point_counts)?;
             if from_stream {
                 retained.offer(handles[index], batch_end - (built.len() - 1 - index));
             }
+            // A deal whose hand type has had its share of the round. It cost
+            // exactly what it would have cost anyway — the rarity is in the
+            // dealing, not in the taking — and there is nothing to be saved by
+            // noticing sooner.
+            if !observed.taken {
+                continue;
+            }
+            let hand_type = observed.matched.hand_type;
             if opts.emit {
                 host.produced(&Produced {
                     deal,
@@ -859,9 +891,29 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         opts.batch
     };
 
+    if opts.round_robin && opts.leveling.is_some() {
+        // Two answers to the same question. Keeps throw away rare deals at
+        // random, and the round then waits for the ones they threw away —
+        // paying the rarity twice to arrive at a count it would have reached on
+        // its own, and with the keeps' measurement error still in it.
+        return Err(RunError::Failed(
+            "a round robin and a levelling ask for the same thing two ways.\n       Levelling \
+             gets the proportions right on average, over a run of any length; a round robin \
+             deals one of each hand type at a time.\n       Use one or the other."
+                .to_string(),
+        ));
+    }
+
     let Some(leveling) = opts.leveling else {
         // An ordinary run: one pass, the script as written, every match handed
-        // over as it comes.
+        // over as it comes — or, dealing a round robin, every match whose hand
+        // type still has room in the round.
+        let round_robin = if opts.round_robin {
+            Some(round_robin_for(script, opts.produce, &opts.params)?)
+        } else {
+            None
+        };
+        let produce = opts.produce;
         let mut source = Source::new(opts.deals, opts.seed);
         let pass = run_pass(
             script,
@@ -872,13 +924,14 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
                 params: &opts.params,
                 threads,
                 batch,
-                produce: opts.produce,
+                produce,
                 max_generate: opts.max_generate,
                 until_measured: false,
                 retain: 0,
                 replay: &[],
                 resume: 0,
                 emit: true,
+                round_robin: round_robin.as_ref(),
             },
         )?;
         return Ok(RunReport {
@@ -886,6 +939,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             generated: pass.generated,
             hit_limit: pass.hit_limit,
             hand_types: pass.hand_types,
+            round_robin,
             stats: pass.stats,
             leveling: None,
         });
@@ -916,6 +970,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             replay: &[],
             resume: 0,
             emit: false,
+            round_robin: None,
         },
     )?;
 
@@ -959,6 +1014,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
                 replay: &characterizing.retained.handles,
                 resume: characterizing.retained.through,
                 emit: true,
+                round_robin: None,
             },
         )?)
     };
@@ -971,6 +1027,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             .as_ref()
             .map(|p| p.hand_types.clone())
             .unwrap_or_else(|| characterizing.hand_types.clone()),
+        round_robin: None,
         stats: match producing {
             Some(ref p) => p.stats.clone(),
             None => characterizing.stats,
@@ -989,6 +1046,21 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             additional: producing.as_ref().map(|p| p.generated).unwrap_or(0),
         }),
     })
+}
+
+/// How `produce` divides among the script's hand types.
+///
+/// Parsed here rather than in the pass so a scenario that cannot be dealt round
+/// robin — one naming no hand types, or weighting them — is refused before a
+/// card is dealt rather than after the run.
+fn round_robin_for(
+    script: &str,
+    produce: usize,
+    params: &dealer_parser::ScriptParams,
+) -> Result<dealer_level::RoundRobinPlan, RunError> {
+    let program = dealer_parser::parse_program(&dealer_parser::preprocess_all(script, params)?)
+        .map_err(|e| format!("Parse error: {}", e))?;
+    Ok(dealer_level::round_robin_plan(&program, produce)?)
 }
 
 const RETAIN_DEALS: usize = 1_000_000;
@@ -1050,6 +1122,7 @@ condition 1
         RunOptions {
             seed: 20260829,
             produce,
+            round_robin: false,
             max_generate: 5_000_000,
             deals: Deals::Shuffled {
                 predeal: FastDealConfig::new(),
@@ -1065,6 +1138,176 @@ condition 1
                 measure_cap: 2_000_000,
             }),
         }
+    }
+
+    fn round_robin(script: &str, produce: usize, max_generate: usize) -> (Collector, RunReport) {
+        let mut opts = options(produce, false);
+        opts.round_robin = true;
+        opts.max_generate = max_generate;
+        let mut host = Collector::default();
+        let report = super::run(script, opts, &mut host).expect("run");
+        (host, report)
+    }
+
+    /// Where levelling is exact on average, a round robin is exact.
+    #[test]
+    fn produce_divides_evenly_among_the_hand_types() {
+        let (host, report) = round_robin(LADDER, 36, 5_000_000);
+        assert_eq!(report.produced, 36);
+        assert_eq!(host.deals.len(), 36);
+        for (name, count) in &report.hand_types {
+            assert_eq!(*count, 12, "{name} came out at {count}");
+        }
+        assert!(!report.hit_limit);
+    }
+
+    /// The remainder goes to different types, one apiece. Two more deals over
+    /// three types is two types with one extra, never one type with two.
+    #[test]
+    fn a_remainder_never_repeats_a_hand_type() {
+        let (_, report) = round_robin(LADDER, 38, 5_000_000);
+        assert_eq!(report.produced, 38);
+        let counts: Vec<usize> = report.hand_types.iter().map(|(_, n)| *n).collect();
+        assert_eq!(counts.iter().sum::<usize>(), 38);
+        for count in &counts {
+            assert!(
+                (12..=13).contains(count),
+                "a partial round repeated a type: {counts:?}"
+            );
+        }
+        assert_eq!(counts.iter().filter(|n| **n == 13).count(), 2);
+    }
+
+    /// Fewer deals than types: all remainder, so every deal is a different
+    /// type and none is dealt twice.
+    #[test]
+    fn fewer_deals_than_types_gives_one_each_of_some() {
+        let (_, report) = round_robin(LADDER, 2, 5_000_000);
+        assert_eq!(report.produced, 2);
+        let counts: Vec<usize> = report.hand_types.iter().map(|(_, n)| *n).collect();
+        assert_eq!(counts.iter().filter(|n| **n == 1).count(), 2);
+        assert_eq!(counts.iter().filter(|n| **n == 0).count(), 1);
+    }
+
+    /// The same bands with the middle one asked for three times a round.
+    const WEIGHTED: &str = "\
+HandType_Weak = hcp(north) <= 10
+HandType_Middling = hcp(north) >= 11 and hcp(north) <= 15
+HandType_Strong = hcp(north) >= 16
+HandType_Middling_Share = 3
+condition 1
+";
+
+    /// A band rare enough that filling it is the whole cost of the run: about
+    /// one deal in three hundred, against two types that arrive constantly.
+    const SKEWED: &str = "\
+HandType_Weak = hcp(north) <= 10
+HandType_Middling = hcp(north) >= 11 and hcp(north) <= 21
+HandType_Strong = hcp(north) >= 22
+condition 1
+";
+
+    /// The rarest type binds and nothing else does: the common ones fill early
+    /// and everything after is dealt and passed over.
+    #[test]
+    fn a_round_costs_what_the_rarest_type_costs() {
+        let (_, report) = round_robin(SKEWED, 18, 5_000_000);
+        assert_eq!(report.produced, 18);
+        // Six `Weak` arrive in the first twenty deals or so. Six `Strong` do
+        // not, and the round cannot close until they have.
+        assert!(
+            report.generated > 500,
+            "18 deals taken from only {} dealt would mean the rare type was not being waited for",
+            report.generated
+        );
+    }
+
+    /// Not an error. A short set is still a set, and the report says what each
+    /// type was owed so a caller can name the ones that fell short.
+    #[test]
+    fn a_round_that_cannot_be_filled_returns_what_it_managed() {
+        let (host, report) = round_robin(SKEWED, 18, 300);
+        assert!(report.hit_limit);
+        assert_eq!(report.produced, host.deals.len());
+        assert!(report.produced < 18, "{} was not short", report.produced);
+        let plan = report.round_robin.expect("the round's shape");
+        assert_eq!(plan.rounds, 6);
+        assert!(
+            (0..report.hand_types.len()).any(|i| report.hand_types[i].1 < plan.owed(i)),
+            "nothing short in a run that hit its limit"
+        );
+        // Never over: a type that has had its share stops being taken.
+        for (i, (name, got)) in report.hand_types.iter().enumerate() {
+            assert!(
+                *got <= plan.owed(i) + plan.per_round[i],
+                "{name} took {got} against {} a round",
+                plan.per_round[i]
+            );
+        }
+    }
+
+    /// A deal that is dealt and passed over must leave no trace. Otherwise the
+    /// averages would describe the qualifying population rather than the set
+    /// that was actually delivered.
+    #[test]
+    fn a_deal_passed_over_is_not_in_the_statistics() {
+        let script = "\
+HandType_Weak = hcp(north) <= 10
+HandType_Middling = hcp(north) >= 11 and hcp(north) <= 15
+HandType_Strong = hcp(north) >= 16
+condition 1
+action average \"strong\" 100 * HandType_Strong
+";
+        let (_, report) = round_robin(script, 36, 5_000_000);
+        let average = &report.stats.averages[0];
+        // A third of the delivered set is Strong, by construction; the
+        // qualifying population is nothing like a third. And the average was
+        // taken over the 36 deals delivered, not over every deal that matched.
+        assert_eq!(average.count, 36);
+        assert!(
+            (average.value - 100.0 / 3.0).abs() < 1e-6,
+            "the average saw deals the set did not: {}",
+            average.value
+        );
+    }
+
+    /// The point of a share: three of that type in every round, exactly.
+    #[test]
+    fn a_share_puts_that_many_of_a_type_in_every_round() {
+        // A round is 1 + 3 + 1, so 25 deals is five complete rounds.
+        let (_, report) = round_robin(WEIGHTED, 25, 5_000_000);
+        assert_eq!(report.produced, 25);
+        let counts: Vec<usize> = report.hand_types.iter().map(|(_, n)| *n).collect();
+        assert_eq!(counts, vec![5, 15, 5]);
+    }
+
+    /// With a share in play the partial round is still a round: a type may take
+    /// up to its own share again, and no more.
+    #[test]
+    fn a_weighted_remainder_never_exceeds_a_types_share() {
+        let (_, report) = round_robin(WEIGHTED, 27, 5_000_000);
+        assert_eq!(report.produced, 27);
+        let plan = report.round_robin.expect("the round's shape");
+        assert_eq!((plan.rounds, plan.remainder), (5, 2));
+        for (i, (name, got)) in report.hand_types.iter().enumerate() {
+            assert!(
+                (plan.owed(i)..=plan.owed(i) + plan.per_round[i]).contains(got),
+                "{name} took {got}, outside its round of {}",
+                plan.per_round[i]
+            );
+        }
+    }
+
+    #[test]
+    fn a_round_robin_and_a_levelling_together_are_refused() {
+        let mut opts = options(10, true);
+        opts.round_robin = true;
+        let mut host = Collector::default();
+        let error = match super::run(LADDER, opts, &mut host) {
+            Err(e) => e,
+            Ok(_) => panic!("a round robin and a levelling together should be refused"),
+        };
+        assert!(error.to_string().contains("one or the other"), "{error}");
     }
 
     fn levelled(produce: usize) -> (Collector, RunReport) {

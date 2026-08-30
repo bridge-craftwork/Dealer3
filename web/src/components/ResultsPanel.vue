@@ -31,7 +31,10 @@
         <span v-else><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
       </div>
 
-      <p v-if="result.hitLimit" class="results-warn">
+      <!-- Not while a round was being dealt: the hand types below say which
+           ones ran out, which is the same news with the part that matters in
+           it. Two warnings saying it once each read as two problems. -->
+      <p v-if="result.hitLimit && !dealingRounds" class="results-warn">
         Stopped at the generate limit before producing {{ requested }} deals. The filter may be
         very selective — raise the limit, or loosen the condition.
       </p>
@@ -81,6 +84,15 @@
             </span>
             <span class="ht-value">{{ (100 * t.delivered).toFixed(1) }}%</span>
             <span v-if="leveling" class="ht-was">was {{ (100 * t.natural).toFixed(1) }}%</span>
+            <!-- Against what the round owed it rather than against the run:
+                 "3 of 4" says a board is missing, where "3 of 11" says nothing
+                 at all. A type holding the remainder shows one more, which is
+                 the partial round and not a shortfall. -->
+            <span
+              v-else-if="t.wanted != null"
+              class="ht-was"
+              :class="{ 'ht-short': t.produced < t.wanted }"
+            >{{ t.produced }} of {{ t.wanted }}</span>
             <span v-else class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
           </div>
         </div>
@@ -89,6 +101,21 @@
              boards across 5 bands carry a standard deviation of 8 points — and
              hiding that behind the target would be drawing the intention rather
              than the result. -->
+        <!-- A round that could not be filled. Not an error — a short set is
+             still a set — but nothing else on the page would say which types
+             ran out, and that is what decides whether to raise the limit or to
+             widen a category that is rarer than its author thought. -->
+        <p v-if="shortOfRound.length" class="ht-warn">
+          Ran out of deals before filling {{ shortOfRound.join(', ') }}. Raise Max generate, or
+          widen the categories that came up short.
+        </p>
+        <p v-else-if="roundFilled" class="ht-key">
+          <template v-if="rounds.even">Exactly {{ rounds.rounds }} of each</template>
+          <template v-else>{{ rounds.rounds }} complete rounds</template><template
+            v-if="rounds.remainder"
+          >, and a partial round of {{ rounds.remainder }}</template>, dealt from
+          {{ result.generated.toLocaleString() }} deals.
+        </p>
         <p v-if="leveling" class="ht-key">
           <span class="ht-swatch natural"></span> natural
           <span class="ht-swatch delivered"></span> this run of {{ handTypes[0]?.out_of }},
@@ -313,6 +340,25 @@ const generatedHint = computed(() =>
 // One palette for the whole panel, so a type is the same colour in its row, on
 // its board and behind its line — which is what shows the run walking through
 // the types rather than meeting them as they fall.
+/// Whether this run was dealing a round robin at all.
+const dealingRounds = computed(() => handTypes.value.some((t) => t.wanted != null))
+
+/// Hand types the round could not fill.
+const shortOfRound = computed(() =>
+  handTypes.value.filter((t) => t.wanted != null && t.produced < t.wanted).map((t) => t.name),
+)
+
+/// Whether every type got what the round owed it, which is the ordinary outcome
+/// and the one worth confirming: a set that is exact does not look any
+/// different from one that is nearly exact.
+const roundFilled = computed(() => dealingRounds.value && shortOfRound.value.length === 0)
+
+/// The round robin's shape, from the engine rather than inferred: how many
+/// complete rounds, how many deals were left over, and whether the rounds were
+/// even or weighted by `HandType_X_Share`. A weighted run has no "N of each" to
+/// report, so the wording turns on it.
+const rounds = computed(() => props.result?.roundRobin ?? null)
+
 const palette = computed(() => handTypePalette(handTypes.value.map((t) => t.name)))
 
 // Averages about hand types are the hand-type table said twice, so they are
@@ -439,6 +485,10 @@ const formatValue = formatAverage
   font-size: 0.85rem;
   white-space: nowrap;
 }
+/* A type that came up short. The count is already there; this only stops it
+   reading as muted furniture like the ones that filled. */
+.ht-short { color: var(--warn, #b45309); font-weight: 600; }
+
 .ht-was {
   font-variant-numeric: tabular-nums;
   color: var(--fg-muted);

@@ -104,6 +104,14 @@
                the next edit would take that away. Greyed while the levelled
                scenario is on screen, because that run has nothing left to
                decide — see `run`. -->
+          <!-- Divides Produce among the hand types instead of taking deals as
+               they come. Beside Auto-level because it answers the same question
+               — what mix comes out — and only one of them can. -->
+          <label class="check" :class="{ off: !roundRobinLive }" :title="roundRobinHint">
+            <input v-model="roundRobin" type="checkbox" :disabled="!roundRobinLive" />
+            Round robin
+          </label>
+
           <label class="check" :class="{ off: !levelBoxLive }" :title="levelHint">
             <input v-model="autoLevel" type="checkbox" :disabled="!levelBoxLive" />
             Auto-level
@@ -207,6 +215,16 @@ const script = ref(restored?.script || STARTER)
 // session keeps its seed, so reloading reproduces what was on screen.
 const seed = ref(restored?.seed ?? randomSeed())
 const produce = ref(restored?.produce ?? 20)
+// Divide Produce among the script's hand types — one of each per round, any
+// remainder going to whichever types turn up next — rather than taking deals as
+// they come.
+//
+// Exact where levelling is exact on average, which for a set generated once and
+// handed to a class is the difference that matters: twenty boards drawn from a
+// perfectly level distribution are four of each *on average* and 6/1/5/4/4
+// without anything having gone wrong. Nothing is measured, so nothing can be
+// measured wrong.
+const roundRobin = ref(restored?.roundRobin ?? false)
 // Generation is the cheap half — ~1.3s for a million deals on a current
 // machine — while a selective filter can easily need hundreds of thousands.
 // 500,000 stopped short on real scripts (Lebensohl produced 17 of 20), and a
@@ -327,7 +345,7 @@ const levelHint = computed(() => {
     return 'The levelled scenario runs as it stands here — press Run for another sample of the same keeps.'
   }
   return hasHandTypes.value
-    ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even.'
+    ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even. Clears Round robin, which answers the same question.'
     : 'Name some categories of hand with variables beginning HandType_ to level them.'
 })
 
@@ -343,6 +361,39 @@ const leveledScript = computed(() => leveling.value?.script || '')
 /// stands.
 const levelBoxLive = computed(() => hasHandTypes.value && editorTab.value !== 'leveled')
 
+// The same conditions, for the same reasons: it needs categories to deal round,
+// and the Leveled tab runs its scenario as it stands.
+//
+// Deliberately *not* greyed while the other is ticked. They are alternatives,
+// but a box greyed out because of a box beside it is a puzzle — so both stay
+// clickable and ticking one clears the other, which says the same thing by
+// doing it.
+const roundRobinLive = computed(() => hasHandTypes.value && editorTab.value !== 'leveled')
+
+/// What to send the engine. On the Leveled tab the generated scenario runs as
+/// it stands, and dealing that round would be both modes at once.
+const roundRobinAsked = computed(
+  () => roundRobin.value && hasHandTypes.value && editorTab.value !== 'leveled',
+)
+
+const roundRobinHint = computed(() => {
+  if (!hasHandTypes.value) {
+    return 'Name some categories of hand with variables beginning HandType_ to deal them round robin.'
+  }
+  return 'Divide Produce among the hand types: one of each per round, and a partial round at the end if it does not divide. Clears Auto-level, which answers the same question.'
+})
+
+// It deals the hand types, so a script naming none has nothing to deal round;
+// and it answers the same question levelling answers, so the two are
+// alternatives. Both are enforced by the engine as well — this only keeps the
+// page from offering a run it knows will be refused.
+watch(hasHandTypes, (has) => {
+  if (!has) roundRobin.value = false
+})
+watch(roundRobin, (on) => {
+  if (on) autoLevel.value = false
+})
+
 const runLabel = computed(() => (editorTab.value === 'leveled' ? 'Run leveled' : 'Run'))
 
 // Ticked for you the first time a script with hand types appears, and left
@@ -355,6 +406,8 @@ watch(hasHandTypes, (has) => {
 watch(autoLevel, (on) => {
   autoLevelTouched.value = true
   if (!on) leveling.value = null
+  // Only on the way on, or the two would clear each other in a loop.
+  if (on) roundRobin.value = false
 })
 
 // The keeps belong to the script they were measured from; an edit makes them
@@ -379,7 +432,7 @@ onMounted(async () => {
 // synchronous — it would otherwise sit on the typing path.
 let saveTimer = null
 watch(
-  [script, seed, produce, maxGenerate, format, selectedFile, autoLevel, newSeedEachRun],
+  [script, seed, produce, roundRobin, maxGenerate, format, selectedFile, autoLevel, newSeedEachRun],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -387,6 +440,7 @@ watch(
         script: script.value,
         seed: seed.value,
         produce: produce.value,
+        roundRobin: roundRobin.value,
         maxGenerate: maxGenerate.value,
         format: format.value,
         scenario: selectedFile.value,
@@ -441,6 +495,7 @@ async function onDownload(kind) {
       const pbn = await generate(script.value, {
         seed: seed.value,
         produce: produce.value,
+        roundRobin: roundRobinAsked.value,
         maxGenerate: maxGenerate.value,
         format: 'pbn',
       })
@@ -453,6 +508,7 @@ async function onDownload(kind) {
       const text = await generate(script.value, {
         seed: seed.value,
         produce: produce.value,
+        roundRobin: roundRobinAsked.value,
         maxGenerate: maxGenerate.value,
         format: format.value === 'pbn' ? 'oneline' : format.value,
       })
@@ -518,6 +574,7 @@ async function run() {
     result.value = await generate(onLeveled ? leveledScript.value : script.value, {
       seed: seed.value,
       produce: produce.value,
+      roundRobin: roundRobinAsked.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,

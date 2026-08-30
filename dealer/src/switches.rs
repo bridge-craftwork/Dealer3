@@ -133,6 +133,24 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     },
     SwitchRow {
         short: "",
+        long: "--round-robin",
+        group: "Generation",
+        what: "Divide -p among the hand types: one of each per round",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Deals, classifies, and takes the deal only if its `HandType_` still has room in \
+             the round. `-p 20` over five types is four of each, on any seed; a remainder \
+             makes a partial round from whichever types turn up next, none taking more than \
+             its share of it. `HandType_X_Share` weights the round and defaults to 1, so \
+             `= 3` puts three of that type in every one. Exact by construction, where \
+             levelling is exact on average and inherits the error in the rate it measured. \
+             For a set generated once and handed to a class; not for BBO, which runs a \
+             script live with nothing to over-generate from.",
+        ),
+    },
+    SwitchRow {
+        short: "",
         long: "--level",
         group: "Generation",
         what: "Level the scenario's hand types and deal it, in one run",

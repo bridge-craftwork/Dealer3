@@ -869,12 +869,93 @@ fn strip_prefix<'a>(name: &'a str, prefix: &str) -> &'a str {
         .trim_start_matches(['_', '-'])
 }
 
+/// The target share each hand type asks for, in declaration order.
+///
+/// One for a type that declares none, which makes an even mix the default.
 pub fn hand_type_shares(program: &Program) -> Result<Vec<f64>, String> {
     let labels: Vec<String> = hand_types(program)
         .into_iter()
         .map(|n| hand_type_label(n).to_string())
         .collect();
     shares_for(program, HAND_TYPE_PREFIX, &labels)
+}
+
+/// What one round of a round robin holds, and how many rounds `produce` pays
+/// for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoundRobinPlan {
+    /// Deals of each hand type in one full round, in declaration order. Its
+    /// share, which is 1 unless the scenario says otherwise.
+    pub per_round: Vec<usize>,
+    /// Complete rounds `produce` pays for.
+    pub rounds: usize,
+    /// Deals left over, dealt as a partial round: each type may take up to its
+    /// share again, and no more.
+    pub remainder: usize,
+}
+
+impl RoundRobinPlan {
+    /// Deals in one full round.
+    pub fn round_size(&self) -> usize {
+        self.per_round.iter().sum()
+    }
+
+    /// What the complete rounds owe a hand type.
+    pub fn owed(&self, index: usize) -> usize {
+        self.rounds * self.per_round[index]
+    }
+
+    /// Whether every type appears once per round, which is the ordinary case
+    /// and reads differently in a report.
+    pub fn even(&self) -> bool {
+        self.per_round.iter().all(|n| *n == 1)
+    }
+}
+
+/// How `produce` deals divide into rounds of the scenario's hand types.
+///
+/// A round holds one of each by default, so `20` over five types is four rounds
+/// and nothing over. `HandType_X_Share = 3` puts three of that type in every
+/// round instead — the share is a count here, where levelling reads it as a
+/// proportion, and the two agree about what it means: three times as often as
+/// a type with a share of 1.
+///
+/// The remainder is not allocated to types here, because which ones receive it
+/// is not a decision to make in advance: the partial round takes whichever
+/// types turn up next, up to their share apiece. Waiting for a *named* type to
+/// fill a leftover slot would mean waiting on the rarest one for a board the
+/// set does not need.
+pub fn round_robin_plan(program: &Program, produce: usize) -> Result<RoundRobinPlan, String> {
+    let names = hand_types(program);
+    if names.is_empty() {
+        return Err(
+            "a round robin deals the scenario's hand types, and this one declares none.\n       \
+             Name some categories with variables beginning `HandType_`."
+                .to_string(),
+        );
+    }
+    let shares = hand_type_shares(program)?;
+    let mut per_round = Vec::with_capacity(shares.len());
+    for (share, name) in shares.iter().zip(&names) {
+        // A share is a count of deals per round here, so a type has to appear
+        // at least once. The parser only produces whole numbers, so that is the
+        // only way a share can fail to be one.
+        if *share < 1.0 {
+            return Err(format!(
+                "`{}{}` is {}, and a round robin deals each type at least once: a share is \
+                 how many of that type appear in every round.\n       Use 1 or more, or \
+                 level the scenario instead of dealing it round robin.",
+                name, SHARE_SUFFIX, *share as i64
+            ));
+        }
+        per_round.push(*share as usize);
+    }
+    let round_size: usize = per_round.iter().sum();
+    Ok(RoundRobinPlan {
+        rounds: produce / round_size,
+        remainder: produce % round_size,
+        per_round,
+    })
 }
 
 /// The share each label asks for, for one decomposition.
