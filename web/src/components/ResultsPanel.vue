@@ -63,44 +63,42 @@
         <p v-for="(w, i) in leveling?.warnings || []" :key="i" class="ht-warn">
           {{ w.replace(/\s+/g, ' ') }}
         </p>
-        <div class="ht">
-          <div v-for="t in handTypes" :key="t.name" class="ht-row">
-            <span class="ht-label" :style="{ color: palette.get(t.name).color }">{{ t.name }}</span>
-            <!-- Two segments, and which comes first says which way the type
-                 moved. A type levelling up shows nature first and the gain
-                 beyond it; one levelling down shows what it delivers first and
-                 what it gave up beyond that. Either way the blue ends at the
-                 delivered share, so the blue edges line up down the column and
-                 it is the orange that is ragged. -->
-            <span class="ht-track">
-              <template v-if="t.delivered >= t.natural">
-                <span class="ht-bar natural" :style="{ width: pct(t.natural) }"></span>
-                <span class="ht-bar delivered" :style="{ width: pct(t.delivered - t.natural) }"></span>
-              </template>
-              <template v-else>
-                <span class="ht-bar delivered" :style="{ width: pct(t.delivered) }"></span>
-                <span class="ht-bar natural" :style="{ width: pct(t.natural - t.delivered) }"></span>
-              </template>
-            </span>
-            <span class="ht-value">{{ (100 * t.delivered).toFixed(1) }}%</span>
-            <span v-if="leveling" class="ht-was">was {{ (100 * t.natural).toFixed(1) }}%</span>
-            <!-- Against what the round owed it rather than against the run:
-                 "3 of 4" says a board is missing, where "3 of 11" says nothing
-                 at all. A type holding the remainder shows one more, which is
-                 the partial round and not a shortfall. -->
-            <span
-              v-else-if="t.wanted != null"
-              class="ht-was"
-              :class="{ 'ht-short': t.produced < t.wanted }"
-            >{{ t.produced }} of {{ t.wanted }}</span>
-            <span v-else class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
+        <!-- One chart when there is one thing to show, two when a levelling
+             gives nature and the run something to be read against each other.
+             Both are drawn to the same scale — see `htScale` — so a bar in one
+             means what a bar of that length means in the other. -->
+        <div class="ht-charts">
+          <div v-for="chart in charts" :key="chart.key" class="ht-chart">
+            <h4 v-if="chart.title" class="ht-chart-title">{{ chart.title }}</h4>
+            <div class="ht" :class="{ counted: chart.counts }">
+              <div v-for="t in handTypes" :key="t.name" class="ht-row">
+                <span class="ht-label" :style="{ color: palette.get(t.name).color }">
+                  {{ t.name }}
+                </span>
+                <span class="ht-track">
+                  <span
+                    class="ht-bar"
+                    :class="chart.tone"
+                    :style="{ width: pct(chart.share(t)) }"
+                  ></span>
+                </span>
+                <span class="ht-value">{{ (100 * chart.share(t)).toFixed(1) }}%</span>
+                <!-- Against what the round owed it rather than against the run:
+                     "3 of 4" says a board is missing, where "3 of 11" says
+                     nothing at all. A type holding the remainder shows one more,
+                     which is the partial round and not a shortfall. -->
+                <template v-if="chart.counts">
+                  <span
+                    v-if="t.wanted != null"
+                    class="ht-was"
+                    :class="{ 'ht-short': t.produced < t.wanted }"
+                  >{{ t.produced }} of {{ t.wanted }}</span>
+                  <span v-else class="ht-was">{{ t.produced }} of {{ t.out_of }}</span>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
-        <!-- The blue is what this run dealt, not the share it was aiming at.
-             Over a short set that is lumpy however even the keeps are — 24
-             boards across 5 bands carry a standard deviation of 8 points — and
-             hiding that behind the target would be drawing the intention rather
-             than the result. -->
         <!-- A round that could not be filled. Not an error — a short set is
              still a set — but nothing else on the page would say which types
              ran out, and that is what decides whether to raise the limit or to
@@ -116,10 +114,16 @@
           >, and a partial round of {{ rounds.remainder }}</template>, dealt from
           {{ result.generated.toLocaleString() }} deals.
         </p>
+        <!-- What the run dealt is not the share it was aiming at. Over a short
+             set that is lumpy however even the keeps are — 24 boards across 5
+             bands carry a standard deviation of 8 points — so the target is
+             said in words here rather than drawn as a third bar nobody asked
+             for. -->
         <p v-if="leveling" class="ht-key">
-          <span class="ht-swatch natural"></span> natural
-          <span class="ht-swatch delivered"></span> this run of {{ handTypes[0]?.out_of }},
-          levelled toward {{ (100 * handTypes[0]?.planned).toFixed(0) }}% each
+          Levelled toward
+          <template v-if="evenTarget">{{ (100 * handTypes[0].planned).toFixed(0) }}% each</template>
+          <template v-else>the shares the scenario declares</template>. A run of
+          {{ handTypes[0]?.out_of }} is lumpy around that however even the keeps are.
         </p>
       </section>
 
@@ -367,7 +371,44 @@ const plainAverages = computed(() =>
   (props.result?.averages || []).filter((a) => !a.is_hand_type),
 )
 
-/// The longest bar in the table, which every row is drawn against.
+/// The charts to draw: one, or two when a levelling gives nature and the run
+/// something to be read against each other.
+///
+/// They were one chart with two segments stacked in it, and which segment came
+/// first said which way a type had moved. Readable once explained, which is the
+/// problem — a reader who has not had it explained sees two bars of different
+/// colours and no reason for the order. Two charts say the same thing by being
+/// two charts.
+const charts = computed(() => {
+  if (!leveling.value) {
+    return [{ key: 'run', title: null, tone: 'delivered', counts: true, share: (t) => t.delivered }]
+  }
+  return [
+    { key: 'natural', title: 'Natural', tone: 'natural', counts: false, share: (t) => t.natural },
+    {
+      key: 'run',
+      title: `This run of ${props.result?.produced ?? 0}`,
+      tone: 'delivered',
+      counts: false,
+      share: (t) => t.delivered,
+    },
+  ]
+})
+
+/// Whether the levelling was aiming at an even mix, which is nearly always. A
+/// scenario declaring `HandType_X_Share` is not, and "20% each" would be a lie
+/// about it.
+const evenTarget = computed(() => {
+  const planned = handTypes.value.map((t) => t.planned)
+  return planned.every((p) => Math.abs(p - planned[0]) < 1e-9)
+})
+
+/// The longest bar in either chart, which every row of both is drawn against.
+///
+/// Shared deliberately: two charts side by side are only worth having if a bar
+/// in one means what a bar of that length means in the other. Scaling each to
+/// its own longest row would draw a type at 43% and a type at 23% the same
+/// width and say nothing about the difference.
 ///
 /// A natural mix runs from a couple of percent to nearly sixty, so a 0-100
 /// scale leaves the interesting end squashed into the first inch. Scaling to
@@ -461,12 +502,34 @@ const formatValue = formatAverage
    grid let a shorter count on one line widen that row's bar by eight pixels,
    and bars that start and end in slightly different places are worse than
    bars that are slightly narrower. */
+/* Side by side while there is room for both, stacked when there is not — and
+   at the width the deals below need for three hands, so the panel does not
+   change its mind about how wide it is halfway down. That grid is
+   `minmax(240px, 1fr)` with a 10px gap, so three hands want 740px; two charts
+   of 359 plus this gap want the same. `auto-fit` measures the panel rather
+   than the window, which is what matters when the panel is a column. */
+.ht-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(359px, 1fr));
+  gap: 10px 22px;
+  align-items: start;
+}
+.ht-chart-title {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .ht {
   display: grid;
-  grid-template-columns: auto minmax(4rem, 1fr) auto auto;
+  grid-template-columns: auto minmax(4rem, 1fr) auto;
   align-items: center;
   gap: 6px 10px;
 }
+/* The count column, which only the chart of what was dealt carries. */
+.ht.counted { grid-template-columns: auto minmax(4rem, 1fr) auto auto; }
 .ht-row { display: contents; }
 .ht-label { font-family: var(--mono); font-size: 0.86rem; font-weight: 600; }
 .ht-track {
@@ -498,15 +561,6 @@ const formatValue = formatAverage
 }
 .ht-note { color: var(--fg-muted); font-size: 0.8rem; margin: 0 0 8px; }
 .ht-key { color: var(--fg-muted); font-size: 0.78rem; margin: 8px 0 0; }
-.ht-swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  margin: 0 4px 0 10px;
-  vertical-align: -1px;
-}
-.ht-key .ht-swatch:first-child { margin-left: 0; }
 /* Amber rather than red: the levelling ran and its numbers are on screen —
    this is about how much to trust them, not about a failure. */
 /* Quieter than the numbers it explains: the total is the figure, the split is
@@ -531,8 +585,6 @@ const formatValue = formatAverage
   border-radius: 0 3px 3px 0;
 }
 
-.ht-swatch.natural { background: var(--natural); }
-.ht-swatch.delivered { background: var(--accent); }
 
 /* One deal per span so each can carry its type's tint. `pre` keeps the
    whitespace; the spans are inline so a multi-line format still reads. */
