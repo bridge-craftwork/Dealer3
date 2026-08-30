@@ -18,6 +18,7 @@ import {
   StreamLanguage,
   syntaxHighlighting,
 } from '@codemirror/language'
+import { EditorView } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
 
 /** Longest first, so `spades` matches before `spade`. */
@@ -285,7 +286,8 @@ export function tokenizeLine(parser, line, state = parser.startState()) {
 export function dlrLanguage(info) {
   return new LanguageSupport(
     StreamLanguage.define({ ...dlrStreamParser(info), tokenTable: DLR_TOKENS }),
-    [dlrHighlighting],
+    // The classes and what they look like, so any view of a script gets both.
+    [dlrHighlighting, dlrTokenColors],
   )
 }
 
@@ -315,6 +317,11 @@ export const DLR_TOKENS = {
   // The two halves of a `# key: value` header.
   metaKey: tags.propertyName,
   metaValue: tags.attributeValue,
+
+  // Ordinary variables. The same tag CodeMirror would have found on its own —
+  // it is here only so `DLR_TOKEN_CLASSES` can hang a class on it and the
+  // editor's theme can take the colour off one-dark.
+  variableName: tags.variableName,
 }
 
 /// Plain class names for the tokens this language adds, so the editor's theme
@@ -332,6 +339,7 @@ export const DLR_TOKENS = {
 /// the same silent nothing `function` was, and a test can only check for it if
 /// it can read the list.
 export const DLR_TOKEN_CLASSES = {
+  variableName: 'dlr-variable',
   levelingName: 'dlr-leveling-name',
   levelingShare: 'dlr-leveling-share',
   levelingMarker: 'dlr-leveling-marker',
@@ -339,7 +347,7 @@ export const DLR_TOKEN_CLASSES = {
   metaValue: 'dlr-meta-value',
 }
 
-/// The colours for those classes, layered over whatever base theme is in use.
+/// The classes for those tokens, layered over whatever base theme is in use.
 export const dlrHighlighting = syntaxHighlighting(
   HighlightStyle.define(
     Object.entries(DLR_TOKEN_CLASSES).map(([token, cls]) => ({
@@ -348,5 +356,53 @@ export const dlrHighlighting = syntaxHighlighting(
     })),
   ),
 )
+
+/// And their colours, tuned for one-dark's dark ground.
+///
+/// Here rather than in a component, because there are two of them — the editor
+/// and the read-only viewer the Leveled tab shows — and for a while only one
+/// had these rules. The other emitted every class and coloured none of them,
+/// so a generated scenario's `HandType_` names and `# key:` headers fell back
+/// to whatever one-dark makes of the underlying tags, which is coral for both.
+/// A language that ships its own classes should ship what they look like.
+export const dlrTokenColors = EditorView.theme({
+  // A variable is the one thing in a script that is *not* a word the language
+  // knows, and one-dark paints it coral — the most emphatic hue in the palette,
+  // spent on the token carrying the least meaning. A script is mostly
+  // variables, so most of the pane was shouting. Near-white instead, which is
+  // what VS Code does with the same files, and it leaves the keywords and
+  // functions to be the coloured things.
+  '.dlr-variable': { color: '#ccd1d9' },
+
+  // The names the levelling machinery reads, which are ordinary variables to
+  // the grammar and so would be that same near-white without this. One-dark's
+  // eight hues are all spoken for, and a ninth close enough to fit would be
+  // close enough to confuse — so these are marked by a dotted rule under a
+  // brighter white, which no other token wears. The underline's colour is the
+  // only thing separating a hand type from the share that weights it.
+  '.dlr-leveling-name': {
+    color: '#dfe4ec',
+    textDecoration: 'underline dotted #61afef',
+    textUnderlineOffset: '3px',
+  },
+  '.dlr-leveling-share': {
+    color: '#dfe4ec',
+    textDecoration: 'underline dotted #e5c07b',
+    textUnderlineOffset: '3px',
+  },
+
+  // The generated block's markers and stamp. Comments, and left the colour of
+  // comments — they have to be comments for a levelled scenario to run on BBO —
+  // but weighted, so the region you must not edit by hand is bracketed visibly.
+  '.dlr-leveling-marker': { color: '#93a1b5', fontWeight: '700' },
+
+  // A `# key: value` header PBS reads, in one-dark's own hues: the key in the
+  // whiskey it paints constants, which cannot appear in a header, the value in
+  // the green it paints text. The effect that matters is on the line this does
+  // *not* match — a mistyped key leaves the whole header the flat grey of an
+  // ordinary comment, which is what it has become.
+  '.dlr-meta-key': { color: '#d19a66', fontWeight: '700' },
+  '.dlr-meta-value': { color: '#98c379' },
+})
 
 export const LANGUAGE_ID = 'dlr'

@@ -781,15 +781,41 @@ demand.**
 Levelling is the wrong tool: it gets the long-run proportions right and cannot
 make a finite set come out even.
 
-For a PBN generated once and handed to a class, what you want is **quotas** —
-deal, classify, take the deal if its bin has room, stop when every bin is full.
-The bins are then exact by construction rather than in expectation, and it needs
-no characterizing, no keeps, no `roll` and no `{{level-mix}}`, so it has nothing
-to get wrong.
+For a PBN generated once and handed to a class, what you want is
+`--round-robin` — deal, classify, take the deal if its hand type still has room
+in the round, stop when `-p` is satisfied. The types come out exact by
+construction rather than in expectation, and it needs no characterizing, no
+keeps, no `roll` and no `{{level-mix}}`, so it has nothing to get wrong.
 
-That is [issue #16](https://github.com/bridge-craftwork/Dealer3/issues/16), and
-it is not implemented yet. Levelling is for the stream; quotas are for the
-finite set.
+```
+$ dealer NT_Ladder.dlr -p 20 --round-robin -f pbn --interleave > lesson.pbn
+```
+
+Four boards of every hand type, on any seed. `-p` still says how many, so this
+is a flag rather than a second count; a remainder makes a partial round at the
+end, and no type takes more than its share of it. In the browser it is the
+**Round robin** box beside Auto-level.
+
+`HandType_X_Share` weights the round, exactly as it weights a levelling.
+It defaults to 1, so a scenario saying nothing gets one of each;
+`HandType_22_24_Share = 3` puts three of that type in every round, and a round
+of 1 + 3 + 1 + 1 + 1 is seven deals. The difference from levelling is that the
+count is dealt out rather than aimed at, so a weighted set comes out weighted
+exactly.
+
+The cost is set by the rarest type and by nothing else: the common ones fill
+early and every deal after that is dealt and passed over. For twenty NT_Ladder
+boards that is roughly three times the dealing of a levelled twenty, and still
+under a second.
+
+**Levelling is for the stream; rounds are for the finite set.** A BBO practice
+table runs the script live and takes deals as they come, with nothing to
+over-generate from — so a scenario that will run there still needs levelling.
+
+Which is why they compose. `--level --write-leveled x.dlr --round-robin` gives
+you the levelled scenario to publish and an exactly even set to hand out, from
+one run, and costs no more than the round alone: the keeps thin the common types
+and leave the rarest at a keep of 1, and the rarest is what the run waits for.
 
 ---
 

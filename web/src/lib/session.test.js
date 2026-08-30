@@ -18,6 +18,7 @@ const session = {
   script: 'condition hcp(north) >= 15\n',
   seed: 42,
   produce: 25,
+  roundRobin: false,
   maxGenerate: 100000,
   format: 'printall',
   scenario: 'Weak_2_Bids',
@@ -27,6 +28,14 @@ describe('saveSession / loadSession', () => {
   it('round-trips a session', () => {
     saveSession(session)
     expect(loadSession()).toEqual(session)
+  })
+
+  it('reads a session saved before round robin existed as off', () => {
+    // Not a defaulted `undefined`, because there is nothing to tell apart: a
+    // session that never chose was taking deals as they came.
+    const { roundRobin, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().roundRobin).toBe(false)
   })
 
   it('returns null when nothing is stored', () => {

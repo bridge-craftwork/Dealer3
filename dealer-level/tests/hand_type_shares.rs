@@ -5,7 +5,7 @@
 //! variable assignment, so a script using it parses on BBO exactly as the
 //! `HandType_` convention does.
 
-use dealer_level::{hand_type_label, hand_type_shares, hand_types};
+use dealer_level::{hand_type_label, hand_type_shares, hand_types, round_robin_plan};
 
 fn program(source: &str) -> dealer_parser::Program {
     let pre = dealer_parser::preprocess_all(source, &Default::default()).expect("preprocesses");
@@ -221,4 +221,66 @@ fn a_group_mix_follows_the_joint_distribution() {
 #[test]
 fn a_group_mix_of_nothing_is_zero_rather_than_a_division_by_zero() {
     assert_eq!(group_mix(&[vec![0, 0]], &[1.0, 1.0]), vec![0.0]);
+}
+
+// ---------------------------------------------------------------------------
+// A round robin, which reads the same declarations as counts per round.
+
+fn plan(source: &str, produce: usize) -> dealer_level::RoundRobinPlan {
+    round_robin_plan(&program(source), produce).expect("a plan")
+}
+
+#[test]
+fn a_round_holds_one_of_each_by_default() {
+    let p = plan(THREE, 12);
+    assert_eq!(p.per_round, vec![1, 1, 1]);
+    assert_eq!((p.rounds, p.remainder), (4, 0));
+    assert!(p.even());
+}
+
+/// The point of the share: three of that type in every round, so a set weighted
+/// 1:3:1 comes out weighted 1:3:1 exactly rather than on average.
+#[test]
+fn a_share_puts_that_many_of_a_type_in_every_round() {
+    let source = format!("{THREE}\nHandType_b_Share = 3\n");
+    let p = plan(&source, 15);
+    assert_eq!(p.per_round, vec![1, 3, 1]);
+    assert_eq!(p.round_size(), 5);
+    assert_eq!((p.rounds, p.remainder), (3, 0));
+    assert!(!p.even());
+    assert_eq!((p.owed(0), p.owed(1), p.owed(2)), (3, 9, 3));
+}
+
+#[test]
+fn a_remainder_is_left_for_a_partial_round() {
+    // Four rounds and two over, not five-five-four: which types get the
+    // leftovers is decided by whichever turn up next, so it cannot be settled
+    // here.
+    let p = plan(THREE, 14);
+    assert_eq!((p.rounds, p.remainder), (4, 2));
+}
+
+#[test]
+fn fewer_deals_than_a_round_is_all_remainder() {
+    // `-p 2` over three types is two deals of two different types — a partial
+    // round and nothing else, rather than an error or a third of a deal each.
+    let p = plan(THREE, 2);
+    assert_eq!((p.rounds, p.remainder), (0, 2));
+    assert_eq!(p.owed(0), 0);
+}
+
+#[test]
+fn a_scenario_naming_no_hand_types_has_no_rounds() {
+    let err = round_robin_plan(&program("condition 1\n"), 12).unwrap_err();
+    assert!(err.contains("HandType_"), "{err}");
+}
+
+/// A share is a count of deals per round here, so every type has to appear.
+/// Levelling can express "never" as a weight of zero; a round cannot.
+#[test]
+fn a_share_of_zero_is_refused() {
+    let source = format!("{THREE}\nHandType_b_Share = 0\n");
+    let err = round_robin_plan(&program(&source), 12).unwrap_err();
+    assert!(err.contains("HandType_b_Share"), "{err}");
+    assert!(err.contains("1 or more"), "{err}");
 }

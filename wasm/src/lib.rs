@@ -143,6 +143,9 @@ struct HandTypeShare {
     delivered: f64,
     produced: usize,
     out_of: usize,
+    /// How many deals of this type a round robin owed it. Against `produced` it
+    /// says whether the type came up short. `None` for any other run.
+    wanted: Option<usize>,
 }
 
 /// The levelling, as numbers. No prose: how it reads is the page's business.
@@ -207,6 +210,21 @@ struct GenerateResult {
     hand_types: Vec<HandTypeShare>,
     /// Present only when the run was levelled.
     leveling: Option<LevelingResult>,
+    /// Present only when the run was dealt round robin.
+    round_robin: Option<RoundRobinResult>,
+}
+
+/// How a round robin was shaped, for a page that has to word it. The counts
+/// per type are already in `hand_types`.
+#[derive(Serialize)]
+struct RoundRobinResult {
+    /// Complete rounds the run dealt.
+    rounds: usize,
+    /// Deals in the partial round at the end, if any.
+    remainder: usize,
+    /// Whether every type appears once per round, which reads differently from
+    /// a scenario weighting them with `HandType_X_Share`.
+    even: bool,
 }
 
 /// Script settings that affect output but not generation.
@@ -385,6 +403,14 @@ impl RunHost for Page<'_> {
 /// each `HandType_*` comes up — works out a keep rate for each and deals the
 /// levelled copy. Both passes are the engine's business; what comes back is
 /// the deals and the numbers behind them.
+///
+/// With `round_robin`, it divides `produce` among the `HandType_*` variables —
+/// one of each per round, any remainder going to whichever types turn up next,
+/// one apiece — instead of taking deals as they come. Nothing is measured, so
+/// nothing can be measured wrong: a levelled set of twenty is four of each on
+/// average and 6/1/5/4/4 without anything having gone wrong, where a round is
+/// four. Refused alongside `auto_level`, which asks for the same thing the
+/// other way.
 #[wasm_bindgen]
 pub fn generate(
     script: &str,
@@ -393,6 +419,7 @@ pub fn generate(
     max_generate: usize,
     format: &str,
     auto_level: bool,
+    round_robin: bool,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
     let format = Format::parse(format)?;
@@ -476,6 +503,7 @@ pub fn generate(
             threads: threads_available(),
             batch: 0,
             params: Default::default(),
+            round_robin,
             leveling: auto_level.then_some(LevelingOptions {
                 // The target mix comes out of the script, exactly as it does on
                 // the command line: `HandType_22_24_Share = 3` and nothing
@@ -542,23 +570,47 @@ pub fn generate(
                 delivered: *count as f64 / report.produced.max(1) as f64,
                 produced: *count,
                 out_of: report.produced,
+                // A levelled run can be dealt round robin too — the levelling
+                // measures the scenario, the round decides which of its deals
+                // reach the caller — so this is read the same way in both
+                // branches.
+                wanted: report.round_robin.as_ref().map(|p| p.owed(i).max(*count)),
             })
             .collect(),
-        None => report
-            .hand_types
-            .iter()
-            .map(|(name, count)| {
-                let share = *count as f64 / report.produced.max(1) as f64;
-                HandTypeShare {
-                    name: name.clone(),
-                    natural: share,
-                    planned: share,
-                    delivered: share,
-                    produced: *count,
-                    out_of: report.produced,
-                }
-            })
-            .collect(),
+        None => {
+            // Dealing a round robin, `planned` is the even split that was asked
+            // for rather than the mix that turned up — and unless the deals ran
+            // out, the two are the same number. That is the whole point of it,
+            // and the page draws the pair without needing to know which mode it
+            // is in.
+            let plan = report.round_robin.as_ref();
+            report
+                .hand_types
+                .iter()
+                .enumerate()
+                .map(|(i, (name, count))| {
+                    let share = *count as f64 / report.produced.max(1) as f64;
+                    HandTypeShare {
+                        name: name.clone(),
+                        natural: share,
+                        planned: match plan {
+                            Some(p) => p.per_round[i] as f64 / p.round_size().max(1) as f64,
+                            None => share,
+                        },
+                        delivered: share,
+                        produced: *count,
+                        out_of: report.produced,
+                        // What the complete rounds owed it — or, once that is
+                        // met, what it actually took. A type holding part of
+                        // the partial round was owed that much, and saying so
+                        // keeps the pair a fraction a reader can trust: "5 of
+                        // 5" and "4 of 4", never "5 of 4", which looks like an
+                        // error rather than a partial round.
+                        wanted: plan.map(|p| p.owed(i).max(*count)),
+                    }
+                })
+                .collect()
+        }
     };
 
     let leveling = report.leveling.as_ref().map(|levelling| {
@@ -620,6 +672,11 @@ pub fn generate(
         printes: page.printed,
         hand_types,
         leveling,
+        round_robin: report.round_robin.as_ref().map(|p| RoundRobinResult {
+            rounds: p.rounds,
+            remainder: p.remainder,
+            even: p.even(),
+        }),
         seconds: (now_ms() - started) / 1000.0,
     };
     serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))

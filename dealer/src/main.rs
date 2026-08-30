@@ -172,6 +172,40 @@ struct Args {
     #[arg(long = "level-budget", value_name = "N")]
     level_budget: Option<f64>,
 
+    /// Divide -p among the hand types: one of each per round, rather than taking deals as they come
+    ///
+    /// `-p 20` over five `HandType_` variables is four of each, on any seed. A
+    /// remainder makes a partial round at the end — `-p 22` is four rounds and
+    /// then two more deals, from whichever types turn up next, and no type
+    /// takes more than its share of that round either.
+    ///
+    /// `HandType_X_Share = 3` puts three of that type in every round. The
+    /// default is 1, so a scenario saying nothing gets one of each.
+    ///
+    /// A flag rather than a count, because `-p` already says how many. This
+    /// only says how they are chosen.
+    ///
+    /// Nothing is measured, so nothing can be measured wrong. Levelling divides
+    /// by a rate it estimated, and an estimate 20% high delivers a mix 20% off
+    /// for good, however many deals follow; a round is exact by construction,
+    /// which is what a set generated once for a class wants.
+    ///
+    /// The rarest type sets the cost and nothing else does. Common types fill
+    /// early and everything after is dealt and passed over — the same rarity a
+    /// levelled run pays for, paid until the round is actually full rather than
+    /// until it is full on average.
+    ///
+    /// Independent of `--level`, and useful with it: that measures the scenario
+    /// and writes the levelled copy, this decides which deals reach the file.
+    /// Together you get a script to publish and an exact set to hand out, and
+    /// it costs no more than a round robin on its own — the rarest type sets
+    /// the cost either way, and its keep is 1.
+    ///
+    /// Not for BBO on its own: a practice table runs the script live and takes
+    /// deals as they come, with nothing to over-generate from. Level for that.
+    #[arg(long = "round-robin")]
+    round_robin: bool,
+
     /// Order the output so each hand type appears before any repeats
     ///
     /// Needs `HandType_*` variables to classify against. Holds every produced
@@ -1499,6 +1533,7 @@ fn main() {
                         measure_cap: args.level_measure,
                     }
                 }),
+                round_robin: args.round_robin,
                 threads: args.threads,
                 batch: args.batch_size,
                 params: params.clone(),
@@ -1543,6 +1578,30 @@ fn main() {
         // Calculate elapsed time
         let elapsed = start_time.elapsed().unwrap();
         let elapsed_secs = elapsed.as_secs_f64();
+
+        // A round that could not be filled. Not an error — a short set is still
+        // a set, and which types came up short is what tells an author whether
+        // to raise `-g` or to widen a category that is rarer than they thought.
+        if let Some(round) = &report.round_robin {
+            let short: Vec<String> = report
+                .hand_types
+                .iter()
+                .enumerate()
+                .filter(|(i, (_, got))| *got < round.owed(*i))
+                .map(|(i, (name, got))| {
+                    format!("{} {}/{}", hand_type_label(name), got, round.owed(i))
+                })
+                .collect();
+            if !short.is_empty() {
+                eprintln!(
+                    "Warning: {} short of the round after {} deals: {}.\n         \
+                     Raise -g, or widen the categories that came up short.",
+                    short.len(),
+                    generated,
+                    short.join(", ")
+                );
+            }
+        }
 
         // The levelling, if there was one: what it measured, what it decided,
         // and the scenario it wrote. All of it arithmetic the engine has already

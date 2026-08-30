@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **36 of the 47 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **37 of the 48 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -36,6 +36,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-g`, `--generate` | Stop after dealing N hands | ✅ | ✅ | ✅ | Default 10,000,000. Whichever limit is reached first ends the run. |
 | `-s`, `--seed` | Random seed | ✅ | ✅ | ✅ | Default is the clock. dealer3 has its own RNG (xoshiro256++), so a seed does not reproduce dealer.exe's deals — that went with legacy mode. |
 | `-t`, `--timeout` | Give up after N seconds | ✅ | — | — |  |
+| `--round-robin` | Divide -p among the hand types: one of each per round | ✅ | — | — | Deals, classifies, and takes the deal only if its `HandType_` still has room in the round. `-p 20` over five types is four of each, on any seed; a remainder makes a partial round from whichever types turn up next, none taking more than its share of it. `HandType_X_Share` weights the round and defaults to 1, so `= 3` puts three of that type in every one. Exact by construction, where levelling is exact on average and inherits the error in the rate it measured. For a set generated once and handed to a class; not for BBO, which runs a script live with nothing to over-generate from. Independent of `--level` and useful with it: that writes the scenario, this shapes the file. |
 | `--level` | Level the scenario's hand types and deal it, in one run | ✅ | — | — | Two passes over the same stream: one to find out how often each `HandType_*` comes up, one to deal the levelled copy. `-p` sizes the second; the first stops when the rarest type is worth dividing by, bounded by `--level-measure` and `--level-timeout`. Add `--write-leveled` to keep the scenario it generated. |
 | `--write-leveled` | Write a copy of the script with its hand types levelled | ✅ | — | — | Measures how often each `HandType_*` variable comes up, works out the keep rate for each, and writes them into the copy. The measuring run sizes itself — see `--level-measure`. The target mix comes from the script's `HandType_*_Share` declarations unless `--level-target` overrides them. See `docs/leveling-guide.md`. |
 | `--level-target` | Target mix when levelling: even, or one weight per hand type | ✅ | — | — | Overrides the script's own `HandType_*_Share` declarations, as `-s` overrides `seed`. Without either, the mix is even. |

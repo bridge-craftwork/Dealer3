@@ -506,6 +506,81 @@ So a levelled twelve-board set shows the complete range about two thirds of the
 time. Twenty-four gets it to 98%. Nothing gets it to certainty, because twelve
 draws from an even distribution are lumpy however even the distribution is.
 
+### Getting to certainty anyway, with `--round-robin`
+
+The table above is a limit on *sampling*, not a limit on the problem. It applies
+because a levelled run takes deals as they come and the mix is a matter of
+chance about each one. A set generated once and handed to a class need not be
+sampled at all: it can be filled.
+
+```
+$ dealer NT_Ladder.dlr -p 20 --round-robin -f pbn --interleave > lesson.pbn
+```
+
+Deal, classify, take the deal if its type still has room in the round, stop when
+`-p` is satisfied. Twenty boards over five types is four of each, every time, on
+any seed — the last column of that table becomes 100% and stops being
+interesting.
+
+`-p` still says how many, which is why this is a flag and not a second count.
+A remainder makes a partial round at the end: `-p 22` is four rounds and then
+two more deals, from whichever types turn up next — and no type takes more than
+its share of that round either. Waiting for a *named* type to fill a leftover
+slot would mean paying the rarest type's cost again for a board the set does not
+need.
+
+It needs no levelling at all: no measuring pass, no keeps, no `roll`, no
+generated block. Which matters more than the convenience, because it sidesteps
+the one error levelling cannot recover from. A keep is `mix / natural`, so an
+error in a *measured* rate passes straight into the delivered mix — and it is
+systematic, so producing more deals converges on the wrong number rather than
+scattering around the right one. A ten-thousand-deal characterizing pass that
+happens to see the rarest type 24% too often under-delivers it by three and a
+half points, permanently. A round has nothing to measure and so nothing to get
+wrong.
+
+What it costs is set by the rarest type and by nothing else. The common types
+fill in the first hundred deals or so and everything after that is dealt and
+passed over — which is not waste to be engineered away, but the same rarity the
+levelled version pays for, paid until the bin is actually full rather than until
+it is full on average. For twenty NT_Ladder boards that is about three times the
+dealing, and still well under a second.
+
+`HandType_X_Share` weights the round. It defaults to 1, so a scenario saying
+nothing gets one of each; `HandType_22_24_Share = 3` puts three of that type in
+every round instead. The share means the same thing it means to levelling —
+three times as often as a type of share 1 — counted out rather than aimed at,
+so 1:3:1 comes out 1:3:1 exactly and not on average. A round of 1 + 3 + 1 is
+five deals, so `-p 15` is three of them.
+
+A share of zero is refused: a round deals every type at least once, and
+"never" is a weight levelling can express and a round cannot.
+
+If the deals run out before a type fills, the run says which types came up short
+rather than quietly delivering fewer.
+
+**It does not apply to BBO.** A practice table runs the script live and takes
+deals as they come; there is nothing to over-generate from and nothing to
+discard. So this does not replace levelling — levelling is for a script someone
+else runs, a round is for a finite artefact generated here.
+
+Which is why the two compose rather than exclude each other:
+
+```
+$ dealer NT_Ladder.dlr -p 20 --level --write-leveled NT_Ladder.leveled.dlr --round-robin
+```
+
+One run gives you the levelled scenario to publish *and* an exactly even set to
+hand out. They rest on the same `HandType_` declarations and do different jobs
+with them: the levelling measures the scenario and computes the keeps, the round
+decides which of the resulting deals reach the file. The characterizing pass is
+never dealt round robin — a pass that stopped taking a type once it had enough
+would measure its own filter rather than the scenario.
+
+It costs no more than a round on its own, either. The keeps thin the common
+types and leave the rarest at a keep of 1, and the rarest is what the whole run
+waits for.
+
 ### Dealing them out in an order, with `--interleave`
 
 Levelling fixes the proportions. It says nothing about the sequence, and a

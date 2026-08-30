@@ -108,6 +108,7 @@ function runInWorker(script, options) {
         maxGenerate: options.maxGenerate,
         format: options.format,
         autoLevel: options.autoLevel,
+        roundRobin: options.roundRobin,
       },
     })
   })
@@ -151,6 +152,9 @@ export async function generate(
     maxGenerate = 1000000,
     format = 'oneline',
     autoLevel = false,
+    /// Divide `produce` among the script's `HandType_` variables — one of each
+    /// per round — instead of taking deals as they come.
+    roundRobin = false,
     /// Called with `{ phase, produced, generated, target }` as the run goes.
     onProgress = null,
     /// Resolves — or rejects — if the caller abandons the run.
@@ -163,6 +167,7 @@ export async function generate(
     maxGenerate,
     format,
     autoLevel,
+    roundRobin,
     onProgress,
     signal,
   }))
@@ -182,13 +187,19 @@ export async function generate(
     dealTypes: raw.deal_types,
     // Every `HandType_*` the script declares, with its share of this run. When
     // the run was levelled, `natural` is what the measuring pass saw and
-    // `delivered` what the keeps produced; otherwise the two agree.
+    // `delivered` what the keeps produced; in a round robin, `planned` is the
+    // even split asked for and `wanted` the count each type was owed;
+    // otherwise they all agree.
     handTypes: raw.hand_types,
     // Present only when the run was levelled: the scenario that actually ran,
     // and what it cost. Numbers only — the page draws the bars. `rarest_error`
     // is the relative standard error on the rate every keep divides by, which
     // is the one figure that says whether a levelling is worth trusting.
     leveling: raw.leveling,
+    // Present only when the run was dealt round robin: how many complete
+    // rounds, how many deals were left over, and whether the rounds were even
+    // or weighted by `HandType_X_Share`.
+    roundRobin: raw.round_robin,
     // `deals` is capped by the engine; `produced` counts every match. A script
     // gathering statistics over 50,000 deals returns statistics for all of them
     // and only the first few hundred deals.

@@ -81,6 +81,7 @@ self.onmessage = async (event) => {
       options.maxGenerate,
       options.format,
       options.autoLevel,
+      options.roundRobin,
       onProgress,
     )
     self.postMessage({ id, type: 'done', raw, threads: pool.threads })

@@ -91,6 +91,17 @@ pub struct Matched {
     pub level_type: Option<usize>,
 }
 
+/// What [`RunAccumulator::observe`] made of a deal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Observed {
+    pub matched: Matched,
+    /// False only when a round robin is being filled and this deal's hand type
+    /// is already full — or it has none, which in a round robin is the same
+    /// answer. The deal was still dealt and still classified; it is simply not
+    /// taken, and has left no mark on any count or statistic.
+    pub taken: bool,
+}
+
 /// What went wrong while observing a deal.
 ///
 /// Carries the deal for [`RunError::Overlap`] because that is the one a reader
@@ -245,6 +256,14 @@ pub struct RunAccumulator<'a> {
     averages: Vec<Running<'a>>,
     frequencies: Vec<Histogram<'a>>,
 
+    /// A round robin's shape: what one round holds, how many rounds there are,
+    /// and how many deals are left over for a partial round at the end. Absent
+    /// for an ordinary run, and then nothing is refused.
+    round_robin: Option<dealer_level::RoundRobinPlan>,
+    /// Leftover slots already given out. At most one per hand type, which is
+    /// what keeps a partial round from repeating a type.
+    extras_taken: usize,
+
     produced: usize,
     stop: MeasureStop,
 }
@@ -302,6 +321,8 @@ impl<'a> RunAccumulator<'a> {
         };
 
         Ok(RunAccumulator {
+            round_robin: None,
+            extras_taken: 0,
             hand_type_names,
             hand_type_labels,
             hand_type_counts,
@@ -317,6 +338,17 @@ impl<'a> RunAccumulator<'a> {
         })
     }
 
+    /// Deal a round robin: whole rounds of the plan's shape, then a partial
+    /// round from whichever types turn up next, up to their share apiece.
+    ///
+    /// A deal whose type is full is still dealt and still classified — there is
+    /// no way to make a rare hand arrive sooner — but it is not taken, and
+    /// contributes to nothing.
+    pub fn with_round_robin(mut self, plan: dealer_level::RoundRobinPlan) -> Self {
+        self.round_robin = Some(plan);
+        self
+    }
+
     /// Observe one deal the condition accepted.
     ///
     /// Contexts are built here rather than passed in: where their boundaries
@@ -325,61 +357,144 @@ impl<'a> RunAccumulator<'a> {
     /// where both front ends drew them — one shared by the `average`s and the
     /// `frequency`s, one for the hand types, one for the levelling types — and
     /// each built only when something needs it.
+    ///
+    /// A round robin reverses the first two, because it has to: whether a deal
+    /// counts at all is a question about its hand type, and a deal that turns
+    /// out not to be wanted must leave no trace in an `average`. So it
+    /// classifies first and averages second, and a script with `rnd()` in both
+    /// an `average` and a `HandType_` draws them the other way round from the
+    /// same deal. `--round-robin` is a new mode with nothing to be compatible
+    /// with, where a plain `-p` has dealer.exe behind it.
     pub fn observe<'d>(
         &mut self,
         deal: &'d Deal,
         variables: &'d Variables<'d>,
         counts: Option<&'d PointCounts>,
-    ) -> Result<Matched, RunError> {
-        if !self.averages.is_empty() || !self.frequencies.is_empty() {
-            let ctx = EvalContext::with_counts(deal, variables, counts);
-            for average in self.averages.iter_mut() {
-                let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
-                    what: "Average evaluation error".to_string(),
-                    message: e.to_string(),
-                })?;
-                average.sum += value as f64;
-                average.count += 1;
+    ) -> Result<Observed, RunError> {
+        if let Some(plan) = self.round_robin.clone() {
+            let hand_type = self.pick_hand_type(deal, variables, counts)?;
+            // Untyped deals are not wanted either: a round robin is a statement
+            // about the categories, and a deal in none of them is in no round.
+            //
+            // A type the complete rounds have paid for may still take from the
+            // leftovers, up to one more round's worth of itself and no further
+            // — which is what makes the partial round at the end a round rather
+            // than a repeat.
+            let wanted = match hand_type {
+                Some(i) if self.hand_type_counts[i] < plan.owed(i) => true,
+                Some(i)
+                    if self.hand_type_counts[i] < plan.owed(i) + plan.per_round[i]
+                        && self.extras_taken < plan.remainder =>
+                {
+                    self.extras_taken += 1;
+                    true
+                }
+                _ => false,
+            };
+            if !wanted {
+                return Ok(Observed {
+                    matched: Matched {
+                        hand_type,
+                        level_type: None,
+                    },
+                    taken: false,
+                });
             }
-            for frequency in self.frequencies.iter_mut() {
-                let value = eval(frequency.expr, &ctx).map_err(|e| RunError::Eval {
-                    what: "Frequency evaluation error".to_string(),
-                    message: e.to_string(),
-                })?;
-                *frequency.counts.entry(value).or_insert(0) += 1;
-            }
+            let level_type = self.pick_level_type(hand_type, deal, variables, counts)?;
+            self.accumulate_statistics(deal, variables, counts)?;
+            self.count(hand_type, level_type);
+            return Ok(Observed {
+                matched: Matched {
+                    hand_type,
+                    level_type,
+                },
+                taken: true,
+            });
         }
 
-        let hand_type = if self.hand_type_names.is_empty() {
-            None
-        } else {
-            let ctx = EvalContext::with_counts(deal, variables, counts);
-            pick(&self.hand_type_names, &ctx, deal, "Hand")?
-        };
+        self.accumulate_statistics(deal, variables, counts)?;
+        let hand_type = self.pick_hand_type(deal, variables, counts)?;
+        let level_type = self.pick_level_type(hand_type, deal, variables, counts)?;
+        self.count(hand_type, level_type);
+        Ok(Observed {
+            matched: Matched {
+                hand_type,
+                level_type,
+            },
+            taken: true,
+        })
+    }
+
+    /// The `average` and `frequency` statements, over one taken deal.
+    fn accumulate_statistics<'d>(
+        &mut self,
+        deal: &'d Deal,
+        variables: &'d Variables<'d>,
+        counts: Option<&'d PointCounts>,
+    ) -> Result<(), RunError> {
+        if self.averages.is_empty() && self.frequencies.is_empty() {
+            return Ok(());
+        }
+        let ctx = EvalContext::with_counts(deal, variables, counts);
+        for average in self.averages.iter_mut() {
+            let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
+                what: "Average evaluation error".to_string(),
+                message: e.to_string(),
+            })?;
+            average.sum += value as f64;
+            average.count += 1;
+        }
+        for frequency in self.frequencies.iter_mut() {
+            let value = eval(frequency.expr, &ctx).map_err(|e| RunError::Eval {
+                what: "Frequency evaluation error".to_string(),
+                message: e.to_string(),
+            })?;
+            *frequency.counts.entry(value).or_insert(0) += 1;
+        }
+        Ok(())
+    }
+
+    fn pick_hand_type<'d>(
+        &self,
+        deal: &'d Deal,
+        variables: &'d Variables<'d>,
+        counts: Option<&'d PointCounts>,
+    ) -> Result<Option<usize>, RunError> {
+        if self.hand_type_names.is_empty() {
+            return Ok(None);
+        }
+        let ctx = EvalContext::with_counts(deal, variables, counts);
+        pick(&self.hand_type_names, &ctx, deal, "Hand")
+    }
+
+    /// The levelling decomposition, which is usually the hand types — and then
+    /// their counts serve for both, rather than classifying twice.
+    fn pick_level_type<'d>(
+        &self,
+        hand_type: Option<usize>,
+        deal: &'d Deal,
+        variables: &'d Variables<'d>,
+        counts: Option<&'d PointCounts>,
+    ) -> Result<Option<usize>, RunError> {
+        if self.level_type_names.is_empty() {
+            return Ok(hand_type);
+        }
+        let ctx = EvalContext::with_counts(deal, variables, counts);
+        pick(&self.level_type_names, &ctx, deal, "Level")
+    }
+
+    /// Add a taken deal to the counts.
+    fn count(&mut self, hand_type: Option<usize>, level_type: Option<usize>) {
         if let Some(i) = hand_type {
             self.hand_type_counts[i] += 1;
         }
-
-        // The levelling decomposition, which is usually the hand types — and
-        // then their counts serve for both, rather than classifying twice.
-        let level_type = if self.level_type_names.is_empty() {
-            hand_type
-        } else {
-            let ctx = EvalContext::with_counts(deal, variables, counts);
-            pick(&self.level_type_names, &ctx, deal, "Level")?
-        };
         if let Some(i) = level_type {
             self.leveling_counts[i] += 1;
             if let (Some(g), false) = (hand_type, self.joint.is_empty()) {
                 self.joint[g][i] += 1;
             }
         }
-
         self.produced += 1;
-        Ok(Matched {
-            hand_type,
-            level_type,
-        })
     }
 
     /// Has the levelling decomposition been seen enough times to divide by?
@@ -554,7 +669,11 @@ mod tests {
         let mut matched = Vec::new();
         for _ in 0..count {
             let deal = generator.next_deal();
-            matched.push(acc.observe(&deal, &variables, None).expect("observe"));
+            matched.push(
+                acc.observe(&deal, &variables, None)
+                    .expect("observe")
+                    .matched,
+            );
         }
         (acc, matched)
     }

@@ -316,16 +316,40 @@ describe('the token table', () => {
     }
   })
 
+  //
+  // Read from `dlrTokenColors`, which the language ships, rather than from a
+  // component: while these rules lived in `ScriptEditor.vue` the read-only
+  // viewer behind the Leveled tab emitted every class and coloured none of
+  // them, and this test passed throughout because it was looking at the one
+  // component that happened to be right.
   it('has a rule behind every class it asks for', () => {
-    const editor = readFileSync(
-      fileURLToPath(new URL('../components/ScriptEditor.vue', import.meta.url)),
+    const language = readFileSync(
+      fileURLToPath(new URL('./dlrLanguage.js', import.meta.url)),
       'utf8',
     )
+    const colours = language.slice(language.indexOf('export const dlrTokenColors'))
     const print = readFileSync(fileURLToPath(new URL('../print.css', import.meta.url)), 'utf8')
     for (const [token, cls] of Object.entries(DLR_TOKEN_CLASSES)) {
       expect(DLR_TOKENS[token], `${token} maps to no tag`).toBeDefined()
-      expect(editor.includes(`'.${cls}'`), `${cls} has no colour in the editor theme`).toBe(true)
+      expect(colours.includes(`'.${cls}'`), `${cls} has no colour in dlrTokenColors`).toBe(true)
       expect(print.includes(`.tk-${token}`), `${token} has no colour on paper`).toBe(true)
+    }
+  })
+
+  // The other half of it: a view of a script has to actually receive those
+  // colours. Both components build their own `EditorView`, so the only thing
+  // keeping them in step is the language carrying its own theme.
+  it('ships those colours with the language, so every view of a script has them', () => {
+    for (const component of ['ScriptEditor.vue', 'ScriptViewer.vue']) {
+      const source = readFileSync(
+        fileURLToPath(new URL(`../components/${component}`, import.meta.url)),
+        'utf8',
+      )
+      expect(source.includes('dlrLanguage('), `${component} does not use the language`).toBe(true)
+      expect(
+        source.includes('.dlr-'),
+        `${component} styles token classes itself, which is how the two drifted apart`,
+      ).toBe(false)
     }
   })
 })

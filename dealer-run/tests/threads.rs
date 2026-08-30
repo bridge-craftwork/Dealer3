@@ -37,6 +37,7 @@ fn deal(threads: usize, count: usize) -> (f64, usize) {
                 swap: SwapMode::None,
             },
             leveling: None,
+            round_robin: false,
             threads,
             batch: 0,
             params: Default::default(),
