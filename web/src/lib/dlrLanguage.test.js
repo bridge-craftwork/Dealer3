@@ -300,6 +300,22 @@ describe('the token table', () => {
   // A tag is only half of it too. The levelling and header tokens map to tags
   // the base theme already claims, so they are styled through named classes
   // instead — and a class with no rule behind it is the same silent nothing.
+  // The VS Code extension highlights the same files from a TextMate grammar,
+  // which is generated from this list because nothing in the engine owns it.
+  // Two editors disagreeing about which headers work is the drift this catches.
+  it('names the same metadata keys as the TextMate grammar', () => {
+    const grammar = readFileSync(
+      fileURLToPath(new URL('../../../dealer-parser/syntaxes/dlr.tmLanguage.json', import.meta.url)),
+      'utf8',
+    )
+    const rule = JSON.parse(grammar).repository.comments.patterns.find(
+      (p) => p.name === 'comment.line.hash.metadata.dlr',
+    )
+    for (const key of METADATA_KEYS) {
+      expect(rule.match.includes(key), `${key} is not in the TextMate grammar`).toBe(true)
+    }
+  })
+
   it('has a rule behind every class it asks for', () => {
     const editor = readFileSync(
       fileURLToPath(new URL('../components/ScriptEditor.vue', import.meta.url)),
