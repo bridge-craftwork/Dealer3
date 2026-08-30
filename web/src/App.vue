@@ -96,8 +96,6 @@
               @click="editorTab = 'leveled'"
             >Leveled</button>
           </div>
-          <span v-else></span>
-
           <!-- Ticks itself when a script names hand types, since that is the
                only thing levelling needs and the reason to want it. Untouched
                after that: turning it back off is a choice, and re-ticking it on
@@ -671,14 +669,19 @@ body {
    space-between so the middle is actually centred: with three flex items of
    unequal width it drifts, and it drifts differently depending on whether the
    tabs are there at all. */
+/* Flex rather than three fixed columns. It was `1fr auto 1fr` — tabs, one
+   centred checkbox, Run at the end — and a second checkbox made four items for
+   three columns, so Run wrapped onto a line of its own and took a line of
+   script with it. Wrapping is now the row's own decision, so everything shares
+   a line while there is room for it. */
 .run-row {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
-  gap: 10px;
+  gap: 6px 14px;
 }
-.run-row > .check { justify-self: center; }
-.run-row > .run { justify-self: end; }
+/* Run to the far right, whichever line it ends up on. */
+.run-row > .run { margin-left: auto; }
 
 .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
 .tabs button {
