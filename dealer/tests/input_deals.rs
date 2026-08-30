@@ -263,6 +263,46 @@ fn a_board_a_card_short_is_skipped_rather_than_run() {
     assert_eq!(count_deals(&out.stdout), 0, "stdout:\n{}", out.stdout);
 }
 
+/// A teaching-material board: the two hands the student sees, `-` for the rest.
+///
+/// Legal PBN and not a deal. It used to read as nothing at all — a whole file of
+/// these came back as an empty file, with no warning and no deal.
+const PARTIAL_BOARD: &str = "\
+[Event \"Stayman\"]
+[Board \"1\"]
+[Deal \"W:- KT82.74.AK63.AJ7 - A4.KJ98.T872.865\"]
+";
+
+#[test]
+fn a_board_with_only_two_hands_is_reported_rather_than_ignored() {
+    let corpus = temp_file("partial", PARTIAL_BOARD);
+    let script = temp_file("script-partial", "condition 1\n");
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-p",
+            "1",
+        ],
+        None,
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stderr.contains("2 of the four hands"),
+        "should say what is missing:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("skipped 1"),
+        "should count it:\n{}",
+        out.stderr
+    );
+    assert_eq!(count_deals(&out.stdout), 0, "stdout:\n{}", out.stdout);
+}
+
 #[test]
 fn unrecognised_lines_are_ignored() {
     // DealReader skips anything it cannot parse as a deal, which is what allows
