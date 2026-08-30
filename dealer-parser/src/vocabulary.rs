@@ -599,7 +599,7 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         group: "Double-dummy and scoring",
         signature: "imp(scoredifference)",
         summary: "Singular spelling of `imps`.",
-        example: "imp(score(0, 43, 10) - score(0, 34, 9)) >= 1",
+        example: "imp(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1",
         alias_of: Some("imps"),
         note: None,
     },
@@ -608,15 +608,22 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         group: "Double-dummy and scoring",
         signature: "score(vulnerable, contract, tricks)",
         summary: "Declarer's score for a contract played at that vulnerability and making that \
-                  many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus \
-                  100 if doubled or 200 if redoubled; `tricks` is 0 to 13.",
-        example: "score(0, 34, 9) == 400",
+                  many tricks. `vulnerable` is the word `nv` or `vul`; `contract` is a word \
+                  such as `x3N`; `tricks` is 0 to 13.",
+        example: "score(nv, x3N, 9) == 400",
         alias_of: None,
         note: Some(
-            "Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. \
-             So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. \
-             The original dealer writes the contract as a token such as `3N`; dealer3 requires \
-             the number.",
+            "A contract is one word: a lowercase `x`, the level, and the strain as an \
+             uppercase letter of CDHSN. The `x` is a sigil rather than a meaning — it is \
+             what lets the word be told from a number — so doubling is written as a suffix: \
+             `x4Hx` is four hearts doubled and `x4Hxx` redoubled. `z` may be used in place \
+             of the leading `x`, as in DealerV2_4, and means exactly the same thing. Both \
+             the case and the level range are the references' own, so a word that runs here \
+             runs on BBO.\n\nEither argument may also be written as the number it stands \
+             for, which is what a `--param` can supply: 0 or 1 for the vulnerability, and \
+             level × 5 + strain for the contract, plus 40 for each level of doubling. Strain \
+             numbers match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So \
+             `x3N` is 19, `x4S` is 23, `x4Sx` is 63 and `x4Sxx` is 103.",
         ),
     },
     FunctionDoc {
@@ -624,7 +631,7 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         group: "Double-dummy and scoring",
         signature: "imps(scoredifference)",
         summary: "Converts a difference between two scores into IMPs, by the standard table.",
-        example: "imps(score(0, 43, 10) - score(0, 34, 9)) >= 1",
+        example: "imps(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1",
         alias_of: None,
         note: None,
     },

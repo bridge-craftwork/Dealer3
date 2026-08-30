@@ -232,3 +232,40 @@ fn evalcontract_is_refused_rather_than_read_as_a_variable() {
     );
     assert_eq!(status, 1);
 }
+
+/// A `score` script in the original's own spelling, run through the reference
+/// binary and captured. Both binaries were given this file and printed these
+/// seven lines.
+///
+/// The contract and the vulnerability are lexer tokens in the original
+/// (`scan.l:47-48` and `scan.l:101`), not expressions, so until dealer3 learned
+/// the words this script was a parse error here and its numeric equivalent was
+/// a syntax error there — the one word neither dialect could read from the
+/// other. The capture is what keeps that shut.
+const REFERENCE_SCORES: &str = "\
+a_3N_nv_9: 400
+b_3N_vul_9: 600
+c_4S_nv_10: 420
+d_1C_nv_7: 70
+e_7N_vul_13: 2220
+f_5D_nv_9: -100
+g_6H_vul_12: 1430
+";
+
+#[test]
+fn score_reads_the_originals_contract_and_vulnerability_words() {
+    let script = format!(
+        "{FIXED_DEAL}condition 1
+action average \"a_3N_nv_9\" score(nv, x3N, 9),
+       average \"b_3N_vul_9\" score(vul, x3N, 9),
+       average \"c_4S_nv_10\" score(nv, x4S, 10),
+       average \"d_1C_nv_7\" score(nv, x1C, 7),
+       average \"e_7N_vul_13\" score(vul, x7N, 13),
+       average \"f_5D_nv_9\" score(nv, x5D, 9),
+       average \"g_6H_vul_12\" score(vul, x6H, 12)
+"
+    );
+    let (out, status) = run(&["-q", "-p", "1", "-s", "1"], &script);
+    assert_eq!(status, 0);
+    assert_eq!(out, REFERENCE_SCORES);
+}

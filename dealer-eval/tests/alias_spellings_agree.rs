@@ -125,8 +125,8 @@ fn aliases_agree_when_given_a_suit() {
 fn notrump_is_the_strain_number_four() {
     let deal = &deals()[0];
     // 3NT making nine tricks, not vulnerable.
-    let by_number = evaluate("condition score(0, 34, 9)\n", deal);
-    let by_word = evaluate("condition score(0, 30 + notrump, 9)\n", deal);
+    let by_number = evaluate("condition score(0, 19, 9)\n", deal);
+    let by_word = evaluate("condition score(0, 15 + notrump, 9)\n", deal);
     assert_eq!(by_word, by_number, "`notrump` must be the number 4");
     assert_eq!(by_number, 400);
 

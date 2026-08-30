@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`score()` now takes dealer.exe's own spellings.** The contract is a word —
+  `x3N`, `x4H`, `x7Sxx` — and the vulnerability is `nv` or `vul`, exactly as
+  `scan.l:47-48` and `scan.l:101` define them. `z` may replace the leading `x`,
+  as in DealerV2_4, and means the same thing: the sigil is there so the word can
+  be told from a number, and both references skip it before reading the
+  contract. Doubling is the trailing `x`s that DealerV2_4 added, `x4Hx` and
+  `x4Hxx`.
+  - This was the one word where dealer3 and the original could not read each
+    other's scripts. The original's grammar is
+    `SCORE '(' VULN ',' CONTRACT ',' expr ')'` (`defs.y:331`) — the first two
+    arguments are lexer tokens, so `score(nv, x3N, 9)` was a name dealer3 had
+    never heard of, and `score(0, 34, 9)` was a syntax error there. The same
+    script now runs on both binaries and prints the same numbers.
+  - Case is the references' own: lowercase sigil and suffix, uppercase strain,
+    level 1 to 7. `X3N` and `x3n` are refused rather than guessed at, so a word
+    that runs here runs on BBO.
+  - The words are recognised only where `score` takes them, so a script may
+    still have a variable named `vul`, `nv` or `x3N` anywhere else.
+  - Verified across all 2,940 combinations of vulnerability, doubling, level,
+    strain and trick count against both C implementations — `dealer.c:195` for
+    the undoubled ones and DealerV2_4's `dealeval_subs.c:744` for the doubled
+    and redoubled — with no differences. (#34)
+
 - **`--level`: level a scenario and deal it in one run.** `--write-leveled`
   writes the file and stops, which is what a scenario you keep and regenerate
   wants; `--level` goes on to deal what `-p` asked for from the levelled copy
@@ -19,6 +42,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which has nothing to walk through.
 
 ### Changed
+- **Breaking: `score()`'s numeric contract code is now the references' encoding,
+  `level * 5 + strain`, plus 40 for each level of doubling.** dealer3 used to
+  read `level * 10 + strain` plus 100 or 200, so 3NT was 34 and is now 19, and
+  four spades doubled was 143 and is now 63. Numbers are still accepted
+  alongside the words, since the words are lexer constants in both references
+  and so can never be a variable or a `--param`; but there is now one encoding
+  in the world rather than two.
+  - A number between 5 and 39 is valid under both schemes and means different
+    contracts under each, so this cannot be detected and warned about. It is
+    safe only because `score()` arrived with the solver in this same unreleased
+    cycle and no script uses it yet. Anything written against the old numbers
+    must be respelled — preferably as the words.
 - **One generate loop, in `dealer-run`, for both front ends.** Dealing, testing
   the condition, classifying against `HandType_`/`LevelType_`, the `average` and
   `frequency` accumulators, the `printrpt`/`csvrpt` renderer, threading and the

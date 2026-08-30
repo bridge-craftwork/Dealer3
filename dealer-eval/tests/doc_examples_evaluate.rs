@@ -66,46 +66,71 @@ fn every_operator_example_evaluates() {
     }
 }
 
-/// The documented value of `score(0, 34, 9)` — 3NT, not vulnerable, making — is
-/// stated as 400 in the reference. Check the engine agrees, so the one example
-/// carrying a number cannot quietly become wrong.
+/// The documented value of `score(nv, x3N, 9)` — 3NT, not vulnerable, making —
+/// is stated as 400 in the reference. Check the engine agrees, so the one
+/// example carrying a number cannot quietly become wrong.
 #[test]
 fn the_score_example_gives_the_number_it_claims() {
     let deal = reference_deal();
     assert_eq!(
-        evaluate("condition score(0, 34, 9)\n", &deal).expect("score should evaluate"),
+        evaluate("condition score(nv, x3N, 9)\n", &deal).expect("score should evaluate"),
         400,
         "the `score` entry tells readers that 3NT making nine tricks scores 400"
     );
 }
 
-/// The `score` entry describes an encoding — level × 10 + strain, plus 100
-/// doubled or 200 redoubled — which is the most intricate claim on the
-/// reference page and the easiest to get subtly wrong. Every part of it is
-/// checked here against scores that are a matter of record.
+/// The `score` entry describes both spellings — the contract as a word, and the
+/// encoding level × 5 + strain plus 40 per level of doubling that the word
+/// stands for. That is the most intricate claim on the reference page and the
+/// easiest to get subtly wrong, so every part of it is checked here against
+/// scores that are a matter of record, in both spellings.
 #[test]
 fn the_documented_contract_encoding_is_the_real_one() {
     let deal = reference_deal();
     for (script, expected, what) in [
         (
-            "condition score(0, 34, 9)\n",
+            "condition score(nv, x3N, 9)\n",
             400,
             "3NT not vulnerable, making",
         ),
-        ("condition score(1, 34, 9)\n", 600, "3NT vulnerable, making"),
         (
-            "condition score(0, 43, 10)\n",
+            "condition score(0, 19, 9)\n",
+            400,
+            "the same, written as numbers",
+        ),
+        (
+            "condition score(vul, x3N, 9)\n",
+            600,
+            "3NT vulnerable, making",
+        ),
+        (
+            "condition score(nv, x4S, 10)\n",
             420,
             "four spades not vulnerable, making",
         ),
-        ("condition score(0, 134, 9)\n", 550, "3NT doubled, making"),
         (
-            "condition score(0, 243, 10)\n",
+            "condition score(0, 23, 10)\n",
+            420,
+            "the same, written as numbers",
+        ),
+        ("condition score(nv, x3Nx, 9)\n", 550, "3NT doubled, making"),
+        (
+            "condition score(0, 59, 9)\n",
+            550,
+            "the same, written as numbers",
+        ),
+        (
+            "condition score(nv, x4Sxx, 10)\n",
             880,
             "four spades redoubled, making",
         ),
         (
-            "condition score(0, 134, 7)\n",
+            "condition score(0, 103, 10)\n",
+            880,
+            "the same, written as numbers",
+        ),
+        (
+            "condition score(nv, x3Nx, 7)\n",
             -300,
             "3NT doubled, two down",
         ),

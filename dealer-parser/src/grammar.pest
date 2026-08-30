@@ -167,7 +167,8 @@ multiplicative = { unary ~ (mul_op ~ unary)* }
 unary = { "-" ~ unary | not_op ~ unary | primary }
 
 primary = _{
-    function_call  // Must be first to parse function(args)
+    score_call     // Before function_call: score's own argument spellings
+    | function_call  // Must be first to parse function(args)
     | paren_expr
     | shape_pattern
     | card
@@ -182,6 +183,44 @@ paren_expr = { "(" ~ expr ~ ")" }
 
 // Function calls: hcp(north), hearts(south,spades), hascard(south,AS)
 function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
+
+// `score` is the one function whose arguments the original does not read as
+// expressions. Its rule is `SCORE '(' VULN ',' CONTRACT ',' expr ')'`
+// (defs.y:331): the first two arguments are lexer tokens, so only the trick
+// count can be computed. dealer3 accepts either the token or the number the
+// token stands for, the same way `tricks` takes either a suit word or its
+// index — the tokens are what a script written elsewhere will use, and the
+// numbers are what a `--param` can supply.
+//
+// Tried ahead of `function_call`, and falling through to it when the shape
+// does not fit, so `score(0, 34)` still reaches the evaluator's argument-count
+// error rather than becoming a syntax error.
+score_call = { score_name ~ "(" ~ score_arg ~ "," ~ score_arg ~ "," ~ expr ~ ")" }
+score_name = @{ "score" ~ !(ASCII_ALPHANUMERIC | "_") }
+score_arg = _{ contract_token | vuln_token | expr }
+
+// A contract, written as one word: `x3N`, `x4H`, `x7Sxx`.
+//
+// The leading character is a sigil, not a meaning — it is there so the lexer
+// can tell the word from a number, and `make_contract` in both references is
+// handed the string *after* it. dealer.exe allows only `x` (scan.l:101);
+// DealerV2_4 adds `z` as an interchangeable second sigil and the trailing
+// `x`s for doubled and redoubled (dealflex.l:403). `z4H` and `x4H` are the
+// same contract.
+//
+// Case follows the references exactly: lowercase sigil and suffix, uppercase
+// strain. Accepting `X3n` here would let a script run in dealer3 and fail on
+// BBO, which is the sort of difference #13 exists to warn about rather than
+// something to create.
+contract_token = @{
+    ("x" | "z") ~ '1'..'7' ~ ("C" | "D" | "H" | "S" | "N") ~ "x"{0,2}
+    ~ !(ASCII_ALPHANUMERIC | "_")
+}
+
+// Vulnerability for `score`, as the original spells it (scan.l:47-48).
+// Recognised only in that argument position, so a script may still have a
+// variable named `vul` anywhere else.
+vuln_token = @{ ("nv" | "vul") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // Longest spelling first, always. `function_call` is `function_name ~ "("`, and
 // PEG does not retry an alternation once a branch has matched: `hcp` ahead of

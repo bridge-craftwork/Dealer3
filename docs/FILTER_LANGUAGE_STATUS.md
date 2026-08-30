@@ -113,10 +113,10 @@ for the same predealt deal.
 | `dds(compass, strain)` | Another spelling of `tricks` | `dds(south, notrump) >= 9` |
 | | There it reaches the DDS library where `tricks` reaches GIB's solver; dealer3 solves everything through bridge-solver, so the two are one function with two names. Ten of DealerV2_4's regression scripts use it. | |
 | `trick(compass, strain)` | Another spelling of `tricks` | `trick(south, spades) >= 10` |
-| `imp(scoredifference)` | Another spelling of `imps` | `imp(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
-| `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is 0 or 1; `contract` is level × 10 + strain, plus 100 if doubled or 200 if redoubled; `tricks` is 0 to 13. | `score(0, 34, 9) == 400` |
-| | Strain digits match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So 34 is 3NT, 43 is four spades, 143 is four spades doubled and 243 redoubled. The original dealer writes the contract as a token such as `3N`; dealer3 requires the number. | |
-| `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(0, 43, 10) - score(0, 34, 9)) >= 1` |
+| `imp(scoredifference)` | Another spelling of `imps` | `imp(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1` |
+| `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is the word `nv` or `vul`; `contract` is a word such as `x3N`; `tricks` is 0 to 13. | `score(nv, x3N, 9) == 400` |
+| | A contract is one word: a lowercase `x`, the level, and the strain as an uppercase letter of CDHSN. The `x` is a sigil rather than a meaning — it is what lets the word be told from a number — so doubling is written as a suffix: `x4Hx` is four hearts doubled and `x4Hxx` redoubled. `z` may be used in place of the leading `x`, as in DealerV2_4, and means exactly the same thing. Both the case and the level range are the references' own, so a word that runs here runs on BBO. Either argument may also be written as the number it stands for, which is what a `--param` can supply: 0 or 1 for the vulnerability, and level × 5 + strain for the contract, plus 40 for each level of doubling. Strain numbers match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So `x3N` is 19, `x4S` is 23, `x4Sx` is 63 and `x4Sxx` is 103. | |
+| `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1` |
 | `rnd(bound)` | A random whole number from zero up to, but not including, the bound. | `rnd(10) == 3` |
 | | Every mention draws again, including through a variable: `r = rnd(4)` used twice is two draws, as in the original. Drawn from a stream of its own, seeded from the deal, so the same seed gives the same answers however many threads are running; the original shares the generator it shuffles with, so calling it there changes the deals. `--rnd-seed` shifts the stream. Beware locally built dealer binaries: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it actually calls, so a build without `STD_RAND` returns values far outside the bound, or negative ones. BBO's own build is correct. | |
 <!-- END GENERATED: functions -->
@@ -209,7 +209,6 @@ tracked by a generated table, so this section is maintained by hand.
 
 | Difference | Status |
 |---|---|
-| `score` takes a numeric contract code, not a token like `3N` | Documented, no issue |
 | `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
 | `rnd()` is broken on locally built dealer binaries | Not ours: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it calls. A build without `STD_RAND` returns values far outside the bound (Windows: `rnd(10)` averages 322,000) or negative ones (macOS: 43% below zero). BBO's build is correct, and dealer3 agrees with it. |
