@@ -158,9 +158,11 @@ shipped, it named `-l` twice for two different features, and it offered
 letters are dealer.exe's swapping switches and already taken.
 
 So what remains of it is in **What is left** below, which is generated from
-`dealer/src/roadmap.rs` and checked against the argument parser — `-M`,
-`-Z`, DL52, library mode and script parameters are all rows in that table,
-with the switch collisions written down where they belong.
+`dealer/src/roadmap.rs` and checked against the argument parser — `-M`, `-Z`,
+DL52 and library mode are all rows in that table, with the switch collisions
+written down where they belong. Script parameters used to be a row there too,
+and are now finished: `--param` fills one, a `# param 0 = west` comment declares
+what it should be when nothing does, and `--params` lists what a script wants.
 
 ---
 
@@ -208,7 +210,10 @@ See `CHANGELOG.md` for the migration note.
       solved by `bridge-solver` and remembered per deal (#14)
 - [ ] Library mode - `--input-deals` covers the common case; `-l` is rejected
 - [ ] Export formats (`-Z` zrd, DL52)
-- [ ] Script parameters (`$0`-`$9`)
+- [x] Script parameters (`$0`-`$9`) - **COMPLETED**. `--param 1=west` rather than
+      DealerV2_4's `-1`, which is dealer.exe's swapping switch; a script declares
+      its own defaults in a `# param 1 = 15` comment, which the original's lexer
+      skips, so a parameterised scenario still runs on BBO (#17)
 
 ### Unplanned, and shipped anyway
 Five switches arrived without ever appearing in this document: `--input-deals`,
@@ -260,7 +265,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🟢 Someday | Defaults for script parameters, and a way to enter them | Medium | Medium | [#17](https://github.com/bridge-craftwork/Dealer3/issues/17) | A `$n` nothing supplies is an error naming the line, which is right — DealerV2_4 scans an empty buffer instead, so `average $2 controls(west)` quietly loses its label. But it also means a parameterised script cannot run at all without the invocation that goes with it, and nothing in the file says what `$3` was meant to be. The browser has no way to supply one, so such a scenario fails to parse there on a line the reader cannot act on. A default would have to survive the trip to BBO, so a comment pragma rather than syntax. |
 | 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts doubled — so pick a spelling knowing that one exists. |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | `par(side)`: the par contract | Low | Low |  | Needs all 20 double-dummy results, which bridge-solver already provides for `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with `-P`, which has a row of its own in the switch table. |

@@ -12,5 +12,5 @@ pub use parser::{
     condition_span, parse, parse_program, ParseError, MAX_COUNT_VALUES, NUM_COUNT_ROWS,
 };
 pub use preprocess::{preprocess, preprocess_all};
-pub use script_params::ScriptParams;
+pub use script_params::{script_parameters, ParamDecl, ScriptParam, ScriptParams};
 pub use undefined::{dangling_seats, undefined_variables};

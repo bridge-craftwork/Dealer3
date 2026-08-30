@@ -19,12 +19,12 @@
 // here means the engine will reject the script — not that a regex guessed. The
 // line and column come straight from pest.
 import { ref, onMounted, onBeforeUnmount, watch, shallowRef } from 'vue'
-import { EditorState } from '@codemirror/state'
+import { EditorState, StateEffect } from '@codemirror/state'
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching } from '@codemirror/language'
 import { autocompletion, closeBrackets } from '@codemirror/autocomplete'
-import { linter, lintGutter } from '@codemirror/lint'
+import { linter, lintGutter, forceLinting } from '@codemirror/lint'
 // A dark editor on a light page. Syntax palettes are built for dark grounds —
 // the same colours that read clearly there are washed out on white, which is
 // what the default highlight style looked like here.
@@ -35,6 +35,11 @@ import CopyButton from './CopyButton.vue'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
+  /// What stands behind the script's `$0`-`$9`, in `--param`'s `N=TEXT`
+  /// spelling. The linter needs them: without them every parameterised script
+  /// squiggles on its first `$n`, which is exactly the error the fields exist
+  /// to answer.
+  params: { type: Array, default: () => [] },
 })
 const emit = defineEmits(['update:modelValue', 'validity'])
 
@@ -64,6 +69,14 @@ function offsetOf(doc, line, column) {
   return Math.min(info.from + Math.max(column - 1, 0), info.to)
 }
 
+// Filling a parameter field changes what the script means without touching a
+// character of it. CodeMirror only re-lints on a document change, so the
+// squiggle on `$9` outlived the value that answered it — and `forceLinting` is
+// a no-op in that state, since it only hurries along a lint the document
+// already asked for. `needsRefresh` is the supported way in: this effect
+// carries no payload, it only says the answer would be different now.
+const paramsChanged = StateEffect.define()
+
 // The linter runs on a debounce CodeMirror manages, and is the single place that
 // decides validity — the status bar and the Run button both read from it.
 const dlrLinter = linter((v) => {
@@ -75,7 +88,7 @@ const dlrLinter = linter((v) => {
     return []
   }
 
-  const result = checkScript(text)
+  const result = checkScript(text, props.params)
   if (result.ok) {
     diagnostic.value = null
     emit('validity', { ok: true, empty: false })
@@ -101,7 +114,11 @@ const dlrLinter = linter((v) => {
       message: result.error,
     },
   ]
-}, { delay: 150 })
+}, {
+  delay: 150,
+  needsRefresh: (update) =>
+    update.transactions.some((tr) => tr.effects.some((e) => e.is(paramsChanged))),
+})
 
 onMounted(async () => {
   // The vocabulary and the diagnostics both come from the engine, so the editor
@@ -156,6 +173,22 @@ watch(
     if (!v || v.state.doc.toString() === value) return
     v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } })
   },
+)
+
+// Filling a parameter field changes what the script means, and the linter runs
+// on document changes only — so without this the squiggle stays on `$1` after
+// the value that answers it has been typed.
+watch(
+  () => props.params,
+  () => {
+    if (!view.value) return
+    // The dispatch is what makes the lint pending; forcing it then skips the
+    // debounce, so the squiggle clears as the field is filled rather than a
+    // moment later.
+    view.value.dispatch({ effects: paramsChanged.of(null) })
+    forceLinting(view.value)
+  },
+  { deep: true },
 )
 
 onBeforeUnmount(() => view.value?.destroy())

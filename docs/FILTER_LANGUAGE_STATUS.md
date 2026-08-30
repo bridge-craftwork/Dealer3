@@ -244,6 +244,46 @@ writing the call out longhand in several places, or asking about several
 denominations, costs one search each however it is spelled and wherever it
 appears.
 
+## Script parameters
+
+`$0` to `$9` are **filled in as text before the script is parsed**, which is the
+opposite of a variable: a parameter is a piece of source, so it can be a number,
+a compass, a shape, or even a function name. DealerV2_4's own `NTscripted.dls`
+is one script for both notrump ranges and either side of the table:
+
+```
+NTshape = shape($0, any 4333 + any 4432 + any 5332 - 5xxx - x5xx)
+condition NTshape && ($9($0) >= $1) && ($9($0) <= $2)
+```
+
+where `$9($0)` becomes `hcp(west)`. The substitution runs before the
+`shape{...}` expander, so a parameter may stand inside one.
+
+Three ways to supply one, in this order:
+
+1. `--param 1=west` on the command line, or the field beside the editor in the
+   browser. DealerV2_4 spells this `-1 west`; those letters are dealer.exe's
+   swapping switches here, so only the switch differs — the script is unchanged.
+2. The script's own declaration, in a whole-line comment:
+
+   ```
+   # param 0 = west          # the seat that opens
+   # param 1 = 15            # minimum HCP
+   # param 4 = 5xxx + x5xx   # the shape responder shows
+   ```
+
+   The value runs to a second `#`, and anything after that is a description of
+   what the parameter is for. A comment, not syntax, so the script still runs on
+   BBO and on the original dealer, whose lexers skip the line entirely.
+3. Nothing, which is an error naming the line. DealerV2_4 scans an empty buffer
+   instead, so `average $2 controls(west)` there quietly becomes a valid
+   statement that has lost its label.
+
+`dealer --params script.dlr` lists what a script wants, its defaults and its
+descriptions, without running it; with `--stats-json` the same as JSON. The
+browser reads the same declarations to label its fields and to start them at the
+declared values.
+
 ## Comments
 
 `#` and `//` to end of line, `/* */` across lines. A `# key: value` line at the

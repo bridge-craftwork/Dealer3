@@ -242,7 +242,24 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
              so only the switch differs — a script written for it is unchanged. A parameter \
              is source rather than a value: a compass, a number, a shape, even a function \
              name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike \
-             DealerV2_4, a `$n` nothing supplies is an error rather than an empty space.",
+             DealerV2_4, a `$n` nothing supplies is an error rather than an empty space — \
+             unless the script declares its own default with a `# param 1 = 15` comment, \
+             which takes effect when no switch overrides it.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--params",
+        group: "Reporting",
+        what: "List the script parameters and their declared defaults, without running",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "A parameterised script handed on without the invocation that goes with it is \
+             otherwise unrunnable: nothing in the file says what `$3` was meant to be. This \
+             reads the script and stops, listing every `$n` it uses, the default its \
+             `# param n = ...` line declares and what that line says it is for. With \
+             `--stats-json`, the same as JSON for a build script to fill in.",
         ),
     },
     SwitchRow {

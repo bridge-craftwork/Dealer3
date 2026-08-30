@@ -112,22 +112,6 @@ pub const REMAINING: &[WorkItem] = &[
     // DealerV2_4's own words, from reading its lexer and yacc rather than a
     // summary of them, and measured against its 61-script Regression suite.
     WorkItem {
-        what: "Defaults for script parameters, and a way to enter them",
-        done_when: None,
-        issue: Some(17),
-        effort: Effort::Medium,
-        value: Value::Medium,
-        note: Some(
-            "A `$n` nothing supplies is an error naming the line, which is right — \
-             DealerV2_4 scans an empty buffer instead, so `average $2 controls(west)` \
-             quietly loses its label. But it also means a parameterised script cannot run \
-             at all without the invocation that goes with it, and nothing in the file says \
-             what `$3` was meant to be. The browser has no way to supply one, so such a \
-             scenario fails to parse there on a line the reader cannot act on. A default \
-             would have to survive the trip to BBO, so a comment pragma rather than syntax.",
-        ),
-    },
-    WorkItem {
         what: "`printns` and `printside(side)`",
         done_when: None,
         issue: None,

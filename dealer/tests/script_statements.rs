@@ -198,6 +198,101 @@ fn a_parameter_fills_a_shape_before_it_is_expanded() {
 }
 
 #[test]
+fn a_script_carrying_its_own_defaults_runs_with_no_switches() {
+    // The whole point of the declaration: NTscripted.dls handed to someone
+    // without the invocation that goes with it used to be unrunnable, and
+    // nothing in the file said what `$1` was meant to be.
+    let script = "\
+# param 0 = west   # the seat that opens
+# param 1 = 12     # minimum HCP
+# param 2 = 14     # maximum HCP
+# param 9 = hcp    # how strength is counted
+NTshape = shape($0, any 4333 + any 4432 + any 5332 - 5xxx - x5xx)
+condition NTshape and ($9($0) >= $1) and ($9($0) <= $2)
+action printoneline
+";
+    let (out, err, status) = run(&["-p", "20", "-g", "3000000", "-s", "1"], script);
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert_eq!(out.lines().count(), 20);
+
+    // And a switch still wins, one parameter at a time: this is the same
+    // script asking for the strong notrump instead.
+    let (stronger, err, status) = run(
+        &[
+            "-p", "20", "-g", "3000000", "-s", "1", "--param", "1=15", "--param", "2=17",
+        ],
+        script,
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert_eq!(stronger.lines().count(), 20);
+    assert_ne!(out, stronger);
+}
+
+#[test]
+fn params_lists_what_a_script_wants_without_running_it() {
+    let (out, err, status) = run(
+        &["--params"],
+        "# param 0 = west   # the seat that opens\ncondition hcp($0) >= $1\naction printoneline\n",
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert!(out.contains("$0"), "stdout was: {out}");
+    assert!(out.contains("west"), "the declared default: {out}");
+    assert!(
+        out.contains("the seat that opens"),
+        "the description: {out}"
+    );
+    // `$1` is used and undeclared, which is the thing a caller has to supply.
+    assert!(out.contains("$1"), "stdout was: {out}");
+    assert!(out.contains("--param 1="), "should say how: {out}");
+    // Listing is not running.
+    assert!(!out.contains(" n "), "should not have dealt: {out}");
+}
+
+#[test]
+fn params_reports_as_json_for_a_tool() {
+    let (out, err, status) = run(
+        &["--params", "--stats-json"],
+        "# param 0 = west  # the seat\ncondition hcp($0) >= $1\n",
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    let json: serde_json::Value = serde_json::from_str(&out).expect("valid JSON");
+    let params = json["params"].as_array().expect("an array");
+    assert_eq!(params.len(), 2);
+    assert_eq!(params[0]["index"], 0);
+    assert_eq!(params[0]["default"], "west");
+    assert_eq!(params[0]["description"], "the seat");
+    assert_eq!(params[1]["index"], 1);
+    assert!(params[1]["default"].is_null(), "nothing declares `$1`");
+}
+
+#[test]
+fn a_declaration_nothing_uses_is_a_warning_not_an_error() {
+    // The mirror of `a_parameter_nothing_uses_is_a_warning_not_an_error`: a
+    // declaration whose `$7` an edit took away does nothing, and without this
+    // nothing would say so.
+    let (out, err, status) = run(
+        &["-p", "1", "-s", "1"],
+        "# param 7 = north  # left over from an edit\ncondition hcp(north) >= 10\n\
+         action printoneline\n",
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert!(err.contains("declares `$7`"), "stderr was: {err}");
+    assert_eq!(out.lines().count(), 1);
+}
+
+#[test]
+fn a_malformed_declaration_is_refused() {
+    // Skipping it silently is how a script ends up unrunnable with a line in it
+    // that looks as though it should have worked.
+    let (_, err, status) = run(
+        &["-p", "1", "-s", "1"],
+        "# param 0 west\ncondition hcp($0) >= 10\n",
+    );
+    assert_eq!(status, 1);
+    assert!(err.contains("line 1"), "should point at it: {err}");
+}
+
+#[test]
 fn a_malformed_parameter_is_refused() {
     for spec in ["west", "x=west", "10=west"] {
         let (_, err, status) = run(&["-p", "1", "-s", "1", "--param", spec], "condition 1\n");

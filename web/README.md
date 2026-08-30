@@ -216,9 +216,29 @@ Rolling before rather than after is what made a separate "new seed" button
 unnecessary — there is no other reason to want one. A restored session keeps its
 seed, so a reload reproduces what was there.
 
+## Script parameters
+
+A script using `$0`-`$9` gets a row of fields above the editor, one per
+parameter it mentions, and **only then** — nearly every script has none, and a
+panel that is always there would cost a line of script for nothing.
+
+Each field is labelled with what the script's own
+`# param 0 = west   # the seat that opens` line says, and starts empty with that
+default as its placeholder. So clearing a field returns to the declared default
+rather than blanking the parameter, and only a parameter with no default and no
+value stops the run — that one is marked, and Run says which it is waiting for.
+
+Before this the browser had no way to supply a parameter at all, so a
+parameterised scenario failed to parse here with an error naming a line the
+reader could not act on. The `$n` occurrences alone were not enough to build a
+form from: they give nowhere to put a label and no sensible starting value,
+which is what the declarations supply. `dealer --params` prints the same
+information in a terminal.
+
 ## Session persistence
 
-The script in the editor and the parameters beside it are kept in
+The script in the editor, the values in its parameter fields, and the settings
+beside them are kept in
 `localStorage`, so a return visit picks up where the last one left off. The
 starter script only appears on a genuinely first visit.
 
