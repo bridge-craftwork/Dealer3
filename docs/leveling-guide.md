@@ -189,6 +189,20 @@ variable — so the types found are always reported back, in the statistics, in
 `--stats-json`, and in the browser's Hand types panel. **Check the count is the
 one you expected.**
 
+**Case does not matter in the prefix or the suffix.** `handtype_south_15`,
+`HANDTYPE_south_15` and `HandType_south_15` all declare the type `south_15`, and
+`_share` weights it as well as `_Share` does. The prefix is a magic word, and a
+name that differs only in case is not a name anybody meant to be different —
+`handtype_` used to declare no type at all, which meant no levelling, no PBN
+tags and no rounds, with nothing to say so because a script with no hand types
+is perfectly legal.
+
+**The variable itself is still case-sensitive**, as it is in dealer.exe, which
+resolves names with `strcmp`. Declare `handtype_a` and you refer to it as
+`handtype_a`; `HandType_a` is a different name, and an undefined one. Two types
+whose labels differ only in case are refused — they are one category, and
+everything downstream identifies a category by its label.
+
 Two rules the types have to obey: **no overlaps** (two types matching one deal
 is refused) and **no gaps** (for levelling they must cover every deal the
 scenario produces, or the keeps will not add up). Outside levelling an untyped

@@ -148,15 +148,17 @@ def main():
     # the point of them, since a script using them still parses on BBO — so
     # nothing but this tells an author which names the engine acts on.
     #
-    # Prefixes are matched with regard to case and the share suffix without,
-    # because that is what dealer-level does: `handtype_12` is silently not a
-    # hand type, and colouring it as one would promise what the run will not keep.
+    # Prefix and suffix are both matched without regard to case, because that is
+    # what dealer-level does: `handtype_12` is a hand type, and colouring it as
+    # an ordinary variable would be the grammar disagreeing with the run. The
+    # variable is still case-sensitive to *refer* to, as it is in dealer.exe,
+    # which is a fact about the name rather than about the convention.
     prefixes = "|".join(lit(p) for p in (hand_prefix, level_prefix))
     g["repository"]["leveling"] = {"patterns": [
         {"name": "support.type.leveling.share.dlr",
-         "match": r"\b(?:%s)[A-Za-z0-9_]*(?i:%s)\b" % (prefixes, lit(share_suffix))},
+         "match": r"\b(?i:%s)[A-Za-z0-9_]*(?i:%s)\b" % (prefixes, lit(share_suffix))},
         {"name": "support.type.leveling.dlr",
-         "match": r"\b(?:%s)[A-Za-z0-9_]*\b" % prefixes},
+         "match": r"\b(?i:%s)[A-Za-z0-9_]*\b" % prefixes},
         {"name": "support.type.leveling.dlr",
          "match": r"\b(?:%s)\b" % "|".join(
              lit(w) for w in list(verdicts) + [no_leveling])},

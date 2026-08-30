@@ -549,6 +549,17 @@ impl<'a> RunAccumulator<'a> {
             produced: self.produced,
             generated,
             names: self.leveling_labels.clone(),
+            // As declared, which is what the generated block has to reference:
+            // the levelling decomposition when the script names one, the hand
+            // types otherwise.
+            variables: if self.level_type_names.is_empty() {
+                self.hand_type_names.iter().map(|n| n.to_string()).collect()
+            } else {
+                self.level_type_names
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect()
+            },
             counts: self.leveling_counts.clone(),
             prefix: self.leveling_prefix,
             groups: if self.joint.is_empty() {

@@ -284,3 +284,76 @@ fn a_share_of_zero_is_refused() {
     assert!(err.contains("HandType_b_Share"), "{err}");
     assert!(err.contains("1 or more"), "{err}");
 }
+
+// ---------------------------------------------------------------------------
+// The prefix is a magic word, so its case is not part of it.
+
+#[test]
+fn a_prefix_is_recognised_in_any_case() {
+    // What this exists to prevent: `handtype_south_15` declared no hand type
+    // at all, so the scenario had none — no levelling, no PBN tags, no rounds
+    // — and nothing said so, because a script with no hand types is legal.
+    let source = "
+handtype_a = hcp(south) <= 10
+HANDTYPE_b = hcp(south) >= 11 and hcp(south) <= 20
+HandType_c = hcp(south) >= 21
+condition 1
+";
+    assert_eq!(labels(source), vec!["a", "b", "c"]);
+}
+
+#[test]
+fn a_share_finds_its_type_whatever_case_either_is_written_in() {
+    let source = "
+handtype_a = hcp(south) <= 10
+HandType_b = hcp(south) >= 11
+HANDTYPE_A_share = 3
+condition 1
+";
+    assert_eq!(
+        hand_type_shares(&program(source)).unwrap(),
+        vec![3.0, 1.0],
+        "the share did not reach the type it names"
+    );
+}
+
+/// Two variables, one category. Refused rather than resolved: everything
+/// downstream identifies a category by its label — the PBN tag, the bar chart,
+/// the share lookup, `--interleave` — and two rows called `a` is not a thing to
+/// hand anybody.
+#[test]
+fn two_types_differing_only_in_case_are_refused() {
+    let source = "
+HandType_a = hcp(south) <= 10
+handtype_A = hcp(south) >= 21
+condition 1
+";
+    let err = leveling_types(&program(source)).unwrap_err();
+    assert!(err.contains("the same category"), "{err}");
+    assert!(err.contains("HandType_a"), "{err}");
+    assert!(err.contains("handtype_A"), "{err}");
+}
+
+/// The variable is still case-sensitive to refer to, as it is in dealer.exe,
+/// which resolves names with `strcmp`. Only the convention stopped caring.
+#[test]
+fn the_name_itself_is_still_case_sensitive() {
+    let matching = program(
+        "
+handtype_a = hcp(south) <= 10
+condition handtype_a
+",
+    );
+    assert!(dealer_parser::undefined_variables(&matching).is_empty());
+
+    let wrong = program(
+        "
+handtype_a = hcp(south) <= 10
+condition HandType_a
+",
+    );
+    assert_eq!(
+        dealer_parser::undefined_variables(&wrong),
+        vec!["HandType_a"]
+    );
+}
