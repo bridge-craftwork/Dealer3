@@ -142,6 +142,37 @@ onMounted(async () => {
           // one-dark ships no rule for the lint gutter marker; without this it
           // renders near-invisible against the dark gutter.
           '.cm-lint-marker-error': { filter: 'brightness(1.4)' },
+
+          // The names the levelling machinery reads, which are ordinary
+          // variables to the grammar and so coral like any other without this.
+          // One-dark's eight hues are all spoken for, and a ninth close enough
+          // to fit would be close enough to confuse — so these are marked by a
+          // dotted rule under a brighter ivory instead, which no other token
+          // wears. The underline's colour is the only thing separating a hand
+          // type from the share that weights it.
+          '.dlr-leveling-name': {
+            color: '#dfe4ec',
+            textDecoration: 'underline dotted #61afef',
+            textUnderlineOffset: '3px',
+          },
+          '.dlr-leveling-share': {
+            color: '#dfe4ec',
+            textDecoration: 'underline dotted #e5c07b',
+            textUnderlineOffset: '3px',
+          },
+          // The generated block's markers and stamp. Comments, and left the
+          // colour of comments — they have to be comments for a levelled
+          // scenario to run on BBO — but weighted, so the region you must not
+          // edit by hand is bracketed visibly.
+          '.dlr-leveling-marker': { color: '#93a1b5', fontWeight: '700' },
+          // A `# key: value` header PBS reads. Both halves are coloured, and in
+          // one-dark's own hues — the key in the whiskey it paints constants,
+          // which cannot appear in a header, the value in the green it paints
+          // text. The effect that matters is on the line this does *not* match:
+          // a mistyped key leaves the whole header the flat grey of an ordinary
+          // comment, which is what it has become.
+          '.dlr-meta-key': { color: '#d19a66', fontWeight: '700' },
+          '.dlr-meta-value': { color: '#98c379' },
         }),
       ],
     }),

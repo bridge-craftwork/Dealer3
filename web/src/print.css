@@ -75,8 +75,14 @@
   .tk-number         { color: #a34700; }
   .tk-string         { color: #0f6f4c; }
   .tk-comment        { color: #6a737d; font-style: italic; }
-  .tk-docComment     { color: #6a737d; font-style: italic; }
   .tk-variableName   { color: #111; }
+  /* The levelling conventions. On paper there is room for a hue the editor
+     could not spare, so these take one rather than the editor's dotted rule. */
+  .tk-levelingName   { color: #b3006b; font-weight: 700; }
+  .tk-levelingShare  { color: #b3006b; font-weight: 700; font-style: italic; }
+  .tk-levelingMarker { color: #4a5568; font-weight: 700; font-style: italic; }
+  .tk-metaKey        { color: #a34700; font-weight: 700; }
+  .tk-metaValue      { color: #0f6f4c; }
 
   /* --- statistics -------------------------------------------------------- */
   .p-stats { margin: 0 0 6pt; font-size: 9.5pt; }

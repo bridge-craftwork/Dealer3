@@ -984,6 +984,30 @@ mod docs {
     }
 }
 
+/// The names the levelling machinery acts on, rather than words the grammar
+/// knows.
+///
+/// They are a convention over ordinary variables — that is the point of them,
+/// since a script using them still parses on BBO — which leaves an editor no
+/// way to tell `HandType_12` from a name the author chose. So the engine hands
+/// its own constants out, for the same reason it hands out its vocabulary:
+/// a second copy in JavaScript would be a second copy to go stale.
+///
+/// `hand_type_prefix` and `level_type_prefix` are matched with regard to case,
+/// as `dealer_level` matches them; `share_suffix` is not, as `dealer_level`
+/// does not. A highlighter that follows suit shows an author the difference.
+#[derive(Serialize)]
+struct LevelingNames {
+    hand_type_prefix: &'static str,
+    level_type_prefix: &'static str,
+    share_suffix: &'static str,
+    verdicts: Vec<&'static str>,
+    no_leveling: &'static str,
+    block_begin: &'static str,
+    block_end: &'static str,
+    stamp: &'static str,
+}
+
 #[derive(Serialize)]
 struct LanguageInfo {
     functions: Vec<&'static str>,
@@ -1004,6 +1028,10 @@ struct LanguageInfo {
     statement_docs: Vec<docs::StatementDoc>,
     action_docs: Vec<docs::ActionDoc>,
     not_supported: Vec<docs::NotSupported>,
+
+    // Not vocabulary — the levelling conventions, which the editor colours so
+    // an author can see which names the engine reads.
+    leveling: LevelingNames,
 }
 
 /// The language's full vocabulary, for editor completion and hover, and its
@@ -1031,6 +1059,17 @@ pub fn language_info() -> String {
         statement_docs: docs::statements(),
         action_docs: docs::actions(),
         not_supported: docs::not_supported(),
+
+        leveling: LevelingNames {
+            hand_type_prefix: dealer_level::HAND_TYPE_PREFIX,
+            level_type_prefix: dealer_level::LEVEL_TYPE_PREFIX,
+            share_suffix: dealer_level::SHARE_SUFFIX,
+            verdicts: dealer_level::VERDICTS.to_vec(),
+            no_leveling: dealer_level::NO_LEVELING,
+            block_begin: dealer_level::LEVEL_BEGIN,
+            block_end: dealer_level::LEVEL_END,
+            stamp: dealer_level::LEVEL_STAMP,
+        },
     };
     serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string())
 }
