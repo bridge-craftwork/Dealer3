@@ -32,6 +32,7 @@ use dealer_core::{
     generate_deal_from_seed, generate_deal_from_seed_no_predeal, Deal, FastDealConfig,
     FastDealGenerator, SwapMode,
 };
+use dealer_eval::EvalError;
 
 /// Which pass a progress report belongs to.
 ///
@@ -311,8 +312,8 @@ impl Workers {
         &self,
         count: usize,
         build: &(dyn Fn(usize) -> Deal + Sync),
-        test: &(dyn Fn(&Deal) -> bool + Sync),
-    ) -> Vec<(Deal, bool)> {
+        test: &(dyn Fn(&Deal) -> Result<bool, EvalError> + Sync),
+    ) -> Vec<(Deal, Result<bool, EvalError>)> {
         let one = |index: usize| {
             let deal = build(index);
             let passed = test(&deal);
@@ -703,6 +704,16 @@ fn run_pass(
     let preprocessed = dealer_parser::preprocess_all(script, opts.params)?;
     let program =
         dealer_parser::parse_program(&preprocessed).map_err(|e| format!("Parse error: {}", e))?;
+    // Everything about the script that a deal cannot change, checked once here
+    // rather than per deal. An argument count is the main one: the evaluator
+    // raised it correctly before, but the condition discarded the error and
+    // read it as "this deal does not match", so a miscounted call generated the
+    // whole run, produced nothing, said nothing and exited 0 (#36).
+    dealer_eval::check_program(&program).map_err(|(what, e)| RunError::Eval {
+        what,
+        message: e.to_string(),
+    })?;
+
     let variables = dealer_eval::extract_variables(&program);
     let constraint = dealer_eval::extract_constraint(&program);
     let point_counts = dealer_eval::extract_point_counts(&program)
@@ -730,13 +741,15 @@ fn run_pass(
         }
     }
 
+    // What is left after `check_program` is genuinely per-deal — a strain
+    // computed at run time that lands outside 0 to 4, say. That is carried back
+    // rather than discarded, and stops the run where it happens.
     let test = |deal: &Deal| match constraint {
         Some(expr) => {
             dealer_eval::eval_with_context_and_counts(expr, &variables, deal, point_counts)
                 .map(|value| value != 0)
-                .unwrap_or(false)
         }
-        None => true,
+        None => Ok(true),
     };
 
     let workers = Workers::new(opts.threads);
@@ -784,6 +797,10 @@ fn run_pass(
             if from_stream {
                 generated += 1;
             }
+            let matched = matched.as_ref().map_err(|e| RunError::Eval {
+                what: "condition".to_string(),
+                message: e.to_string(),
+            })?;
             if !matched {
                 continue;
             }
