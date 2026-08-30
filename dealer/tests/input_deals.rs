@@ -188,6 +188,81 @@ fn reads_pbn_deal_tags() {
     assert_eq!(count_deals(&out.stdout), 1, "stdout:\n{}", out.stdout);
 }
 
+/// A PBN board whose West holds fourteen cards, the rest of it well formed.
+///
+/// The reader accepts it — a hand of any length parses — and it is this program
+/// that cannot use it, which is why the check has to be here rather than there.
+const FOURTEEN_CARD_BOARD: &str = "\
+[Board \"1\"]
+[Deal \"N:AKQJ.AKQ.AKQ.AKQ 432.432.432.5432 T98.T98.T98.T987 7655.J765.J765.J6\"]
+";
+
+/// The same board a card short instead: West with twelve.
+const TWELVE_CARD_BOARD: &str = "\
+[Board \"1\"]
+[Deal \"N:AKQJ.AKQ.AKQ.AKQ 432.432.432.5432 T98.T98.T98.T987 765.J765.J765.J\"]
+";
+
+#[test]
+fn a_hand_of_fourteen_is_skipped_rather_than_taking_the_run_down() {
+    // It used to panic: `a hand cannot hold more than 13 cards`, with no
+    // mention of the file it came from, let alone which board or which seat.
+    let corpus = temp_file("fourteen", FOURTEEN_CARD_BOARD);
+    let script = temp_file("script-fourteen", "condition 1\n");
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-p",
+            "1",
+        ],
+        None,
+    );
+
+    assert!(out.success, "should not panic; stderr:\n{}", out.stderr);
+    assert!(!out.stderr.contains("panicked"), "stderr:\n{}", out.stderr);
+    assert!(
+        out.stderr.contains("West"),
+        "should name the seat:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("14"),
+        "should say how many:\n{}",
+        out.stderr
+    );
+    assert_eq!(count_deals(&out.stdout), 0, "stdout:\n{}", out.stdout);
+}
+
+#[test]
+fn a_board_a_card_short_is_skipped_rather_than_run() {
+    // Worse than the panic while it lasted: this one fitted, so it ran and
+    // reported statistics over a twelve-card hand with nothing to say it had.
+    let corpus = temp_file("twelve", TWELVE_CARD_BOARD);
+    let script = temp_file("script-twelve", "condition 1\n");
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-p",
+            "1",
+        ],
+        None,
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stderr.contains("not a whole deal"),
+        "stderr:\n{}",
+        out.stderr
+    );
+    assert_eq!(count_deals(&out.stdout), 0, "stdout:\n{}", out.stdout);
+}
+
 #[test]
 fn unrecognised_lines_are_ignored() {
     // DealReader skips anything it cannot parse as a deal, which is what allows

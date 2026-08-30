@@ -19,7 +19,7 @@ pub struct Hand {
 
 /// A hand holds thirteen cards. Building one with more is a corrupt deal rather
 /// than a condition to report, so it is asserted rather than returned.
-const MAX_CARDS: usize = 13;
+pub(crate) const MAX_CARDS: usize = 13;
 
 /// What the unused slots hold. Never read: every accessor goes through `len`.
 /// A fixed value rather than anything meaningful so that two hands with the same

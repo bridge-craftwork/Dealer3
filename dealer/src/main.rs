@@ -1490,19 +1490,45 @@ fn main() {
             // against an expected total.
             let mut skipped = 0usize;
             const MAX_SKIP_WARNINGS: usize = 10;
-            let mut deals = Vec::new();
-            for result in DealReader::new(stream) {
-                match result {
-                    Ok(deal) => deals.push(deal.into()),
-                    Err(e) => {
-                        skipped += 1;
-                        if skipped <= MAX_SKIP_WARNINGS {
-                            eprintln!("Warning: skipping unreadable deal: {}", e);
-                            if skipped == MAX_SKIP_WARNINGS {
-                                eprintln!("Warning: further skips will not be reported");
-                            }
-                        }
+            let mut deals: Vec<Deal> = Vec::new();
+            // Counts what the reader handed over, so a warning can say which
+            // board — the reader's own position, not the index in `deals`,
+            // which skips are already pulling out of step.
+            let mut board = 0usize;
+            let complain = |skipped: &mut usize, what: String| {
+                *skipped += 1;
+                if *skipped <= MAX_SKIP_WARNINGS {
+                    eprintln!("Warning: {}", what);
+                    if *skipped == MAX_SKIP_WARNINGS {
+                        eprintln!("Warning: further skips will not be reported");
                     }
+                }
+            };
+            for result in DealReader::new(stream) {
+                board += 1;
+                match result {
+                    // A deal the reader accepted can still be one this program
+                    // cannot use: a hand of fourteen does not fit, and used to
+                    // end the run with `a hand cannot hold more than 13 cards`
+                    // and no mention of the file it came from. A deal a card
+                    // short fitted and was worse — it ran, and reported
+                    // statistics over a twelve-card hand without a word.
+                    Ok(deal) => match Deal::try_from(deal) {
+                        Ok(deal) => match deal.check_complete() {
+                            Ok(()) => deals.push(deal),
+                            Err(e) => complain(
+                                &mut skipped,
+                                format!("skipping deal {} — it is not a whole deal: {}", board, e),
+                            ),
+                        },
+                        Err(e) => {
+                            complain(&mut skipped, format!("skipping deal {} — {}", board, e))
+                        }
+                    },
+                    Err(e) => complain(
+                        &mut skipped,
+                        format!("skipping unreadable deal {}: {}", board, e),
+                    ),
                 }
             }
             if skipped > 0 {

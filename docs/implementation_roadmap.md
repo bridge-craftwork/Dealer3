@@ -265,7 +265,7 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts doubled — so pick a spelling knowing that one exists. |
+| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | **The spelling is not a free choice.** The original has the token already — `[x][1-7][CDHSN]` in `scan.l`, feeding `score(VULN, CONTRACT, expr)` in `defs.y` — so `x4H` is dealer.exe's own and compatibility settles it. DealerV2_4 extends that to `[xz][1-7][CDHSN][x]{0,2}`, where the `z` prefix and the trailing `x`s make `x4Hx` four hearts doubled. |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | `par(side)`: the par contract | Low | Low |  | Needs all 20 double-dummy results, which bridge-solver already provides for `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with `-P`, which has a row of its own in the switch table. |
 | 🔵 Unlikely | `printns` and `printside(side)` | Low | Low |  | dealer3 has `printew`; DealerV2_4 routes all three through one action. |
@@ -274,7 +274,7 @@ Priority is derived from effort and value rather than written down beside them.
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
 | 🔵 Unlikely | Export in DL52 format | Medium | Low |  | DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with the script parameters, the spelling here would have to differ. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
-| 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | Rejected loudly today; the same thing can be written in the condition. |
+| 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` | Medium | Low |  | The original's, not DealerV2_4's: `predealarg : SUIT '(' COMPASS ')' CMPEQ NUMBER` in `defs.y` calls `bias_deal`, which biases the shuffle rather than fixing cards. Rejected loudly today; the same thing can be written in the condition, at the cost of dealing and discarding instead of dealing to fit. |
 | 🔵 Unlikely | Two-dimensional `frequency` | Medium | Low |  | The original takes a second expression and range and prints marginals. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
 | 🔵 Unlikely | `bktfreq`: frequency in buckets, one and two dimensional | Medium | Low |  | Adjacent to the two-dimensional `frequency` below but not the same thing: that one is the original's, this one groups a range into buckets. |
