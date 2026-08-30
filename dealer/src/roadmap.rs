@@ -219,8 +219,11 @@ pub const REMAINING: &[WorkItem] = &[
         effort: Effort::Low,
         value: Value::Low,
         note: Some(
-            "DealerV2_4 spells them `[xz][1-7][CDHSN][x]{0,2}` — `x4Hx` is four hearts \
-             doubled — so pick a spelling knowing that one exists.",
+            "**The spelling is not a free choice.** The original has the token already — \
+             `[x][1-7][CDHSN]` in `scan.l`, feeding `score(VULN, CONTRACT, expr)` in \
+             `defs.y` — so `x4H` is dealer.exe's own and compatibility settles it. \
+             DealerV2_4 extends that to `[xz][1-7][CDHSN][x]{0,2}`, where the `z` prefix \
+             and the trailing `x`s make `x4Hx` four hearts doubled.",
         ),
     },
     WorkItem {
@@ -229,7 +232,12 @@ pub const REMAINING: &[WorkItem] = &[
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
-        note: Some("Rejected loudly today; the same thing can be written in the condition."),
+        note: Some(
+            "The original's, not DealerV2_4's: `predealarg : SUIT '(' COMPASS ')' CMPEQ \
+             NUMBER` in `defs.y` calls `bias_deal`, which biases the shuffle rather than \
+             fixing cards. Rejected loudly today; the same thing can be written in the \
+             condition, at the cost of dealing and discarding instead of dealing to fit.",
+        ),
     },
     WorkItem {
         what: "`--bbo-strict`: warn when a script will behave differently on BBO",
