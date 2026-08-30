@@ -223,11 +223,29 @@ fn a_share_of_zero_is_refused() {
     assert!(err.contains("1 or more"), "{err}");
 }
 
-/// Two answers to the same question, refused before anything is dealt.
+/// Two capabilities on the same declarations, not two answers to one question.
+/// `--level` measures the scenario and writes the copy; `--round-robin` decides
+/// which of its deals reach the file. Together: a script to publish and an exact
+/// set to hand out, from one run.
 #[test]
-fn a_round_robin_and_a_levelling_are_refused_together() {
-    let (_, err, code) = run(&["--round-robin", "--level", "-s", "1"], BANDS);
-    assert_ne!(code, 0);
-    assert!(err.contains("--round-robin"), "{err}");
-    assert!(err.contains("--level"), "{err}");
+fn a_levelling_and_a_round_robin_do_different_jobs() {
+    let (out, err, code) = run(
+        &[
+            "--round-robin",
+            "--level",
+            "-p",
+            "12",
+            "-s",
+            "1",
+            "-f",
+            "printpbn",
+        ],
+        BANDS,
+    );
+    assert_eq!(code, 0, "{err}");
+    for (band, count) in counts(&out) {
+        assert_eq!(count, 4, "{band} came out at {count}");
+    }
+    // The levelling ran too, and reported what it measured.
+    assert!(err.contains("natural"), "no levelling summary: {err}");
 }

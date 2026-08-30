@@ -810,8 +810,12 @@ under a second.
 
 **Levelling is for the stream; rounds are for the finite set.** A BBO practice
 table runs the script live and takes deals as they come, with nothing to
-over-generate from — so a scenario that will run there still needs levelling,
-and `--round-robin` is refused alongside `--level` rather than applying both.
+over-generate from — so a scenario that will run there still needs levelling.
+
+Which is why they compose. `--level --write-leveled x.dlr --round-robin` gives
+you the levelled scenario to publish and an exactly even set to hand out, from
+one run, and costs no more than the round alone: the keeps thin the common types
+and leave the rarest at a keep of 1, and the rarest is what the run waits for.
 
 ---
 

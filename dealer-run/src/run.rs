@@ -891,28 +891,24 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         opts.batch
     };
 
-    if opts.round_robin && opts.leveling.is_some() {
-        // Two answers to the same question. Keeps throw away rare deals at
-        // random, and the round then waits for the ones they threw away —
-        // paying the rarity twice to arrive at a count it would have reached on
-        // its own, and with the keeps' measurement error still in it.
-        return Err(RunError::Failed(
-            "a round robin and a levelling ask for the same thing two ways.\n       Levelling \
-             gets the proportions right on average, over a run of any length; a round robin \
-             deals one of each hand type at a time.\n       Use one or the other."
-                .to_string(),
-        ));
-    }
+    // The shape of a round, if one was asked for. Worked out once, from the
+    // scenario as written: a levelling adds `roll` and the keeps to a script
+    // and leaves its `HandType_` declarations alone, so the rounds are the same
+    // either way.
+    //
+    // It shapes the *producing* pass and only that. A characterizing pass is
+    // measuring how often each type comes up, and a pass that stopped taking a
+    // type once it had enough would measure its own filter.
+    let round_robin = if opts.round_robin {
+        Some(round_robin_for(script, opts.produce, &opts.params)?)
+    } else {
+        None
+    };
 
     let Some(leveling) = opts.leveling else {
         // An ordinary run: one pass, the script as written, every match handed
         // over as it comes — or, dealing a round robin, every match whose hand
         // type still has room in the round.
-        let round_robin = if opts.round_robin {
-            Some(round_robin_for(script, opts.produce, &opts.params)?)
-        } else {
-            None
-        };
         let produce = opts.produce;
         let mut source = Source::new(opts.deals, opts.seed);
         let pass = run_pass(
@@ -1014,7 +1010,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
                 replay: &characterizing.retained.handles,
                 resume: characterizing.retained.through,
                 emit: true,
-                round_robin: None,
+                round_robin: round_robin.as_ref(),
             },
         )?)
     };
@@ -1027,7 +1023,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             .as_ref()
             .map(|p| p.hand_types.clone())
             .unwrap_or_else(|| characterizing.hand_types.clone()),
-        round_robin: None,
+        round_robin,
         stats: match producing {
             Some(ref p) => p.stats.clone(),
             None => characterizing.stats,
@@ -1298,16 +1294,41 @@ action average \"strong\" 100 * HandType_Strong
         }
     }
 
+    /// Two capabilities on the same declarations, not two answers to one
+    /// question: the levelling measures the scenario and writes the copy, the
+    /// round decides which of its deals reach the caller. The characterizing
+    /// pass must still see the scenario unfiltered, or it would be measuring
+    /// its own filter.
     #[test]
-    fn a_round_robin_and_a_levelling_together_are_refused() {
-        let mut opts = options(10, true);
+    fn a_levelling_and_a_round_robin_do_different_jobs() {
+        let mut opts = options(36, true);
         opts.round_robin = true;
         let mut host = Collector::default();
-        let error = match super::run(LADDER, opts, &mut host) {
-            Err(e) => e,
-            Ok(_) => panic!("a round robin and a levelling together should be refused"),
-        };
-        assert!(error.to_string().contains("one or the other"), "{error}");
+        let report = super::run(LADDER, opts, &mut host).expect("run");
+
+        // The round: exact, where the levelling alone is exact on average.
+        assert_eq!(report.produced, 36);
+        for (name, count) in &report.hand_types {
+            assert_eq!(*count, 12, "{name} came out at {count}");
+        }
+        // And the levelling still happened, with its own numbers.
+        let levelling = report.leveling.expect("the levelling");
+        assert_eq!(levelling.plans.len(), 3);
+        assert!(levelling
+            .script
+            .contains("### BEGIN GENERATED LEVELING ###"));
+        // Measured naturally: the natural mix is lopsided, which is the whole
+        // reason the keeps exist. A characterizing pass that had been dealt
+        // round robin would have measured three equal thirds.
+        let natural: Vec<usize> = levelling
+            .natural_hand_types
+            .iter()
+            .map(|(_, n)| *n)
+            .collect();
+        assert!(
+            natural.iter().max() > natural.iter().min(),
+            "the probe measured its own filter: {natural:?}"
+        );
     }
 
     fn levelled(produce: usize) -> (Collector, RunReport) {

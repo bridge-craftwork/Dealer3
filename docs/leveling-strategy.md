@@ -561,11 +561,25 @@ rather than quietly delivering fewer.
 
 **It does not apply to BBO.** A practice table runs the script live and takes
 deals as they come; there is nothing to over-generate from and nothing to
-discard. That is why these are two modes rather than one replacing the other —
-levelling for a script someone else runs, rounds for a finite artefact generated
-here. `--round-robin` is refused alongside `--level` for the same reason:
-applying keeps *as well* would throw away rare deals the round then has to wait
-for again.
+discard. So this does not replace levelling — levelling is for a script someone
+else runs, a round is for a finite artefact generated here.
+
+Which is why the two compose rather than exclude each other:
+
+```
+$ dealer NT_Ladder.dlr -p 20 --level --write-leveled NT_Ladder.leveled.dlr --round-robin
+```
+
+One run gives you the levelled scenario to publish *and* an exactly even set to
+hand out. They rest on the same `HandType_` declarations and do different jobs
+with them: the levelling measures the scenario and computes the keeps, the round
+decides which of the resulting deals reach the file. The characterizing pass is
+never dealt round robin — a pass that stopped taking a type once it had enough
+would measure its own filter rather than the scenario.
+
+It costs no more than a round on its own, either. The keeps thin the common
+types and leave the rarest at a keep of 1, and the rarest is what the whole run
+waits for.
 
 ### Dealing them out in an order, with `--interleave`
 

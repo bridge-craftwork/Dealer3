@@ -345,7 +345,7 @@ const levelHint = computed(() => {
     return 'The levelled scenario runs as it stands here — press Run for another sample of the same keeps.'
   }
   return hasHandTypes.value
-    ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even. Clears Round robin, which answers the same question.'
+    ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even, and write the levelled scenario.'
     : 'Name some categories of hand with variables beginning HandType_ to level them.'
 })
 
@@ -364,10 +364,10 @@ const levelBoxLive = computed(() => hasHandTypes.value && editorTab.value !== 'l
 // The same conditions, for the same reasons: it needs categories to deal round,
 // and the Leveled tab runs its scenario as it stands.
 //
-// Deliberately *not* greyed while the other is ticked. They are alternatives,
-// but a box greyed out because of a box beside it is a puzzle — so both stay
-// clickable and ticking one clears the other, which says the same thing by
-// doing it.
+// Independent of Auto-level, not an alternative to it. They are two capabilities
+// resting on the same `HandType_` declarations: one measures the scenario and
+// writes the levelled copy, the other decides which of its deals reach the
+// file. Together you get a script to publish and an exact set to hand out.
 const roundRobinLive = computed(() => hasHandTypes.value && editorTab.value !== 'leveled')
 
 /// What to send the engine. On the Leveled tab the generated scenario runs as
@@ -380,19 +380,16 @@ const roundRobinHint = computed(() => {
   if (!hasHandTypes.value) {
     return 'Name some categories of hand with variables beginning HandType_ to deal them round robin.'
   }
-  return 'Divide Produce among the hand types: one of each per round, and a partial round at the end if it does not divide. Clears Auto-level, which answers the same question.'
+  return 'Divide Produce among the hand types: one of each per round, and a partial round at the end if it does not divide. Works with Auto-level or without it.'
 })
 
-// It deals the hand types, so a script naming none has nothing to deal round;
-// and it answers the same question levelling answers, so the two are
-// alternatives. Both are enforced by the engine as well — this only keeps the
-// page from offering a run it knows will be refused.
+// It deals the hand types, so a script naming none has nothing to deal round.
+// Enforced by the engine as well — this only keeps the page from offering a run
+// it knows will be refused.
 watch(hasHandTypes, (has) => {
   if (!has) roundRobin.value = false
 })
-watch(roundRobin, (on) => {
-  if (on) autoLevel.value = false
-})
+
 
 const runLabel = computed(() => (editorTab.value === 'leveled' ? 'Run leveled' : 'Run'))
 
@@ -406,8 +403,6 @@ watch(hasHandTypes, (has) => {
 watch(autoLevel, (on) => {
   autoLevelTouched.value = true
   if (!on) leveling.value = null
-  // Only on the way on, or the two would clear each other in a loop.
-  if (on) roundRobin.value = false
 })
 
 // The keeps belong to the script they were measured from; an edit makes them

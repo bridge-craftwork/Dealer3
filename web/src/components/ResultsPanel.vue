@@ -107,12 +107,16 @@
           Ran out of deals before filling {{ shortOfRound.join(', ') }}. Raise Max generate, or
           widen the categories that came up short.
         </p>
+        <!-- The deal count is the run's whole cost, which for a levelled run is
+             nearly all measuring — the note above already accounts for that, so
+             saying it here again would read as the round having been expensive. -->
         <p v-else-if="roundFilled" class="ht-key">
           <template v-if="rounds.even">Exactly {{ rounds.rounds }} of each</template>
           <template v-else>{{ rounds.rounds }} complete rounds</template><template
             v-if="rounds.remainder"
-          >, and a partial round of {{ rounds.remainder }}</template>, dealt from
-          {{ result.generated.toLocaleString() }} deals.
+          >, and a partial round of {{ rounds.remainder }}</template><template
+            v-if="!leveling"
+          >, dealt from {{ result.generated.toLocaleString() }} deals</template>.
         </p>
         <!-- What the run dealt is not the share it was aiming at. Over a short
              set that is lumpy however even the keeps are — 24 boards across 5
@@ -122,8 +126,11 @@
         <p v-if="leveling" class="ht-key">
           Levelled toward
           <template v-if="evenTarget">{{ (100 * handTypes[0].planned).toFixed(0) }}% each</template>
-          <template v-else>the shares the scenario declares</template>. A run of
-          {{ handTypes[0]?.out_of }} is lumpy around that however even the keeps are.
+          <template v-else>the shares the scenario declares</template>.<template
+            v-if="!dealingRounds"
+          >
+            A run of {{ handTypes[0]?.out_of }} is lumpy around that however even the keeps
+            are.</template>
         </p>
       </section>
 

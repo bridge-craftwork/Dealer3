@@ -570,7 +570,11 @@ pub fn generate(
                 delivered: *count as f64 / report.produced.max(1) as f64,
                 produced: *count,
                 out_of: report.produced,
-                wanted: None,
+                // A levelled run can be dealt round robin too — the levelling
+                // measures the scenario, the round decides which of its deals
+                // reach the caller — so this is read the same way in both
+                // branches.
+                wanted: report.round_robin.as_ref().map(|p| p.owed(i).max(*count)),
             })
             .collect(),
         None => {

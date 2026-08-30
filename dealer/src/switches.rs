@@ -146,7 +146,8 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
              `= 3` puts three of that type in every one. Exact by construction, where \
              levelling is exact on average and inherits the error in the rate it measured. \
              For a set generated once and handed to a class; not for BBO, which runs a \
-             script live with nothing to over-generate from.",
+             script live with nothing to over-generate from. Independent of `--level` and \
+             useful with it: that writes the scenario, this shapes the file.",
         ),
     },
     SwitchRow {

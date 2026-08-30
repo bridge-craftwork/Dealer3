@@ -195,9 +195,15 @@ struct Args {
     /// levelled run pays for, paid until the round is actually full rather than
     /// until it is full on average.
     ///
-    /// Not for BBO: a practice table runs the script live and takes deals as
-    /// they come, with nothing to over-generate from. Level those.
-    #[arg(long = "round-robin", conflicts_with_all = ["level", "write_leveled"])]
+    /// Independent of `--level`, and useful with it: that measures the scenario
+    /// and writes the levelled copy, this decides which deals reach the file.
+    /// Together you get a script to publish and an exact set to hand out, and
+    /// it costs no more than a round robin on its own — the rarest type sets
+    /// the cost either way, and its keep is 1.
+    ///
+    /// Not for BBO on its own: a practice table runs the script live and takes
+    /// deals as they come, with nothing to over-generate from. Level for that.
+    #[arg(long = "round-robin")]
     round_robin: bool,
 
     /// Order the output so each hand type appears before any repeats
