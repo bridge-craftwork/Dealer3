@@ -82,6 +82,7 @@ self.onmessage = async (event) => {
       options.format,
       options.autoLevel,
       options.roundRobin,
+      options.params || [],
       onProgress,
     )
     self.postMessage({ id, type: 'done', raw, threads: pool.threads })

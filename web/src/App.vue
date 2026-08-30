@@ -115,7 +115,12 @@
             Auto-level
           </label>
 
-          <button class="run" :disabled="!engineReady || running || !scriptValid" @click="run">
+          <button
+            class="run"
+            :disabled="!engineReady || running || !scriptValid || paramsMissing.length > 0"
+            :title="runHint"
+            @click="run"
+          >
             {{ running ? 'Running…' : runLabel }}
           </button>
           <!-- Appears with the bars rather than the instant Run is pressed:
@@ -151,7 +156,22 @@
           </div>
         </div>
 
-        <ScriptEditor v-show="editorTab === 'script'" v-model="script" @validity="onValidity" />
+        <!-- Above the editor rather than among the run controls: these belong
+             to the script, not to the run — a different script wants different
+             ones, and the same script wants the same ones every time. -->
+        <ScriptParams
+          v-show="editorTab === 'script'"
+          v-model="paramValues"
+          :script="script"
+          :engine-ready="engineReady"
+          @change="onParams"
+        />
+        <ScriptEditor
+          v-show="editorTab === 'script'"
+          v-model="script"
+          :params="paramSpecs"
+          @validity="onValidity"
+        />
         <ScriptViewer v-if="editorTab === 'leveled'" :script="leveledScript" />
       </section>
 
@@ -184,6 +204,7 @@
 import { computed, ref, watch, onMounted, nextTick } from 'vue'
 import ScenarioPicker from '@/components/ScenarioPicker.vue'
 import ScriptEditor from '@/components/ScriptEditor.vue'
+import ScriptParams from '@/components/ScriptParams.vue'
 import ScriptViewer from '@/components/ScriptViewer.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import PrintView from '@/components/PrintView.vue'
@@ -229,6 +250,21 @@ const roundRobin = ref(restored?.roundRobin ?? false)
 // truncated run is a worse outcome than a second of waiting.
 const maxGenerate = ref(restored?.maxGenerate ?? 1000000)
 const format = ref(restored?.format || 'oneline')
+
+// What has been typed into the parameter fields, by parameter number. Empty
+// means "use whatever the script declares", so clearing a field returns to the
+// default rather than blanking the parameter.
+const paramValues = ref(restored?.paramValues || {})
+/// The same thing in `--param`'s spelling, ready for the engine.
+const paramSpecs = ref([])
+/// Parameters the script uses that nothing supplies. The run would fail on the
+/// first of them, so Run is held rather than offering it.
+const paramsMissing = ref([])
+
+function onParams({ specs, missing }) {
+  paramSpecs.value = specs
+  paramsMissing.value = missing
+}
 
 const engineReady = ref(false)
 const engineVersion = ref('')
@@ -391,6 +427,16 @@ watch(hasHandTypes, (has) => {
 
 const runLabel = computed(() => (editorTab.value === 'leveled' ? 'Run leveled' : 'Run'))
 
+// A disabled button with no explanation is the worst of both: says the run
+// cannot happen and not what would let it.
+const runHint = computed(() => {
+  if (!paramsMissing.value.length) return ''
+  const names = paramsMissing.value.map((i) => `$${i}`).join(', ')
+  return `Fill in ${names} above — the script uses ${
+    paramsMissing.value.length > 1 ? 'them' : 'it'
+  } and declares no default.`
+})
+
 // Ticked for you the first time a script with hand types appears, and left
 // alone afterwards.
 watch(hasHandTypes, (has) => {
@@ -425,7 +471,18 @@ onMounted(async () => {
 // synchronous — it would otherwise sit on the typing path.
 let saveTimer = null
 watch(
-  [script, seed, produce, roundRobin, maxGenerate, format, selectedFile, autoLevel, newSeedEachRun],
+  [
+    script,
+    seed,
+    produce,
+    roundRobin,
+    maxGenerate,
+    format,
+    selectedFile,
+    autoLevel,
+    newSeedEachRun,
+    paramValues,
+  ],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
@@ -439,6 +496,7 @@ watch(
         scenario: selectedFile.value,
         autoLevel: autoLevel.value,
         newSeedEachRun: newSeedEachRun.value,
+        paramValues: paramValues.value,
       })
     }, 400)
   },
@@ -491,6 +549,7 @@ async function onDownload(kind) {
         roundRobin: roundRobinAsked.value,
         maxGenerate: maxGenerate.value,
         format: 'pbn',
+        params: paramSpecs.value,
       })
       downloadText(
         resultFilename(name, seed.value, 'pbn'),
@@ -504,6 +563,7 @@ async function onDownload(kind) {
         roundRobin: roundRobinAsked.value,
         maxGenerate: maxGenerate.value,
         format: format.value === 'pbn' ? 'oneline' : format.value,
+        params: paramSpecs.value,
       })
       // `printes` first, as it appears on screen: leaving it out would drop
       // what the script printed from the file the user saves.
@@ -570,6 +630,7 @@ async function run() {
       roundRobin: roundRobinAsked.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
+      params: paramSpecs.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
       signal: abort.signal,
       onProgress: (report) => {

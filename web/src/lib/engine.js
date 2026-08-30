@@ -6,6 +6,7 @@
 
 import init, {
   check_script as wasmCheck,
+  script_params as wasmScriptParams,
   language_info as wasmLanguageInfo,
   version as wasmVersion,
 } from '@/wasm/dealer3_wasm.js'
@@ -108,7 +109,11 @@ function runInWorker(script, options) {
         maxGenerate: options.maxGenerate,
         format: options.format,
         autoLevel: options.autoLevel,
-        roundRobin: options.roundRobin,
+        // A plain copy: the caller's array is a Vue ref's, and a reactive
+        // proxy cannot be structured-cloned — postMessage fails outright with
+        // "[object Object] could not be cloned", which says nothing about
+        // where it came from.
+        params: Array.from(options.params || []),
       },
     })
   })
@@ -155,6 +160,10 @@ export async function generate(
     /// Divide `produce` among the script's `HandType_` variables — one of each
     /// per round — instead of taking deals as they come.
     roundRobin = false,
+    /// What to put where `$0`-`$9` stand, in `--param`'s own `N=TEXT` spelling.
+    /// A parameter left out here falls back to the script's own `# param`
+    /// default, and fails the run if it has none.
+    params = [],
     /// Called with `{ phase, produced, generated, target }` as the run goes.
     onProgress = null,
     /// Resolves — or rejects — if the caller abandons the run.
@@ -168,6 +177,7 @@ export async function generate(
     format,
     autoLevel,
     roundRobin,
+    params,
     onProgress,
     signal,
   }))
@@ -214,9 +224,34 @@ export async function generate(
  * column come from the parser itself, so editor markers agree with the engine
  * rather than approximating it.
  */
-export function checkScript(script) {
+export function checkScript(script, params = []) {
   assertReady('checkScript')
-  return JSON.parse(wasmCheck(script))
+  return JSON.parse(wasmCheck(script, params))
+}
+
+/**
+ * What a script says about its own `$0`-`$9`: `{ ok, error, params }`, where
+ * each entry is `{ index, default, description, declaredOn, usedOn }`.
+ *
+ * This is what lets the page ask for the parameters a script wants. The `$n`
+ * occurrences on their own give it nowhere to put a label and no sensible
+ * starting value, which is why a parameterised scenario used to fail here with
+ * an error naming a line the reader could not act on.
+ */
+export function scriptParams(script) {
+  assertReady('scriptParams')
+  const raw = JSON.parse(wasmScriptParams(script))
+  return {
+    ok: raw.ok,
+    error: raw.error,
+    params: raw.params.map((p) => ({
+      index: p.index,
+      default: p.default,
+      description: p.description,
+      declaredOn: p.declared_on,
+      usedOn: p.used_on,
+    })),
+  }
 }
 
 /** The language's vocabulary, for highlighting and completion. */

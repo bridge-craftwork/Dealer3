@@ -48,6 +48,13 @@ export function loadSession() {
       autoLevel: typeof v.autoLevel === 'boolean' ? v.autoLevel : undefined,
       newSeedEachRun:
         typeof v.newSeedEachRun === 'boolean' ? v.newSeedEachRun : undefined,
+      // What was typed into the script's parameter fields, by parameter
+      // number. Restored with the script, since a parameterised scenario is
+      // only half itself without them.
+      paramValues:
+        v.paramValues && typeof v.paramValues === 'object' && !Array.isArray(v.paramValues)
+          ? v.paramValues
+          : {},
     }
   } catch {
     // Malformed: drop it rather than tripping over it on every load.

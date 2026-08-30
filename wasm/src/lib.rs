@@ -411,6 +411,10 @@ impl RunHost for Page<'_> {
 /// average and 6/1/5/4/4 without anything having gone wrong, where a round is
 /// four. Refused alongside `auto_level`, which asks for the same thing the
 /// other way.
+// The argument list is the JS calling convention: wasm_bindgen exports these
+// positionally, and folding them into a settings object would move the naming
+// out of the type system and into a hand-written cast on both sides.
+#[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn generate(
     script: &str,
@@ -420,6 +424,7 @@ pub fn generate(
     format: &str,
     auto_level: bool,
     round_robin: bool,
+    params: Vec<String>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
     let format = Format::parse(format)?;
@@ -435,8 +440,9 @@ pub fn generate(
     // than once and a single bar would appear to restart.
     let progress = Progress::new(on_progress);
 
+    let params = script_params_from(&params).map_err(|e| JsError::new(&e))?;
     let preprocessed =
-        dealer_parser::preprocess_all(script, &Default::default()).map_err(|e| JsError::new(&e))?;
+        dealer_parser::preprocess_all(script, &params).map_err(|e| JsError::new(&e))?;
     let program = dealer_parser::parse_program(&preprocessed)
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
 
@@ -502,7 +508,7 @@ pub fn generate(
             // gets the same deals more slowly.
             threads: threads_available(),
             batch: 0,
-            params: Default::default(),
+            params: params.clone(),
             round_robin,
             leveling: auto_level.then_some(LevelingOptions {
                 // The target mix comes out of the script, exactly as it does on
@@ -844,8 +850,20 @@ struct CheckResult {
 /// keystroke without exception handling. The line and column come from the
 /// parser itself, so squiggles agree with the engine by construction.
 #[wasm_bindgen]
-pub fn check_script(script: &str) -> String {
-    let preprocessed = match dealer_parser::preprocess_all(script, &Default::default()) {
+pub fn check_script(script: &str, params: Vec<String>) -> String {
+    let params = match script_params_from(&params) {
+        Ok(params) => params,
+        Err(message) => {
+            return serde_json::to_string(&CheckResult {
+                ok: false,
+                error: Some(message),
+                line: None,
+                column: None,
+            })
+            .unwrap_or_default()
+        }
+    };
+    let preprocessed = match dealer_parser::preprocess_all(script, &params) {
         Ok(text) => text,
         // The editor squiggles this the same as a parse error, which is what it
         // is from the writer's point of view.
@@ -1131,6 +1149,78 @@ pub fn language_info() -> String {
         },
     };
     serde_json::to_string(&info).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Read the page's parameter fields, which arrive in `--param`'s own spelling.
+///
+/// The same `N=TEXT` the command line takes, so there is one place that decides
+/// what a parameter spec is, and a value copied out of a browser field pastes
+/// straight into a terminal.
+fn script_params_from(specs: &[String]) -> Result<dealer_parser::ScriptParams, String> {
+    let mut params = dealer_parser::ScriptParams::default();
+    for spec in specs {
+        // A field left empty is not a value; the script's own default, or the
+        // error, should stand.
+        if spec
+            .split_once('=')
+            .is_none_or(|(_, value)| value.is_empty())
+        {
+            continue;
+        }
+        params.set(spec)?;
+    }
+    Ok(params)
+}
+
+#[derive(Serialize)]
+struct ParamInfo {
+    index: usize,
+    default: Option<String>,
+    description: Option<String>,
+    declared_on: Option<usize>,
+    used_on: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct ParamsResult {
+    ok: bool,
+    /// Present only when `ok` is false: a malformed `# param` line.
+    error: Option<String>,
+    params: Vec<ParamInfo>,
+}
+
+/// What a script says about its own `$0`-`$9`, for the page to ask with.
+///
+/// Without this the browser could find the `$n` occurrences and have nothing to
+/// label them with and no sensible starting value — so a parameterised scenario
+/// simply failed to parse, naming a line the reader could not act on.
+///
+/// Returns JSON rather than throwing, for the same reason `check_script` does:
+/// this runs as the script is edited.
+#[wasm_bindgen]
+pub fn script_params(script: &str) -> String {
+    let result = match dealer_parser::script_parameters(script) {
+        Ok(wanted) => ParamsResult {
+            ok: true,
+            error: None,
+            params: wanted
+                .into_iter()
+                .map(|p| ParamInfo {
+                    index: p.index,
+                    default: p.default,
+                    description: p.description,
+                    declared_on: p.declared_on,
+                    used_on: p.used_on,
+                })
+                .collect(),
+        },
+        Err(message) => ParamsResult {
+            ok: false,
+            error: Some(message),
+            params: Vec::new(),
+        },
+    };
+    serde_json::to_string(&result).unwrap_or_default()
 }
 
 /// Engine version, so a page can show which build it is running.

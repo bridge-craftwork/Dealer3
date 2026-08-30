@@ -49,8 +49,9 @@ cover this build too: it is the same generator.
 
 | Export | Returns | Notes |
 |---|---|---|
-| `generate(script, seed, produce, max_generate, format)` | JSON | `format` is `"oneline"` or `"printall"` |
-| `check_script(script)` | JSON | Never throws — safe to call per keystroke |
+| `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9` |
+| `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
+| `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
 | `version()` | string | Engine version |
 
@@ -117,6 +118,35 @@ Statistics still accumulate over every matching deal, so `produced` can exceed
 Returns JSON rather than throwing, so an editor can call it on every keystroke.
 Line and column come from the parser itself, so editor diagnostics agree with the
 engine by construction — not by regex approximation.
+
+### `script_params`
+
+```json
+{
+  "ok": true,
+  "error": null,
+  "params": [
+    {"index": 0, "default": "west", "description": "the seat that opens",
+     "declared_on": 1, "used_on": 4},
+    {"index": 1, "default": null, "description": null,
+     "declared_on": null, "used_on": 4}
+  ]
+}
+```
+
+Every parameter the script uses, declares, or both — ordered by number. This is
+what lets a page ask for the ones it needs: the `$n` occurrences alone give it
+nowhere to put a label and no starting value, which is what a script's own
+`# param 0 = west   # the seat that opens` line supplies.
+
+`default` is `null` where nothing declares one, and that parameter must be
+supplied or the run fails. `used_on` is `null` for a declaration the script never
+mentions — harmless, but usually a `$7` lost to an edit, so worth showing.
+
+Parameters reach `generate` and `check_script` as `--param`'s own `N=TEXT`
+strings, so a value copied out of a browser field pastes straight into a
+terminal. A parameter left out falls back to the script's declared default.
+`ok` is false only for a malformed declaration line.
 
 ### `language_info`
 

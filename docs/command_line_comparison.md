@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **37 of the 48 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **38 of the 49 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -43,7 +43,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `--level-budget` | Budget when levelling, in deals dealt per deal kept | ✅ | — | — | When a target costs more than this, exactness is relaxed rather than the rarest type sacrificed: every type moves the same fraction toward its target. |
 | `--level-measure` | Most deals to produce while characterizing a scenario | ✅ | — | — | A ceiling, not a target: measuring stops as soon as the rarest hand type has been seen enough times to divide by, which is what sets the precision of the whole levelling. How many deals that takes depends on how rare that type is — ten thousand for one at 5% of qualifying deals, a million for one at 0.2% — so it is worked out rather than chosen. |
 | `--level-timeout` | Seconds to spend characterizing a scenario before giving up | ✅ | — | — | Reaching it is not an error: the levelling is written with whatever was measured, and the shortfall is reported and stamped into the file. |
-| `--param` | Fill a script parameter: `--param 1=west` puts `west` where `$1` stands | ✅ | — | ⚠️ -0 to -9 set $0 to $9 | DealerV2_4's spelling collides with dealer.exe's swapping switches, which win, so only the switch differs — a script written for it is unchanged. A parameter is source rather than a value: a compass, a number, a shape, even a function name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike DealerV2_4, a `$n` nothing supplies is an error rather than an empty space. |
+| `--param` | Fill a script parameter: `--param 1=west` puts `west` where `$1` stands | ✅ | — | ⚠️ -0 to -9 set $0 to $9 | DealerV2_4's spelling collides with dealer.exe's swapping switches, which win, so only the switch differs — a script written for it is unchanged. A parameter is source rather than a value: a compass, a number, a shape, even a function name, so `$9($0)` with `--param 9=hcp --param 0=west` is `hcp(west)`. Unlike DealerV2_4, a `$n` nothing supplies is an error rather than an empty space — unless the script declares its own default with a `# param 1 = 15` comment, which takes effect when no switch overrides it. |
 | `--rnd-seed` | Shift the stream `rnd()` draws from | ✅ | — | — | `rnd()` is reproducible without it. The original draws from the generator it shuffles with, so calling it there changes the deals; dealer3 keeps the two apart. |
 | `-0` | No swapping (the default) | ✅ | ✅ | ⚠️ -x MODE | The three swapping switches override one another, so the last one wins. |
 | `-2` | Two-way swapping: deal each shuffle again with East and West exchanged | ✅ | ✅ | ⚠️ -x MODE | Refused alongside a predeal to East or West, which it would move. The original allows it and loses the predealt cards without saying so. |
@@ -79,6 +79,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
+| `--params` | List the script parameters and their declared defaults, without running | ✅ | — | — | A parameterised script handed on without the invocation that goes with it is otherwise unrunnable: nothing in the file says what `$3` was meant to be. This reads the script and stops, listing every `$n` it uses, the default its `# param n = ...` line declares and what that line says it is for. With `--stats-json`, the same as JSON for a build script to fill in. |
 | `--stats-json` | Report the statistics as JSON instead of tables | ✅ | — | — | For a tool rather than a reader: full precision, and the sample size behind each average. Pair with `-q` for a stdout that is nothing but JSON. See `docs/leveling-guide.md`. |
 | `-C`, `--CSV` | Write a CSV report to a file | ✅ | — | ✅ | Appends by default; `w:filename` truncates. Driven by the `csvrpt` statement. |
 | `-T`, `--title` | Title for PBN output | ✅ | — | ✅ |  |

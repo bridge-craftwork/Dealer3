@@ -222,6 +222,15 @@ struct Args {
     #[arg(long = "param", value_name = "N=TEXT")]
     param: Vec<String>,
 
+    /// List the script parameters and their declared defaults, without running
+    ///
+    /// A parameterised script is unrunnable without knowing what it wants, so
+    /// this reads the script and stops: every `$n` it uses, the default its
+    /// `# param n = ...` line declares, and what that line says it is for. With
+    /// `--stats-json`, the same thing as JSON for a build script to fill in.
+    #[arg(long = "params")]
+    params: bool,
+
     /// Report the statistics as JSON instead of tables, for a tool to read
     ///
     /// Use with `-q` for a stdout that is nothing but JSON. The per-average
@@ -691,6 +700,125 @@ fn leveling_summary(levelling: &dealer_run::LevelingReport) -> String {
     out
 }
 
+/// What `--params` prints: everything the script says about its own `$n`.
+///
+/// A parameterised script handed on without its invocation is unrunnable, and
+/// the `$n` occurrences alone say nothing about what they were meant to be. So
+/// this is the declared default beside the use, with a line number for a
+/// parameter that has one and neither.
+///
+/// JSON on request, because the same information is what a build script needs
+/// to fill the parameters programmatically, and parsing the columns back out
+/// would be its own small tragedy.
+fn report_parameters(script: &str, file: Option<&str>, as_json: bool) -> Result<String, String> {
+    let wanted = dealer_parser::script_parameters(script)?;
+
+    if as_json {
+        let rows: Vec<String> = wanted
+            .iter()
+            .map(|p| {
+                let quoted = |value: &Option<String>| match value {
+                    Some(text) => json_string(text),
+                    None => "null".to_string(),
+                };
+                let line = |value: Option<usize>| match value {
+                    Some(n) => n.to_string(),
+                    None => "null".to_string(),
+                };
+                format!(
+                    "    {{\"index\": {}, \"default\": {}, \"description\": {}, \
+                     \"declared_on\": {}, \"used_on\": {}}}",
+                    p.index,
+                    quoted(&p.default),
+                    quoted(&p.description),
+                    line(p.declared_on),
+                    line(p.used_on)
+                )
+            })
+            .collect();
+        return Ok(format!(
+            "{{\n  \"params\": [\n{}\n  ]\n}}\n",
+            rows.join(",\n")
+        ));
+    }
+
+    if wanted.is_empty() {
+        return Ok(match file {
+            Some(name) => format!("{} uses no script parameters.\n", name),
+            None => "This script uses no parameters.\n".to_string(),
+        });
+    }
+
+    // The default column is as wide as the widest default, so the descriptions
+    // line up and the whole thing reads as a table rather than as a list.
+    let width = wanted
+        .iter()
+        .map(|p| p.default.as_deref().unwrap_or(NO_DEFAULT).chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let mut out = match file {
+        Some(name) => format!("Script parameters of {}:\n\n", name),
+        None => "Script parameters:\n\n".to_string(),
+    };
+    let mut missing = Vec::new();
+    for param in &wanted {
+        let value = param.default.as_deref().unwrap_or(NO_DEFAULT);
+        let note = match (param.used_on, param.declared_on) {
+            // Declared and never mentioned: usually a `$7` lost to an edit, and
+            // invisible without saying so, since nothing fails.
+            (None, Some(line)) => format!("declared on line {} and never used", line),
+            _ => param.description.clone().unwrap_or_default(),
+        };
+        out.push_str(&format!(
+            "  ${}  {:width$}",
+            param.index,
+            value,
+            width = width
+        ));
+        if !note.is_empty() {
+            out.push_str("  ");
+            out.push_str(&note);
+        }
+        out.push('\n');
+        if param.default.is_none() && param.used_on.is_some() {
+            missing.push(param.index);
+        }
+    }
+
+    out.push('\n');
+    if missing.is_empty() {
+        out.push_str("Every parameter has a default, so the script runs as it stands.\n");
+    } else {
+        out.push_str(&format!(
+            "Nothing supplies {}, so the script will not run until something does:\n  {}\n\
+             Or declare a default in the script, so it runs on its own and on BBO:\n  \
+             # param {} = <text>  # what it means\n",
+            and_list(&missing),
+            missing
+                .iter()
+                .map(|i| format!("--param {}=<text>", i))
+                .collect::<Vec<_>>()
+                .join(" "),
+            missing[0],
+        ));
+    }
+    Ok(out)
+}
+
+/// Stands in the default column for a parameter that has none.
+const NO_DEFAULT: &str = "(none)";
+
+/// `$1`, `$1 and $4`, `$1, $4 and $7`.
+fn and_list(indexes: &[usize]) -> String {
+    let names: Vec<String> = indexes.iter().map(|i| format!("${}", i)).collect();
+    match names.split_last() {
+        None => String::new(),
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {}", rest.join(", "), last),
+    }
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -857,6 +985,21 @@ fn main() {
     let untrimmed = constraint_str.clone();
     let constraint_str = constraint_str.trim();
 
+    // Answer "what does this script want?" and stop. Before the levelling
+    // preparation below, because it is a question about the file as written.
+    if args.params {
+        match report_parameters(constraint_str, args.input_file.as_deref(), args.stats_json) {
+            Ok(report) => {
+                print!("{}", report);
+                std::process::exit(0);
+            }
+            Err(message) => {
+                eprintln!("Error: {}", message);
+                std::process::exit(1);
+            }
+        }
+    }
+
     // Refuse a scenario that cannot receive a levelling block before dealing
     // anything: measuring is a hundred thousand deals, and none of it is worth
     // doing if the answer has nowhere to go.
@@ -935,6 +1078,19 @@ fn main() {
                 "Warning: --param {} was given and the script never mentions `${}`",
                 index, index
             );
+        }
+        // The mirror of the warning above: a `# param 7 = ...` line whose `$7`
+        // an edit took away does nothing at all, and nothing else would say so.
+        // A malformed declaration is not reported here: `preprocess_all` below
+        // fails on it with the same message, rather than this saying it twice.
+        if let Ok(wanted) = dealer_parser::script_parameters(constraint_str) {
+            for param in wanted.iter().filter(|p| p.used_on.is_none()) {
+                eprintln!(
+                    "Warning: line {} declares `${}` and the script never mentions it",
+                    param.declared_on.unwrap_or(0),
+                    param.index
+                );
+            }
         }
         let preprocessed = match dealer_parser::preprocess_all(constraint_str, &params) {
             Ok(text) => text,

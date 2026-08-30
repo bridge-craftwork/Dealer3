@@ -22,6 +22,7 @@ const session = {
   maxGenerate: 100000,
   format: 'printall',
   scenario: 'Weak_2_Bids',
+  paramValues: { 0: 'west', 1: '15' },
 }
 
 describe('saveSession / loadSession', () => {
@@ -36,6 +37,12 @@ describe('saveSession / loadSession', () => {
     const { roundRobin, ...older } = session
     localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
     expect(loadSession().roundRobin).toBe(false)
+  })
+
+  it('reads a session saved before script parameters existed as none', () => {
+    const { paramValues, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().paramValues).toEqual({})
   })
 
   it('returns null when nothing is stored', () => {
