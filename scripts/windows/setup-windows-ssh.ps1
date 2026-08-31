@@ -1,8 +1,16 @@
 # PowerShell script to set up SSH key authentication on Windows
 # Run this as Administrator on your Windows 11 Parallels VM
 
-# Your Mac's public SSH key
-$publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPjEuOhCK7bGh1aDNjgp+0W1NsaNph0IXxZq+CZjl0TK rick@Ricks-Mac-Mini-M4-Pro.local"
+# Your Mac's public SSH key. Not committed: a public key carries the username and
+# hostname that generated it, and this repository is public.
+# Set MAC_PUBLIC_KEY, or paste the output of `cat ~/.ssh/id_ed25519.pub`.
+$publicKey = $env:MAC_PUBLIC_KEY
+if (-not $publicKey) {
+    Write-Host "ERROR: set MAC_PUBLIC_KEY to your Mac's public key first." -ForegroundColor Red
+    Write-Host "  On the Mac:  cat ~/.ssh/id_ed25519.pub" -ForegroundColor Yellow
+    Write-Host '  On Windows:  $env:MAC_PUBLIC_KEY = "ssh-ed25519 AAAA... user@host"' -ForegroundColor Yellow
+    exit 1
+}
 
 Write-Host "Setting up SSH key authentication on Windows..." -ForegroundColor Cyan
 Write-Host ""

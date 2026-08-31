@@ -103,7 +103,7 @@ Like the C version does with `distrbitmaps`:
 
 ## Penguin Dealer Optimizations (5.3x Faster than dealer.exe)
 
-Analysis of `/Users/rick/Development/GitHub/penguin-dealer` reveals the following key optimizations:
+Analysis of `../penguin-dealer` reveals the following key optimizations:
 
 ### 1. Fast Random Number Generation - Lookup Table Instead of Modulo
 
@@ -308,10 +308,10 @@ When implementing these optimizations:
 - `dealer-core/src/rng.rs` - RNG implementation (candidate for fast_randint optimization)
 
 ### Reference Implementations
-- Original C: `/Users/rick/Development/GitHub/Dealer-cleanup/dealer.c`
-- Penguin: `/Users/rick/Development/GitHub/penguin-dealer/dealer.c`
-- Penguin fast RNG: `/Users/rick/Development/GitHub/penguin-dealer/fast_randint.c`
-- Penguin headers: `/Users/rick/Development/GitHub/penguin-dealer/dealer.h`
+- Original C: `../Dealer-cleanup/dealer.c`
+- Penguin: `../penguin-dealer/dealer.c`
+- Penguin fast RNG: `../penguin-dealer/fast_randint.c`
+- Penguin headers: `../penguin-dealer/dealer.h`
 
 ## Notes
 

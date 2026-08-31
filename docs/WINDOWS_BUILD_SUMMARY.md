@@ -127,7 +127,8 @@ The Windows build is ready for distribution:
 
 ## Compatibility
 
-- ✅ **dealer.exe**: Fully compatible with original Thomas Andrews version
+- ✅ **dealer.exe**: Runs Hans van Staveren's original scripts and command line
+  (deal sequences differ; see the README)
 - ✅ **DealerV2_4**: Compatible with Thorvald Aagaard's enhancements
   - Predeal switches (`-N/-E/-S/-W`)
   - CSV export (`-C`)

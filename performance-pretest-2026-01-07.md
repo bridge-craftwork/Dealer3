@@ -1,7 +1,7 @@
 # Performance Pre-test Results
 
 **Date**: 2026-01-07
-**Test Case**: `/Users/rick/Development/GitHub/Practice-Bidding-Scenarios/dlr/gerber_by_opener.dlr`
+**Test Case**: `../Practice-Bidding-Scenarios/dlr/gerber_by_opener.dlr`
 **Parameters**: `-p 4 -s 42` (produce 4 deals, seed 42)
 
 ## Summary

@@ -3,7 +3,10 @@
 [![CI](https://github.com/bridge-craftwork/Dealer3/workflows/CI/badge.svg)](https://github.com/bridge-craftwork/Dealer3/actions)
 [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](http://unlicense.org/)
 
-A Rust implementation of the classic dealer.exe bridge hand generator, with full compatibility for dealer.exe and DealerV2_4 enhancements.
+A Rust implementation of the classic dealer.exe bridge hand generator. It runs
+dealer.exe's scripts and accepts its command line, and supports DealerV2_4
+enhancements. It does **not** reproduce dealer.exe's deals: a seed gives you a
+dealer3 sequence, not the original's.
 
 ## Features
 
@@ -239,16 +242,20 @@ This project is released into the **public domain** under [The Unlicense](LICENS
 
 You are free to use, modify, distribute, and incorporate this software for any purpose, with or without modification, with no restrictions.
 
-The original dealer.exe was also released into the public domain by Thomas Andrews.
+The original dealer was written by Hans van Staveren and dedicated to the public
+domain.
 
 ## Credits
 
-- **Original dealer.exe**: Thomas Andrews (public domain)
+- **Original dealer**: Hans van Staveren (public domain)
 - **DealerV2_4**: Thorvald Aagaard (GPLv3, independent implementation)
 - **dealer3**: Rick Wilson (Unlicense)
 
-Key contributors to dealer.exe ecosystem:
-- Henk Uijterwaal, Bruce Moore, Francois Dellacherie, Robin Barker, Danil Suits, Alex Martelli, Paul Hankin, and many others
+Key contributors to the dealer ecosystem:
+- Henk Uijterwaal, who maintained dealer through the era this work is based on
+  and wrote its PBN support
+- Bruce Moore, Francois Dellacherie, Robin Barker, Danil Suits, Alex Martelli,
+  Paul Hankin, and many others
 
 ## Links
 
@@ -263,4 +270,7 @@ For bugs, feature requests, or questions:
 
 ---
 
-**Note**: This is an independent implementation. It is not affiliated with BridgeBase Online or the original dealer.exe project, though it maintains full compatibility with dealer.exe for script portability.
+**Note**: This is an independent implementation. It is not affiliated with
+BridgeBase Online or the original dealer project, though it keeps compatibility
+with dealer.exe's script language and command line so that scripts are portable.
+Deal sequences are not portable and are not meant to be.

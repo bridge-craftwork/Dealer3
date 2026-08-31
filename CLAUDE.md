@@ -2,7 +2,11 @@
 
 ## Project Overview
 
-dealer3 is a Rust implementation of dealer.exe (bridge hand generator) with full compatibility for the original dealer.exe command-line interface and support for DealerV2_4 enhancements.
+dealer3 is a Rust implementation of dealer.exe (bridge hand generator). It is
+compatible with the original's **script language and command-line interface**,
+and supports DealerV2_4 enhancements. It is deliberately **not** compatible with
+the original's deal sequence: a seed does not reproduce dealer.exe's boards,
+which is what went with legacy mode in 0.5.0.
 
 ## Current Status
 
@@ -72,14 +76,21 @@ private to `dealer-run`; a front end cannot see it, which is the point.
 
 ### Key Design Decisions
 
-1. **RNG Compatibility**: Uses exact GNU random() with 64-bit state matching dealer.exe binary
-   - **Critical Discovery**: dealer.exe uses 64-bit arithmetic throughout (not 32-bit!)
-   - Replicated via reverse-engineering using RNG probe tools
-   - State array: `i64[31]` with BSD TYPE_3 polynomial (x^31 + x^3 + 1)
-   - Non-standard LCG constant: `1103515145` (from Thorvald's dealer source)
-   - 64-bit arithmetic shift (sarq) + 64-bit LONG_MAX mask creates unique negative states
-   - 310-iteration warmup phase (10 * rand_deg)
-   - **Verified**: Seed 1 produces first value 269167349 (matches dealer.exe exactly)
+1. **RNG**: xoshiro256++, in `dealer-core/src/rng.rs`. A seed reproduces a
+   dealer3 run, not a dealer.exe one.
+   - The port of GNU `random()` that once did reproduce dealer.exe's deals was
+     extracted in 0.5.0 and lives in
+     [dealer-legacy-shuffle](https://github.com/bridge-craftwork/dealer-legacy-shuffle),
+     published on crates.io. Nothing in this workspace depends on it, and CI
+     asserts as much.
+   - **What this file used to say here was wrong.** It described dealer.exe as
+     doing 64-bit arithmetic. The binary is PE32/i386 — 32-bit — and Windows is
+     LLP64, so `long` is 32 bits there in any case. The 64-bit behaviour came
+     from Mach-O x86_64 objects built from the same `__random.c` on macOS, not
+     from dealer.exe. The deal sequences the old work predicted were still
+     correct: the two data models differ only in bit 31, and dealer indexes its
+     card table from bits 15..=30. The disassembly and captured vectors are in
+     dealer-legacy-shuffle's `PROVENANCE.md`; do not re-derive them.
 2. **Parse Once, Evaluate Many**: AST is Clone + Send + Sync for efficient parallel evaluation
 3. **Breaking Change (0.2.0)**: `-v` changed from vulnerability to verbose (matches dealer.exe)
    - Use `--vulnerable` (long form only) for vulnerability
@@ -206,7 +217,7 @@ Use SSH for all GitHub operations:
 
 ## Related Projects
 
-All located at `/Users/rick/Development/GitHub/`:
+All located alongside this repo, under the same GitHub directory:
 
 | Project | Description | Relationship |
 |---------|-------------|--------------|
@@ -228,8 +239,12 @@ deal — so it is safe to put in a probe. `scripts/dd-bench.sh` is the guard.
 
 ## Source Material & Reference Implementations
 
-### Original dealer.exe (Henk Uijterwaal)
-**Location**: `/Users/rick/Development/GitHub/Dealer-cleanup/`
+### Original dealer (Hans van Staveren; maintained by Henk Uijterwaal)
+**Location**: `../Dealer-cleanup/`
+
+The upstream README opens "Dealer by Hans van Staveren". Henk Uijterwaal
+maintained it through the era this code comes from — `pbn.c` is his, and the
+binary reports `$Author: henk $`, `$Revision: 1.24 $`, 2003-08-05.
 
 **Key Files**:
 - `dealer` - Reference C dealer binary (macOS build)
@@ -238,15 +253,21 @@ deal — so it is safe to put in a probe. `scripts/dd-bench.sh` is the guard.
 - `defs.y` - Bison parser grammar
 
 **Purpose**:
-- Compatibility testing - our output must match exactly
+- Compatibility testing — the script language and the CLI, not the deals
 - Reference for ambiguous behavior
-- RNG verification (we matched the 64-bit state implementation)
 
 ### Windows VM Access (for running dealer.exe)
-**IP Address**: `10.211.55.5`
-**Username**: `rick`
 
-**Preferred Method**: Use the shell aliases `win-dealer` and `compare-dealer` for all Windows dealer.exe testing.
+**The host and the login are not written down here.** They come from the
+environment — `WINDOWS_HOST` and `WINDOWS_USER`, set in `~/.zshrc` — and are read
+by `build-scripts-mac/config.py` in the Practice-Bidding-Scenarios repo, which
+`ssh_runner.py` uses. Do not put an address, a username or a hostname into any
+file in this repository; use the variables, or the wrappers below that already
+do.
+
+**Preferred Method**: Use the shell alias `win-dealer` to run dealer.exe. The
+`compare-dealer` alias is **superseded** — see "Testing Against dealer.exe"
+below for what replaced it and why.
 
 #### win-dealer - Run dealer.exe on Windows VM
 ```bash
@@ -263,43 +284,32 @@ win-dealer -t 60 -p 100 -s 42 large-test.dlr
 win-dealer -h
 ```
 
-#### compare-dealer - Compare dealer3 vs dealer.exe output
-```bash
-# Compare output from both dealers (uses development build by default)
-compare-dealer -p 10 -s 1 test.dlr
+#### compare-dealer — superseded, do not reach for it
+`scripts/compare-dealer.sh` diffed the two binaries' boards one for one. That
+only ever worked while `--legacy` could reproduce dealer.exe's deal sequence,
+which was removed in 0.5.0, so the diff is now meaningless. The script refuses
+to run without `COMPARE_DEALER_FORCE=1` and is kept only in case someone reworks
+it to compare through `--input-deals`.
 
-# Pipe conditions via stdin
-echo "shape(north, any 6xxx)" | compare-dealer -p 10 -s 1
+**If the wrappers are not enough**, go through `ssh_runner.py` in
+Practice-Bidding-Scenarios' `build-scripts-mac/` rather than calling `ssh`
+by hand. It reads the host and user from the environment, maps the drives (an
+SSH session does not inherit them) and converts a Mac path to its Windows one:
 
-# Show raw output from both runs
-compare-dealer -p 10 -s 1 -o test.dlr
-
-# Skip pretest (pretest runs -p 1 first to quickly detect failures)
-compare-dealer --no-pretest -p 100 -s 1 test.dlr
-
-# Use a specific Rust binary instead of development build
-compare-dealer -r /path/to/dealer -p 10 -s 1 test.dlr
-
-# Show help
-compare-dealer -h
+```python
+from ssh_runner import run_windows_command, mac_to_windows_path
+run_windows_command(f"dealer -p 10 -s 42 {mac_to_windows_path(path)}")
 ```
 
-**Manual SSH** (only if scripts don't work):
-```bash
-# Map G: drive and run dealer (drive mapping required each session)
-ssh rick@10.211.55.5 'net use G: "\\Mac\Home\Development\GitHub" >nul 2>&1 & dealer -p 10 -s 42 G:\dealer3\test.dlr'
-
-# Simple inline expressions (no drive mapping needed)
-ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
-```
+Write the script under the shared GitHub directory first, so the path converts.
 
 **Notes**:
 - The Windows VM has `dealer` in PATH at `C:\Dealer\dealer.exe`
-- G: drive maps to `/Users/rick/Development/GitHub` via Parallels shared folders
-- Files at `/Users/rick/Development/GitHub/dealer3/foo.dlr` become `G:\dealer3\foo.dlr`
+- The shared drive maps the Mac's GitHub directory via Parallels, so a file at
+  `$HOME/Development/GitHub/dealer3/foo.dlr` is reachable from Windows
 - Shell aliases defined in `~/.zshrc`, scripts in `scripts/` directory
 
-### DealerV2 (Hans van Staveren, expanded version)
+### DealerV2 (expanded version of the original)
 **Location**: `/tmp/dealerv2` (cloned locally)
 **GitHub**: https://github.com/dealerv2/Dealer-Version-2-
 **Purpose**: Reference for extended features (DDS, CSV export, additional switches)
@@ -311,35 +321,43 @@ ssh rick@10.211.55.5 "echo 'hcp(north) >= 20' | dealer -p 10 -s 1"
 
 ## Testing Against dealer.exe
 
-### Preferred Method: compare-dealer
-Use `compare-dealer` for all compatibility testing. It automatically:
-- Runs both Rust dealer3 and Windows dealer.exe with the same arguments
-- Compares deals, produced count, and generated count
-- Runs a quick pretest (-p 1) to catch failures fast
-- Shows timing comparison and warns if Rust is significantly slower
+### Preferred Method: test-filter.py
+The two programs no longer deal the same boards, so nothing is gained by
+diffing their output. What still compares cleanly is what a script *means*:
 
 ```bash
-# Basic comparison
-compare-dealer -p 10 -s 1 test.dlr
+# Have dealer.exe produce the deals a script matches, then check dealer3
+# accepts every one of them. Anything less than 100% is a real difference.
+scripts/test-filter.py -p 20 -s 1 test.dlr
 
-# With stdin input
-echo "hcp(north) >= 20" | compare-dealer -p 10 -s 1
+# Build a committed corpus for the regression tiers
+scripts/generate-corpus.py -p 20 -s 1 test.dlr
 
-# Show raw output to debug differences
-compare-dealer -p 10 -s 1 -o test.dlr
+# Run dealer.exe directly when you need to see its own output
+win-dealer -p 10 -s 1 test.dlr
 ```
 
+See `docs/REGRESSION_TESTING.md` for the tiers and how a corpus is replayed.
+
 ### Key Compatibility Tests
-1. **RNG sequence** - Same seed must produce identical deals
-2. **Output format** - PBN, printall, etc. must match exactly
-3. **Edge cases** - Predeal, rare constraints, boundary conditions
-4. **Statistics** - Generated/produced counts must match
+
+**Not deal-for-deal.** `compare-dealer` compared the two binaries' boards
+one for one, which needed legacy mode; that went in 0.5.0 and the script with
+it. What is compared now is what a script *means*:
+
+1. **Filter semantics** — `scripts/test-filter.py` has dealer.exe produce the
+   deals a script matches, then feeds those deals to dealer3 with the same
+   script; all of them should pass. It compares what a condition *means*, which
+   needs no shared deal sequence
+2. **Corpora** — `scripts/generate-corpus.py`, replayed by the regression tiers
+3. **Output format** — PBN, printall and the rest must match exactly
+4. **Edge cases** — predeal, rare constraints, boundary conditions
 
 ## Additional Working Directories
 
-- `/Users/rick/Development/GitHub/Dealer-cleanup/` - Reference C dealer source and binary
+- `../Dealer-cleanup/` - Reference C dealer source and binary
 - `/private/tmp` - Temporary workspace for test output and experiments
-- `/Users/rick/Development/GitHub/dealer3/` - This project (main working directory)
+- this repo - main working directory
 
 ## Quick Reference: Version History
 
