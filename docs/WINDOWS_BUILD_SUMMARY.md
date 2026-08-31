@@ -129,7 +129,7 @@ The Windows build is ready for distribution:
 
 - ✅ **dealer.exe**: Runs Hans van Staveren's original scripts and command line
   (deal sequences differ; see the README)
-- ✅ **DealerV2_4**: Compatible with Thorvald Aagaard's enhancements
+- ✅ **DealerV2_4**: Compatible with Greg Morse's enhancements
   - Predeal switches (`-N/-E/-S/-W`)
   - CSV export (`-C`)
   - Title metadata (`-T`)

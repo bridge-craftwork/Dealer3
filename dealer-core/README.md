@@ -86,4 +86,5 @@ dealer.exe's deals was removed in 0.5.0 and lives in
 
 ## License
 
-Apache-2.0
+This project is released into the **public domain** under
+[The Unlicense](../LICENSE).

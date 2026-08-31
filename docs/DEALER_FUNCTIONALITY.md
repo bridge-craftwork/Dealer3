@@ -97,8 +97,9 @@ Distribute as native executables for each platform.
 - Deal generation and evaluation engine
 - Output formatting
 
-### DealerV2_4 (Enhanced Version)
-**Repository:** https://github.com/ThorvaldAagaard/DealerV2_4
+### DealerV2_4 (Enhanced Version, Greg Morse)
+**Repository:** https://github.com/dealerv2/Dealer-Version-2-
+**Mirror:** https://github.com/ThorvaldAagaard/DealerV2_4
 **Additional Features:**
 - Extended constraint functions
 - Additional output formats

@@ -1,6 +1,6 @@
 # dealer.exe vs DealerV2_4 Command-Line Switch Comparison
 
-This document compares command-line switches between the original dealer.exe (Hans van Staveren) and DealerV2_4 (Thorvald Aagaard), categorized by compatibility.
+This document compares command-line switches between the original dealer.exe (Hans van Staveren) and DealerV2_4 (Greg Morse), categorized by compatibility.
 
 ---
 

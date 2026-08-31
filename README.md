@@ -196,7 +196,7 @@ dealer3/
 of the original. The same seed does *not* reproduce dealer.exe's deals. Scripts
 port unchanged; specific deals do not. See the [CHANGELOG](docs/CHANGELOG.md).
 
-### DealerV2_4 (Thorvald Aagaard)
+### DealerV2_4 (Greg Morse)
 ✅ **Predeal switches** - `-N/-E/-S/-W` for command-line predeal
 ✅ **CSV export** - `-C` for analytics output
 ✅ **Title metadata** - `-T` for PBN output
@@ -248,7 +248,7 @@ domain.
 ## Credits
 
 - **Original dealer**: Hans van Staveren (public domain)
-- **DealerV2_4**: Thorvald Aagaard (GPLv3, independent implementation)
+- **DealerV2_4**: Greg Morse, with Thorvald Aagaard contributing (GPLv3, independent implementation)
 - **dealer3**: Rick Wilson (Unlicense)
 
 Key contributors to the dealer ecosystem:
@@ -261,7 +261,7 @@ Key contributors to the dealer ecosystem:
 
 - **GitHub**: https://github.com/bridge-craftwork/Dealer3
 - **Original dealer.exe**: http://www.bridgebase.com/tools/dealer/
-- **DealerV2_4**: https://github.com/ed2k/dealer
+- **DealerV2_4**: https://github.com/dealerv2/Dealer-Version-2-
 
 ## Support
 

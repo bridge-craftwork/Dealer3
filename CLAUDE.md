@@ -258,12 +258,10 @@ binary reports `$Author: henk $`, `$Revision: 1.24 $`, 2003-08-05.
 
 ### Windows VM Access (for running dealer.exe)
 
-**The host and the login are not written down here.** They come from the
-environment — `WINDOWS_HOST` and `WINDOWS_USER`, set in `~/.zshrc` — and are read
-by `build-scripts-mac/config.py` in the Practice-Bidding-Scenarios repo, which
-`ssh_runner.py` uses. Do not put an address, a username or a hostname into any
-file in this repository; use the variables, or the wrappers below that already
-do.
+**The host and the login are `ssh_runner`'s business, not yours.** They are not
+written down here and are not meant to be read anywhere else — go through
+`win-dealer` or `ssh_runner.py`, which already know how to connect. Never put an
+address, a username or a hostname into a file in this repository.
 
 **Preferred Method**: Use the shell alias `win-dealer` to run dealer.exe. The
 `compare-dealer` alias is **superseded** — see "Testing Against dealer.exe"
@@ -293,8 +291,8 @@ it to compare through `--input-deals`.
 
 **If the wrappers are not enough**, go through `ssh_runner.py` in
 Practice-Bidding-Scenarios' `build-scripts-mac/` rather than calling `ssh`
-by hand. It reads the host and user from the environment, maps the drives (an
-SSH session does not inherit them) and converts a Mac path to its Windows one:
+by hand. It handles the connection, maps the drives (an SSH session does not
+inherit them) and converts a Mac path to its Windows one:
 
 ```python
 from ssh_runner import run_windows_command, mac_to_windows_path
@@ -309,7 +307,7 @@ Write the script under the shared GitHub directory first, so the path converts.
   `$HOME/Development/GitHub/dealer3/foo.dlr` is reachable from Windows
 - Shell aliases defined in `~/.zshrc`, scripts in `scripts/` directory
 
-### DealerV2 (expanded version of the original)
+### DealerV2 (Greg Morse's expanded version)
 **Location**: `/tmp/dealerv2` (cloned locally)
 **GitHub**: https://github.com/dealerv2/Dealer-Version-2-
 **Purpose**: Reference for extended features (DDS, CSV export, additional switches)

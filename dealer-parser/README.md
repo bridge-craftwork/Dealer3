@@ -110,4 +110,5 @@ All core parsing functionality is tested:
 
 ## License
 
-Apache-2.0
+This project is released into the **public domain** under
+[The Unlicense](../LICENSE).
