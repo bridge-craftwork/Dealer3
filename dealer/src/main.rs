@@ -868,6 +868,7 @@ fn main() {
         println!();
         println!("dealer2");
         println!("  Greg Morse (GPLv3, independent)");
+        println!("  Thorvald Aagaard");
         println!();
         println!("dealer3 (Rust edition)");
         println!("  Rick Wilson");

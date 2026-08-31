@@ -39,8 +39,9 @@ dealer3 - Windows 64-bit Version
 
 Bridge hand generator with constraint evaluation
 
-This is a Rust implementation of the classic dealer program by Thomas Andrews,
-compatible with both dealer.exe and DealerV2_4.
+This is a Rust implementation of the classic dealer program by Hans van
+Staveren. It runs dealer.exe's and DealerV2_4's scripts and command lines; it
+does not reproduce their deal sequences.
 
 QUICK START
 -----------

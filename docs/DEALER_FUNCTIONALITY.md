@@ -75,11 +75,13 @@ Distribute as native executables for each platform.
 
 ### Compatibility Requirements
 
-**Legacy Compatibility (dealer.exe):**
-- Must produce identical output for identical inputs and seeds
-- Required for bridgebase.com integration
+**Compatibility with dealer.exe:**
+- Accept its scripts and its command line unchanged
 - Maintain existing input file format and syntax
 - Preserve output format for downstream tools
+- **Not** its deal sequence: a seed reproduces a dealer3 run, not a dealer.exe
+  one. That went with legacy mode in 0.5.0; see `docs/REGRESSION_TESTING.md`
+  for how filter semantics are checked without it
 
 **Version Compatibility Flag:**
 - Filter semantics verified against dealer.exe via the Tier 1 regression corpora
@@ -95,8 +97,9 @@ Distribute as native executables for each platform.
 - Deal generation and evaluation engine
 - Output formatting
 
-### DealerV2_4 (Enhanced Version)
-**Repository:** https://github.com/ThorvaldAagaard/DealerV2_4
+### DealerV2_4 (Enhanced Version, Greg Morse)
+**Repository:** https://github.com/dealerv2/Dealer-Version-2-
+**Mirror:** https://github.com/ThorvaldAagaard/DealerV2_4
 **Additional Features:**
 - Extended constraint functions
 - Additional output formats

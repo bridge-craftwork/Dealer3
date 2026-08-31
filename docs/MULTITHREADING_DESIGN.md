@@ -100,14 +100,20 @@ Fast mode uses stateless deal generation where each deal depends only on its see
 
 Described here for historical context. Legacy mode preserved exact dealer.exe
 compatibility by using:
-- GNU random() with 64-bit state (matching dealer.exe binary behavior)
+- A port of GNU `random()`, which reproduced dealer.exe's deal sequence
 - Sequential shuffle-state-dependent generation
 - Single-threaded execution only
 
+That port now lives in
+[dealer-legacy-shuffle](https://github.com/bridge-craftwork/dealer-legacy-shuffle).
+Earlier revisions of this document described it as 64-bit and said dealer.exe
+was too; the binary is in fact PE32/i386, and the 64-bit behaviour came from
+macOS builds of the same source. See that repository's `PROVENANCE.md`.
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    DealGenerator                            │
-│  - Owns single GnuRandom instance                           │
+│                    DealGenerator (removed)                  │
+│  - Owned a single legacy-shuffle RNG instance                │
 │  - Each deal depends on previous shuffle state              │
 │  - Must be sequential for determinism                       │
 └─────────────────────────────────────────────────────────────┘

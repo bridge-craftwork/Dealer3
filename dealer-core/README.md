@@ -28,8 +28,8 @@ A `Hand` represents 13 cards with analysis functions:
 ### Deal
 A `Deal` represents a complete bridge deal with 4 hands (North, East, South, West).
 
-### DealGenerator
-Generates random deals using the gnurandom RNG for exact dealer.exe compatibility.
+### FastDealGenerator
+Generates random deals using xoshiro256++ (`src/rng.rs`).
 
 ## Usage
 
@@ -79,8 +79,12 @@ Tests include:
 
 ## Compatibility
 
-The deal generator uses the `gnurandom` crate which exactly matches dealer.exe's RNG implementation, ensuring identical deals for identical seeds.
+The deal generator uses xoshiro256++, so a seed reproduces a dealer3 run and
+**not** a dealer.exe one. The port of GNU `random()` that once did reproduce
+dealer.exe's deals was removed in 0.5.0 and lives in
+[dealer-legacy-shuffle](https://github.com/bridge-craftwork/dealer-legacy-shuffle).
 
 ## License
 
-Apache-2.0
+This project is released into the **public domain** under
+[The Unlicense](../LICENSE).

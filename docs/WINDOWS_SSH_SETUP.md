@@ -10,8 +10,11 @@ Setting up passwordless SSH from Mac to Windows 11 (Parallels) to run dealer.exe
 
 ## Your Public Key
 
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPjEuOhCK7bGh1aDNjgp+0W1NsaNph0IXxZq+CZjl0TK rick@Ricks-Mac-Mini-M4-Pro.local
+Read it rather than copying it from here — this file is public, and a key
+carries the username and hostname that generated it:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
 ```
 
 ## Windows SSH Server Configuration
@@ -178,7 +181,8 @@ Save this as `setup-ssh-key.ps1` and run as Administrator:
 
 ```powershell
 # Your public key (paste the actual key here)
-$publicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPjEuOhCK7bGh1aDNjgp+0W1NsaNph0IXxZq+CZjl0TK rick@Ricks-Mac-Mini-M4-Pro.local"
+# Paste the output of `cat ~/.ssh/id_ed25519.pub` on the Mac.
+$publicKey = "ssh-ed25519 AAAA... user@host"
 
 # For administrators
 $authKeysFile = "C:\ProgramData\ssh\administrators_authorized_keys"

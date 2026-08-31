@@ -2,9 +2,9 @@
 
 Three implementations of the same idea:
 
-1. **dealer.exe** — Henk Uijterwaal's original.
+1. **dealer.exe** — Hans van Staveren's original, maintained by Henk Uijterwaal.
 2. **dealer3** — this project.
-3. **DealerV2_4** — Thorvald Aagaard's expanded version.
+3. **DealerV2_4** — Greg Morse's expanded version.
 
 ## The table is generated
 
