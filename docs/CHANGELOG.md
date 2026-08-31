@@ -90,6 +90,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **A call with the wrong number of arguments produced no deals, no error and
+  exit 0.** The evaluator raised `InvalidArgumentCount` correctly, and the
+  condition turned it into "this deal does not match" — once per deal, for as
+  many deals as `-g` allowed. `condition hcp(north, spades, clubs) == 1`
+  generated the whole run and said nothing. It affected every function, in a
+  condition or in a statistic, and a statistic was worse: those are evaluated
+  only for a deal that matched, so a script whose condition matched nothing
+  never reported the mistake at all. (#36)
+  - An argument count is a property of the script, not of a deal, so it is now
+    settled before the first card is dealt. `dealer_eval::check_program` walks
+    the condition, every variable, and the expressions inside `average`,
+    `frequency`, `printes`, `printrpt` and `csvrpt`, and names the statement it
+    found the mistake in: `average: controls takes 1 or 2 arguments, not 3`.
+  - What is left is genuinely per-deal — a strain computed at run time that
+    lands outside 0 to 4, say — and is now carried back and reported rather
+    than discarded.
+  - `Function::arity` is the one place a count is written down. The evaluator
+    asks it instead of counting for itself in each of its 25 arms, so the two
+    cannot drift, and a test drives the whole vocabulary through it from the
+    outside. No measurable cost: two million deals take 1.07 seconds either way.
 - **`generated` counted one pass of a levelled run, not all of them.** It read
   `1,844` beside "levelled over 47,733 measured deals" — the same deals, counted
   honestly the second time. Both front ends now count every deal the run looked

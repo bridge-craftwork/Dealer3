@@ -424,6 +424,80 @@ impl Function {
             _ => None,
         }
     }
+
+    /// The canonical spelling, for error messages.
+    ///
+    /// One of the names `parse` accepts, so a message never names a function
+    /// the script could not have written.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Function::Hcp => "hcp",
+            Function::Spades => "spades",
+            Function::Hearts => "hearts",
+            Function::Diamonds => "diamonds",
+            Function::Clubs => "clubs",
+            Function::Controls => "controls",
+            Function::Losers => "losers",
+            Function::Shape => "shape",
+            Function::HasCard => "hascard",
+            Function::Tens => "tens",
+            Function::Jacks => "jacks",
+            Function::Queens => "queens",
+            Function::Kings => "kings",
+            Function::Aces => "aces",
+            Function::Top2 => "top2",
+            Function::Top3 => "top3",
+            Function::Top4 => "top4",
+            Function::Top5 => "top5",
+            Function::C13 => "c13",
+            Function::Quality => "quality",
+            Function::Cccc => "cccc",
+            Function::Tricks => "tricks",
+            Function::Score => "score",
+            Function::Imps => "imps",
+            Function::Rnd => "rnd",
+        }
+    }
+
+    /// How many arguments the function takes, as an inclusive range.
+    ///
+    /// The single source of truth: the evaluator checks against this rather
+    /// than carrying a count of its own per function, and the check that used
+    /// to live in each arm ran only once a deal had been dealt. See #36 — an
+    /// argument count is a property of the script, not of a deal, so it is
+    /// knowable before the first card comes out.
+    pub fn arity(&self) -> (usize, usize) {
+        match self {
+            // A hand, or a hand and one of its suits.
+            Function::Hcp
+            | Function::Controls
+            | Function::Losers
+            | Function::Tens
+            | Function::Jacks
+            | Function::Queens
+            | Function::Kings
+            | Function::Aces
+            | Function::Top2
+            | Function::Top3
+            | Function::Top4
+            | Function::Top5
+            | Function::C13 => (1, 2),
+
+            // A hand, or a number.
+            Function::Spades
+            | Function::Hearts
+            | Function::Diamonds
+            | Function::Clubs
+            | Function::Cccc
+            | Function::Imps
+            | Function::Rnd => (1, 1),
+
+            // A hand and something about it.
+            Function::Shape | Function::HasCard | Function::Quality | Function::Tricks => (2, 2),
+
+            Function::Score => (3, 3),
+        }
+    }
 }
 
 impl Expr {

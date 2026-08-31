@@ -5,7 +5,9 @@ pub use counts::{CountError, CountRow, PointCounts};
 
 use dealer_core::{Card, Deal, Position, Suit};
 use dealer_dds::Denomination;
-use dealer_parser::{BinaryOp, Expr, Function, Program, ShapePattern, Statement, UnaryOp};
+use dealer_parser::{
+    BinaryOp, CsvTerm, EsTerm, Expr, Function, Program, ShapePattern, Statement, UnaryOp,
+};
 use rustc_hash::FxHashMap;
 use std::cell::RefCell;
 
@@ -270,9 +272,13 @@ fn calculate_made_score(vulnerable: bool, contract: &Contract, overtricks: i32) 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EvalError {
     /// Function requires specific number of arguments
+    ///
+    /// The range is inclusive, and comes from `Function::arity`, so the two
+    /// cannot disagree about what a function takes.
     InvalidArgumentCount {
         function: String,
-        expected: usize,
+        min: usize,
+        max: usize,
         got: usize,
     },
     /// Invalid argument type or value
@@ -288,14 +294,16 @@ impl std::fmt::Display for EvalError {
         match self {
             EvalError::InvalidArgumentCount {
                 function,
-                expected,
+                min,
+                max,
                 got,
             } => {
-                write!(
-                    f,
-                    "Function {} expects {} arguments, got {}",
-                    function, expected, got
-                )
+                let expected = if min == max {
+                    format!("{}", min)
+                } else {
+                    format!("{} or {}", min, max)
+                };
+                write!(f, "{} takes {} arguments, not {}", function, expected, got)
             }
             EvalError::InvalidArgument(msg) => write!(f, "Invalid argument: {}", msg),
             EvalError::NotImplemented(feature) => write!(f, "Not implemented: {}", feature),
@@ -818,19 +826,135 @@ fn counted(
     }
 }
 
+/// Refuse a call whose argument count `Function::arity` does not allow.
+fn check_call_arity(function: &Function, got: usize) -> Result<(), EvalError> {
+    let (min, max) = function.arity();
+    if (min..=max).contains(&got) {
+        return Ok(());
+    }
+    Err(EvalError::InvalidArgumentCount {
+        function: function.name().to_string(),
+        min,
+        max,
+        got,
+    })
+}
+
+/// Check everything about an expression that can be known without a deal.
+///
+/// Today that is argument counts, which are a property of the script. Running
+/// this once, before the first card is dealt, is what keeps a miscounted call
+/// from being mistaken for a condition that simply never matches (#36).
+///
+/// Errors it cannot reach — a strain computed at run time that lands outside
+/// 0 to 4, say — are genuinely per-deal and are reported by the run when they
+/// happen, rather than discarded.
+pub fn check_static(expr: &Expr) -> Result<(), EvalError> {
+    match expr {
+        Expr::FunctionCall { func, args } => {
+            check_call_arity(func, args.len())?;
+            for arg in args {
+                check_static(arg)?;
+            }
+            Ok(())
+        }
+        Expr::BinaryOp { left, right, .. } => {
+            check_static(left)?;
+            check_static(right)
+        }
+        Expr::UnaryOp { expr, .. } => check_static(expr),
+        Expr::Ternary {
+            condition,
+            true_expr,
+            false_expr,
+        } => {
+            check_static(condition)?;
+            check_static(true_expr)?;
+            check_static(false_expr)
+        }
+        Expr::Literal(_)
+        | Expr::Position(_)
+        | Expr::ShapePattern(_)
+        | Expr::Card(_)
+        | Expr::Suit(_)
+        | Expr::Variable(_) => Ok(()),
+    }
+}
+
+/// Check every expression a program contains, before any deal is made.
+///
+/// Reaches the condition, each variable, and the expressions inside `average`,
+/// `frequency`, `printes`, `printrpt` and `csvrpt` — a miscounted call in a
+/// statistic used to surface only once a deal matched, so a script that matched
+/// nothing never reported it at all.
+///
+/// The name that comes back with the error is the statement it was found in, so
+/// a script with several can be told which one to look at.
+pub fn check_program(program: &Program) -> Result<(), (String, EvalError)> {
+    let at = |what: &str, expr: &Expr| check_static(expr).map_err(|e| (what.to_string(), e));
+
+    for statement in &program.statements {
+        match statement {
+            Statement::Assignment { name, expr } => {
+                check_static(expr).map_err(|e| (format!("`{}`", name), e))?
+            }
+            Statement::Expression(expr) | Statement::Condition(expr) => at("condition", expr)?,
+            Statement::Action {
+                averages,
+                frequencies,
+                printes,
+                print_reports,
+                ..
+            } => {
+                for average in averages {
+                    at("average", &average.expr)?;
+                }
+                for frequency in frequencies {
+                    at("frequency", &frequency.expr)?;
+                }
+                for terms in printes {
+                    for term in terms {
+                        if let EsTerm::Expression(expr) = term {
+                            at("printes", expr)?;
+                        }
+                    }
+                }
+                for terms in print_reports {
+                    check_csv_terms("printrpt", terms)?;
+                }
+            }
+            Statement::CsvReport(terms) => check_csv_terms("csvrpt", terms)?,
+            Statement::PrintReport(terms) => check_csv_terms("printrpt", terms)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// The expressions in a `csvrpt` or `printrpt` list; the other terms are
+/// literals and seats, with nothing to check.
+fn check_csv_terms(what: &str, terms: &[CsvTerm]) -> Result<(), (String, EvalError)> {
+    for term in terms {
+        if let CsvTerm::Expression(expr) = term {
+            check_static(expr).map_err(|e| (what.to_string(), e))?;
+        }
+    }
+    Ok(())
+}
+
 /// Evaluate a function call
 fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Result<i32, EvalError> {
+    // One check for every function, against `Function::arity`, rather than a
+    // count written out again in each arm below. `check_arity` walks the whole
+    // script before any deal is made and reports the same thing there, so in
+    // practice this arm is unreachable from a run — it stays because the
+    // evaluator is a public entry point of its own.
+    check_call_arity(function, args.len())?;
+
     match function {
         Function::Hcp => {
             // hcp(position) - total HCP for a hand
             // hcp(position, suit) - HCP in a specific suit
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "hcp".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -850,52 +974,24 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Hearts => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "hearts".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Hearts) as i32)
         }
 
         Function::Spades => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "spades".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Spades) as i32)
         }
 
         Function::Diamonds => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "diamonds".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Diamonds) as i32)
         }
 
         Function::Clubs => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "clubs".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
             Ok(hand.suit_length(dealer_core::Suit::Clubs) as i32)
@@ -904,13 +1000,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         Function::Controls => {
             // controls(position) - total controls for a hand
             // controls(position, suit) - controls in a specific suit
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "controls".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -934,13 +1023,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Shape => {
-            if args.len() != 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "shape".to_string(),
-                    expected: 2,
-                    got: args.len(),
-                });
-            }
             let position = eval_position_arg(&args[0], ctx)?;
             let pattern = match &args[1] {
                 Expr::ShapePattern(p) => p,
@@ -957,14 +1039,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Losers => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "losers".to_string(),
-                    expected: 1, // or 2 with suit
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -986,14 +1060,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::HasCard => {
-            if args.len() != 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "hascard".to_string(),
-                    expected: 2,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let card = eval_card_arg(&args[1])?;
             let hand = ctx.deal.hand(position);
@@ -1003,14 +1069,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
 
         // Alternative point counts (pt0-pt9 / readable synonyms)
         Function::Tens => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "tens".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1027,14 +1085,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Jacks => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "jacks".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1051,14 +1101,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Queens => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "queens".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1075,14 +1117,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Kings => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "kings".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1099,14 +1133,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Aces => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "aces".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1123,14 +1149,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Top2 => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "top2".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1147,14 +1165,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Top3 => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "top3".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1171,14 +1181,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Top4 => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "top4".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1195,14 +1197,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Top5 => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "top5".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1219,14 +1213,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::C13 => {
-            if args.is_empty() || args.len() > 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "c13".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1243,14 +1229,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Quality => {
-            if args.len() != 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "quality".to_string(),
-                    expected: 2,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let suit = eval_suit_arg(&args[1])?;
             let hand = ctx.deal.hand(position);
@@ -1259,14 +1237,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         }
 
         Function::Cccc => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "cccc".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             let position = eval_position_arg(&args[0], ctx)?;
             let hand = ctx.deal.hand(position);
 
@@ -1277,13 +1247,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             // tricks(position, denomination)
             // position: north/south/east/west
             // denomination: 0=C, 1=D, 2=H, 3=S, 4=NT (or use suit keywords)
-            if args.len() != 2 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "tricks".to_string(),
-                    expected: 2,
-                    got: args.len(),
-                });
-            }
 
             let declarer = eval_position_arg(&args[0], ctx)?;
 
@@ -1325,13 +1288,6 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             //   strain: 0=C, 1=D, 2=H, 3=S, 4=NT
             //   Examples: 3NT = 19, 4S = 23, 4Sx = 63, 4Sxx = 103
             // tricks: 0-13
-            if args.len() != 3 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "score".to_string(),
-                    expected: 3,
-                    got: args.len(),
-                });
-            }
 
             let vul_arg = eval(&args[0], ctx)?;
             let contract_code = eval(&args[1], ctx)?;
@@ -1404,25 +1360,10 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
         Function::Rnd => {
             // rnd(bound) - a random number in 0..bound, drawn from a stream of
             // this deal's own rather than from the shuffle. See `rnd`.
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "rnd".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
             Ok(ctx.next_random(eval(&args[0], ctx)?))
         }
 
         Function::Imps => {
-            if args.len() != 1 {
-                return Err(EvalError::InvalidArgumentCount {
-                    function: "imps".to_string(),
-                    expected: 1,
-                    got: args.len(),
-                });
-            }
-
             // Evaluate the score difference expression
             let score_diff = eval(&args[0], ctx)?;
 
@@ -2990,5 +2931,109 @@ mod tests {
         // - Negative if failing (tricks < 9): -50 per undertrick
         // We can't predict exact value, but it should be a valid bridge score
         eprintln!("3NT score with DD tricks: {}", score);
+    }
+}
+
+#[cfg(test)]
+mod arity_tests {
+    use super::*;
+    use dealer_core::{FastDealGenerator, Position};
+    use dealer_parser::vocabulary;
+
+    /// Every spelling the language accepts, as the function it names.
+    ///
+    /// Driven by `vocabulary::FUNCTIONS`, which is already held to the grammar
+    /// by `tests/vocabulary_matches_grammar.rs`, so a function added to the
+    /// language cannot slip past these checks by not being listed here.
+    fn every_function() -> Vec<Function> {
+        let mut seen = Vec::new();
+        for name in vocabulary::FUNCTIONS {
+            if let Some(function) = Function::parse(name) {
+                if !seen.contains(&function) {
+                    seen.push(function);
+                }
+            }
+        }
+        assert!(seen.len() > 20, "the vocabulary should name every function");
+        seen
+    }
+
+    /// `Function::arity` says what each function takes, and the evaluator now
+    /// asks it rather than counting for itself. This checks the table describes
+    /// the real thing from the outside: a call inside the range is never
+    /// refused *for its argument count*, and one outside it always is.
+    ///
+    /// Arguments are all seats, so a function wanting something else fails on
+    /// the argument's kind — which is the point. Only the count is under test.
+    #[test]
+    fn the_arity_table_is_what_the_evaluator_accepts() {
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
+        let ctx = EvalContext::new(&deal);
+
+        for function in every_function() {
+            let (min, max) = function.arity();
+            for count in 0..=max + 1 {
+                let args: Vec<Expr> = (0..count)
+                    .map(|_| Expr::Position(Position::North))
+                    .collect();
+                let miscounted = matches!(
+                    eval_function(&function, &args, &ctx),
+                    Err(EvalError::InvalidArgumentCount { .. })
+                );
+                assert_eq!(
+                    miscounted,
+                    !(min..=max).contains(&count),
+                    "{} takes {}..={} but {} arguments were {}",
+                    function.name(),
+                    min,
+                    max,
+                    count,
+                    if miscounted { "refused" } else { "allowed" }
+                );
+            }
+        }
+    }
+
+    /// The name in the message is one the script could have written, so a
+    /// reader can search for it.
+    #[test]
+    fn every_function_names_itself_as_the_language_spells_it() {
+        for function in every_function() {
+            assert_eq!(
+                Function::parse(function.name()),
+                Some(function),
+                "`{}` is not a spelling the parser accepts",
+                function.name()
+            );
+        }
+    }
+
+    /// The walk has to reach an argument, not just the outermost call — a
+    /// miscounted call nested inside a good one is the same mistake.
+    #[test]
+    fn check_static_reaches_nested_calls() {
+        use dealer_parser::parse;
+
+        for script in [
+            "hcp(north, spades, clubs)",
+            "hcp(north) + hcp(south, spades, clubs)",
+            "hcp(north) > 10 ? 1 : shape(north)",
+            "!hascard(north)",
+            "-cccc(north, south)",
+        ] {
+            let ast = parse(script).expect("should parse");
+            assert!(
+                matches!(
+                    check_static(&ast),
+                    Err(EvalError::InvalidArgumentCount { .. })
+                ),
+                "`{}` miscounts a call and should be refused",
+                script
+            );
+        }
+
+        let good = parse("hcp(north) + hcp(south, spades) > shape(north, any 4333)").unwrap();
+        assert!(check_static(&good).is_ok());
     }
 }

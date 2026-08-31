@@ -300,3 +300,53 @@ fn a_malformed_parameter_is_refused() {
         assert!(!err.is_empty());
     }
 }
+
+#[test]
+fn a_call_with_the_wrong_number_of_arguments_is_refused() {
+    // #36. The evaluator raised this correctly all along, but the condition
+    // read the error as "this deal does not match" and threw it away, so the
+    // run dealt everything `-g` allowed, produced nothing, said nothing and
+    // exited 0 — the same silent shape as `dealr west` above, one layer down.
+    let (out, err, status) = run(
+        &["-p", "1", "-s", "1", "-g", "50"],
+        "condition hcp(north, spades, clubs) == 1\n",
+    );
+    assert_eq!(status, 1, "stdout was: {out}");
+    assert!(err.contains("hcp"), "the function should be named: {err}");
+    assert!(
+        err.contains("1 or 2") && err.contains("not 3"),
+        "the counts should both be given: {err}"
+    );
+    assert!(out.is_empty(), "no deals should have been dealt");
+}
+
+#[test]
+fn a_miscounted_call_is_refused_before_any_deal_is_made() {
+    // The condition here matches nothing, which is what used to hide this: a
+    // statistic is evaluated only for a deal that matched, so the error was
+    // never reached. An argument count is a property of the script, so it is
+    // now settled before the first card comes out.
+    let (out, err, status) = run(
+        &["-p", "1", "-s", "1", "-g", "50"],
+        "condition hcp(north) >= 40\naction average \"a\" controls(north, spades, hearts)\n",
+    );
+    assert_eq!(status, 1, "stdout was: {out}");
+    assert!(
+        err.contains("average") && err.contains("controls"),
+        "the statement and the function should both be named: {err}"
+    );
+}
+
+#[test]
+fn a_function_that_takes_either_count_still_takes_both() {
+    // The check reads `Function::arity`, so getting a range wrong would refuse
+    // a legal script rather than accept a broken one. `hcp` is the one every
+    // script uses.
+    for script in [
+        "condition hcp(north) >= 10\n",
+        "condition hcp(north, spades) >= 3\n",
+    ] {
+        let (_, err, status) = run(&["-q", "-p", "1", "-s", "1"], script);
+        assert_eq!(status, 0, "`{script}` should run: {err}");
+    }
+}
