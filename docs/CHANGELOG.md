@@ -90,6 +90,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **A miscounted `score` blamed its contract word instead of the count.**
+  `score(nv, x3N)` reported `names are used but never defined: nv, x3N`, because
+  `score`'s own grammar rule demanded exactly three arguments and a call with
+  two fell through to the ordinary function rule, where those two words are
+  nothing but names. The rule now takes any number of arguments, so the count is
+  reported as a count: `score takes 3 arguments, not 2`. Loud either way, but
+  about the right thing now.
 - **A call with the wrong number of arguments produced no deals, no error and
   exit 0.** The evaluator raised `InvalidArgumentCount` correctly, and the
   condition turned it into "this deal does not match" — once per deal, for as

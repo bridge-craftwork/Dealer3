@@ -192,10 +192,12 @@ function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 // index — the tokens are what a script written elsewhere will use, and the
 // numbers are what a `--param` can supply.
 //
-// Tried ahead of `function_call`, and falling through to it when the shape
-// does not fit, so `score(0, 34)` still reaches the evaluator's argument-count
-// error rather than becoming a syntax error.
-score_call = { score_name ~ "(" ~ score_arg ~ "," ~ score_arg ~ "," ~ expr ~ ")" }
+// Any number of arguments, so a miscounted call is still a `score` call and
+// the count is reported as one: `check_program` says "score takes 3 arguments,
+// not 2" before a card is dealt. Pinning the rule to three instead made
+// `score(nv, x3N)` fall through to `function_call`, where the two words are
+// nothing but undefined names — loud, but about the wrong thing.
+score_call = { score_name ~ "(" ~ score_arg ~ ("," ~ score_arg)* ~ ")" }
 score_name = @{ "score" ~ !(ASCII_ALPHANUMERIC | "_") }
 score_arg = _{ contract_token | vuln_token | expr }
 

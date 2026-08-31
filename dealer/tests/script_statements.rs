@@ -350,3 +350,42 @@ fn a_function_that_takes_either_count_still_takes_both() {
         assert_eq!(status, 0, "`{script}` should run: {err}");
     }
 }
+
+#[test]
+fn a_miscounted_score_is_reported_as_a_count_not_as_unknown_names() {
+    // `score` has a grammar rule of its own, because its first two arguments
+    // are words rather than expressions. When that rule demanded exactly three
+    // arguments, a call with two fell through to the ordinary function rule —
+    // where `nv` and `x3N` are nothing but names the script never defined. The
+    // error was loud but about the wrong thing.
+    for (script, got) in [
+        ("condition score(nv, x3N) == 400\n", "not 2"),
+        ("condition score(x3N) == 400\n", "not 1"),
+        ("condition score(nv, x3N, 9, 1) == 400\n", "not 4"),
+        // The numeric spelling reached the right error already; it must keep it.
+        ("condition score(0, 19) == 400\n", "not 2"),
+    ] {
+        let (_, err, status) = run(&["-q", "-p", "1", "-s", "1", "-g", "20"], script);
+        assert_eq!(status, 1, "`{script}` should be refused");
+        assert!(
+            err.contains("score takes 3 arguments") && err.contains(got),
+            "`{script}` should name the count, not the words: {err}"
+        );
+        assert!(
+            !err.contains("never defined"),
+            "`{script}` should not blame the contract words: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_score_call_that_counts_right_still_runs() {
+    for script in [
+        "condition score(nv, x3N, 9) == 400\n",
+        "condition score(0, 19, 9) == 400\n",
+        "condition score(vul, x4Sxx, 10) == 1080\n",
+    ] {
+        let (_, err, status) = run(&["-q", "-p", "1", "-s", "1"], script);
+        assert_eq!(status, 0, "`{script}` should run: {err}");
+    }
+}
