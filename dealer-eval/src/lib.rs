@@ -1317,11 +1317,13 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
 
         Function::Score => {
             // score(vulnerability, contract, tricks)
-            // vulnerability: 0 = non-vul, 1 = vul
-            // contract: encoded as level * 10 + strain + doubled_flag * 100
+            // vulnerability: 0 = non-vul, 1 = vul, or the words `nv` and `vul`
+            // contract: the word `x3N`, or the number that word stands for —
+            //   level * 5 + strain, plus 40 for each level of doubling, which
+            //   is what both references encode (tree.h's MAKECONTRACT, and
+            //   DealerV2_4's make_contract).
             //   strain: 0=C, 1=D, 2=H, 3=S, 4=NT
-            //   doubled_flag: 0=undoubled, 1=doubled, 2=redoubled
-            //   Examples: 3NT = 34, 4S = 43, 3NT doubled = 134, 4Sx = 143, 4Sxx = 243
+            //   Examples: 3NT = 19, 4S = 23, 4Sx = 63, 4Sxx = 103
             // tricks: 0-13
             if args.len() != 3 {
                 return Err(EvalError::InvalidArgumentCount {
@@ -1338,11 +1340,18 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             // Parse vulnerability
             let vulnerable = vul_arg != 0;
 
-            // Parse contract code
-            let doubled_flag = contract_code / 100;
-            let remainder = contract_code % 100;
-            let level = remainder / 10;
-            let strain_num = remainder % 10;
+            // Parse contract code. A negative code would divide towards zero
+            // and land inside a valid range, so it is refused up front.
+            if contract_code < 0 {
+                return Err(EvalError::InvalidArgument(format!(
+                    "Invalid contract: {} (must not be negative)",
+                    contract_code
+                )));
+            }
+            let doubled_flag = contract_code / 40;
+            let remainder = contract_code % 40;
+            let level = remainder / 5;
+            let strain_num = remainder % 5;
 
             // Validate level
             if !(1..=7).contains(&level) {
@@ -1352,19 +1361,14 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
                 )));
             }
 
-            // Parse strain
+            // Parse strain. The remainder of a division by five cannot be
+            // anything else, so there is no failing arm to write.
             let strain = match strain_num {
                 0 => Strain::Clubs,
                 1 => Strain::Diamonds,
                 2 => Strain::Hearts,
                 3 => Strain::Spades,
-                4 => Strain::NoTrump,
-                _ => {
-                    return Err(EvalError::InvalidArgument(format!(
-                        "Invalid strain: {} (must be 0=C, 1=D, 2=H, 3=S, 4=NT)",
-                        strain_num
-                    )));
-                }
+                _ => Strain::NoTrump,
             };
 
             // Parse doubled state
@@ -2801,28 +2805,106 @@ mod tests {
         let deal = gen.next_deal();
         let ctx = EvalContext::new(&deal);
 
-        // score(0, 34, 9) = 3NT non-vul making exactly = 400
-        // Contract code: 34 = level 3, strain 4 (NT)
-        let ast = parse("score(0, 34, 9)").unwrap();
+        // score(nv, x3N, 9) = 3NT non-vul making exactly = 400
+        // Contract code: 19 = 3 * 5 + 4 (NT)
+        let ast = parse("score(nv, x3N, 9)").unwrap();
         assert_eq!(eval(&ast, &ctx).unwrap(), 400);
 
-        // score(1, 34, 9) = 3NT vul making exactly = 600
-        let ast = parse("score(1, 34, 9)").unwrap();
+        // score(vul, x3N, 9) = 3NT vul making exactly = 600
+        let ast = parse("score(vul, x3N, 9)").unwrap();
         assert_eq!(eval(&ast, &ctx).unwrap(), 600);
 
-        // score(0, 43, 10) = 4S non-vul making exactly = 420
-        // Contract code: 43 = level 4, strain 3 (Spades)
-        let ast = parse("score(0, 43, 10)").unwrap();
+        // score(nv, x4S, 10) = 4S non-vul making exactly = 420
+        // Contract code: 23 = 4 * 5 + 3 (spades)
+        let ast = parse("score(nv, x4S, 10)").unwrap();
         assert_eq!(eval(&ast, &ctx).unwrap(), 420);
 
-        // score(0, 34, 8) = 3NT down 1 = -50
-        let ast = parse("score(0, 34, 8)").unwrap();
+        // score(nv, x3N, 8) = 3NT down 1 = -50
+        let ast = parse("score(nv, x3N, 8)").unwrap();
         assert_eq!(eval(&ast, &ctx).unwrap(), -50);
 
-        // score(0, 143, 9) = 4S doubled down 1 = -100
-        // Contract code: 143 = doubled (100) + level 4, strain 3 (Spades)
-        let ast = parse("score(0, 143, 9)").unwrap();
+        // score(nv, x4Sx, 9) = 4S doubled down 1 = -100
+        // Contract code: 63 = doubled (40) + 4 * 5 + 3 (spades)
+        let ast = parse("score(nv, x4Sx, 9)").unwrap();
         assert_eq!(eval(&ast, &ctx).unwrap(), -100);
+    }
+
+    /// The number a contract word stands for, and the word itself, must reach
+    /// the same score. Both spellings are supported on purpose — the word is
+    /// what a script written for dealer.exe uses, the number is what a
+    /// `--param` can supply — so neither may drift from the other.
+    #[test]
+    fn a_contract_word_and_its_number_agree() {
+        use dealer_parser::parse;
+
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
+        let ctx = EvalContext::new(&deal);
+
+        for (word, code) in [
+            ("x1C", 5),
+            ("x3N", 19),
+            ("x4S", 23),
+            ("x7N", 39),
+            ("x3Nx", 59),
+            ("x4Sxx", 103),
+            // The sigil carries no meaning, so `z` and `x` are one contract.
+            ("z4S", 23),
+        ] {
+            for tricks in 0..=13 {
+                let by_word = parse(&format!("score(nv, {}, {})", word, tricks)).unwrap();
+                let by_number = parse(&format!("score(0, {}, {})", code, tricks)).unwrap();
+                assert_eq!(
+                    eval(&by_word, &ctx).unwrap(),
+                    eval(&by_number, &ctx).unwrap(),
+                    "{} and {} disagree at {} tricks",
+                    word,
+                    code,
+                    tricks
+                );
+            }
+        }
+    }
+
+    /// `nv` and `vul` are recognised only where `score` takes them, so a script
+    /// may still use either as a variable name anywhere else. The same goes for
+    /// a name shaped like a contract.
+    #[test]
+    fn the_score_words_are_not_reserved_elsewhere() {
+        use dealer_parser::parse_program;
+
+        for script in [
+            "vul = 3\ncondition hcp(north) >= vul\n",
+            "nv = 2\ncondition hcp(north) >= nv\n",
+            "x3N = 20\ncondition hcp(north) >= x3N\n",
+        ] {
+            assert!(
+                parse_program(script).is_ok(),
+                "the name in `{}` should still be an ordinary variable",
+                script.lines().next().unwrap_or_default()
+            );
+        }
+    }
+
+    /// Case follows both references exactly: lowercase sigil and suffix,
+    /// uppercase strain, level 1 to 7. Anything else is a name the script never
+    /// defined, which is reported rather than guessed at.
+    #[test]
+    fn a_misspelled_contract_is_not_quietly_accepted() {
+        use dealer_parser::parse;
+
+        let mut gen = FastDealGenerator::new(1);
+        let deal = gen.next_deal();
+        let ctx = EvalContext::new(&deal);
+
+        for word in ["X3N", "x3n", "x8N", "x0N", "x3NX", "x3Nxxx", "3N"] {
+            let script = format!("score(nv, {}, 9)", word);
+            let refused = match parse(&script) {
+                Err(_) => true,
+                Ok(ast) => eval(&ast, &ctx).is_err(),
+            };
+            assert!(refused, "`{}` should not be read as a contract", word);
+        }
     }
 
     /// The cycle guard in `reaches_rnd`. A variable referring to itself cannot
@@ -2899,8 +2981,8 @@ mod tests {
         let ctx = EvalContext::new(&deal);
 
         // Use tricks() result in score() calculation
-        // score(0, 34, tricks(north, 4)) = score for 3NT non-vul based on DD tricks
-        let ast = parse("score(0, 34, tricks(north, 4))").unwrap();
+        // score(nv, x3N, tricks(north, 4)) = 3NT non-vul on the double-dummy result
+        let ast = parse("score(nv, x3N, tricks(north, 4))").unwrap();
         let score = eval(&ast, &ctx).unwrap();
 
         // The score should be:

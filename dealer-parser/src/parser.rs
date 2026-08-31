@@ -628,6 +628,43 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
     }
 }
 
+/// Encode a contract token such as `x3N` or `x4Hxx` as a number.
+///
+/// The grammar has already checked the shape, so the only work here is the
+/// arithmetic both references do: `level * 5 + strain`, plus 40 for each level
+/// of doubling. The leading sigil carries no meaning and is skipped, exactly as
+/// `make_contract` skips it in dealer.exe and in DealerV2_4.
+fn contract_code(token: &str) -> Result<i32, ParseError> {
+    let mut chars = token.chars();
+    chars.next(); // the sigil, `x` or `z`
+
+    let level = match chars.next().and_then(|c| c.to_digit(10)) {
+        Some(level) => level as i32,
+        None => {
+            return Err(ParseError {
+                message: format!("Contract has no level: {}", token),
+            })
+        }
+    };
+
+    let strain = match chars.next() {
+        Some('C') => 0,
+        Some('D') => 1,
+        Some('H') => 2,
+        Some('S') => 3,
+        Some('N') => 4,
+        _ => {
+            return Err(ParseError {
+                message: format!("Contract has no strain: {}", token),
+            })
+        }
+    };
+
+    let doubled = chars.filter(|c| *c == 'x').count() as i32;
+
+    Ok(40 * doubled + level * 5 + strain)
+}
+
 /// Parse a single card from a string like "AS", "KH", "2C" (rank+suit format for hascard)
 fn parse_card(card_str: &str) -> Result<dealer_core::Card, ParseError> {
     if card_str.len() != 2 {
@@ -930,6 +967,34 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             Err(ParseError {
                 message: "Unexpected function_name rule".to_string(),
             })
+        }
+
+        Rule::score_call => {
+            // score_name, then the three arguments. The first two may have
+            // arrived as tokens, which the rules below have already turned
+            // into the numbers they stand for.
+            let mut args = Vec::new();
+            for arg_pair in pair.into_inner() {
+                if arg_pair.as_rule() == Rule::score_name {
+                    continue;
+                }
+                args.push(build_ast(arg_pair)?);
+            }
+
+            Ok(Expr::call_multi(Function::Score, args))
+        }
+
+        Rule::contract_token => {
+            // Both references encode a contract as level * 5 + strain, plus 40
+            // per level of doubling, and dealer3 uses the same numbers so there
+            // is one encoding rather than two.
+            Ok(Expr::Literal(contract_code(pair.as_str())?))
+        }
+
+        Rule::vuln_token => {
+            // NON_VUL and VUL in tree.h are 0 and 1, which is what `score`
+            // already reads.
+            Ok(Expr::Literal(i32::from(pair.as_str() == "vul")))
         }
 
         Rule::position => {

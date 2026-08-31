@@ -265,7 +265,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Contract tokens in `score()`, e.g. `3N` for the code 34 | Low | Low |  | **The spelling is not a free choice.** The original has the token already — `[x][1-7][CDHSN]` in `scan.l`, feeding `score(VULN, CONTRACT, expr)` in `defs.y` — so `x4H` is dealer.exe's own and compatibility settles it. DealerV2_4 extends that to `[xz][1-7][CDHSN][x]{0,2}`, where the `z` prefix and the trailing `x`s make `x4Hx` four hearts doubled. |
 | 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | `par(side)`: the par contract | Low | Low |  | Needs all 20 double-dummy results, which bridge-solver already provides for `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with `-P`, which has a row of its own in the switch table. |
 | 🔵 Unlikely | `printns` and `printside(side)` | Low | Low |  | dealer3 has `printew`; DealerV2_4 routes all three through one action. |
