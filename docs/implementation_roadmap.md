@@ -265,7 +265,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Decimal literals, `6.25` and `.5` | Medium | Low |  | DealerV2_4 reads them as hundredths, which is what lets `altcount` weight a card at 0.75 and `ltc` count in halves. dealer3's numbers are integers. |
 | 🔵 Unlikely | Double-dummy solver mode | Medium | Low |  | DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver behind it is in place; this is the switch and its output format. |
 | 🔵 Unlikely | Export in DL52 format | Medium | Low |  | DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with the script parameters, the spelling here would have to differ. |
 | 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |

@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Decimal literals, DealerV2_4's dotnums: `6.25`, `3.0`, `.5`.** Sugar for a
+  hundred times themselves — `6.25` is 625 — computed exactly as
+  `dealflex.l:416` does. Accepted anywhere a number is, including the count
+  rows they exist for: `altcount 8 6.25 4.25 1.5 0.75 .25` is the same row as
+  `altcount 8 625 425 150 75 25`, which is asserted rather than assumed.
+  - **Not a fraction.** Nothing tracks a scale, so a plain `6` is still 6 and
+    `6.25 + 6` is 631. Keeping the units straight is the script's job, exactly
+    as in DealerV2_4, whose own scripts do it by redefining the counts in the
+    same scale: after `pointcount 4.5 3.0 1.5 0.75 .25`, `hcp()` returns
+    hundredths and `11.00 <= hcp(west)` means what it looks like.
+  - At most two digits either side of the point, which is DealerV2_4's limit and
+    load-bearing: `123.45` is `123` followed by `.45` there, and a syntax error.
+    Being more permissive would accept scripts that fail on BBO.
+  - dealer.exe has no decimals at all, so any script using one is one that will
+    not run on BBO. Recorded against #13, with the rewrite that does port: write
+    the integer the decimal denotes.
 - **`par(side)`: the par score, what the deal is worth with both sides bidding
   and defending perfectly.** `ns` or `ew`, or a compass for the side that seat
   is on, as DealerV2_4's `dds_parscore` accepts. `par(ew)` is `-par(ns)`, and a
@@ -130,6 +146,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **Unary minus did nothing: `-2` evaluated to `2`, and `-2 == 2` was true.**
+  A bare `"-"` inside a non-atomic pest rule produces no pair, so the parser
+  saw only the operand and dropped the negation; `not_op` is a named rule,
+  which is why `not` never had the problem. The minus now has a rule of its
+  own. dealer.exe prints `-2` and `0` for these, so this was a silent
+  compatibility bug as well as a silent correctness one — and nothing in the
+  suite negated a literal, which is how it survived. (#43)
 - **A miscounted `score` blamed its contract word instead of the count.**
   `score(nv, x3N)` reported `names are used but never defined: nv, x3N`, because
   `score`'s own grammar rule demanded exactly three arguments and a call with
