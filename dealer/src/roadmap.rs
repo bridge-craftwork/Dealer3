@@ -174,16 +174,13 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("The original takes a second expression and range and prints marginals."),
     },
     WorkItem {
-        what: "The length-bias form of `predeal`, `spades(north) == 5`",
+        what: "The length-bias form of `predeal`, `spades(north) == 5` — which the original ignores",
         done_when: None,
         issue: None,
         effort: Effort::Medium,
         value: Value::Low,
         note: Some(
-            "The original's, not DealerV2_4's: `predealarg : SUIT '(' COMPASS ')' CMPEQ \
-             NUMBER` in `defs.y` calls `bias_deal`, which biases the shuffle rather than \
-             fixing cards. Rejected loudly today; the same thing can be written in the \
-             condition, at the cost of dealing and discarding instead of dealing to fit.",
+            "**The original accepts it and does nothing with it.** `predealarg : SUIT '(' COMPASS ')' CMPEQ NUMBER` in `defs.y` calls `bias_deal`, which writes `biasdeal[compass][suit]` — and nothing ever reads that array; `dealer.c` contains its declaration and no other mention. Measured rather than inferred: `predeal spades(north) == 5` over 200 deals gives North an average of 3.285 spades, the natural 3.25, on the macOS build and on the Windows one BBO's lineage comes from. So there is no behaviour to be compatible with. dealer3 rejects it loudly, which is the better of the two; implementing it would make dealer3 differ from the original rather than match it.",
         ),
     },
     WorkItem {
@@ -223,12 +220,12 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "Exhaust mode",
+        what: "Exhaust mode — which no build of the original ships",
         done_when: Some(DoneWhen::Switch("-e")),
         issue: None,
         effort: Effort::High,
         value: Value::Low,
-        note: Some("Never finished in the original either; the code is compiled out."),
+        note: Some("Francois Dellacherie's exhaustive enumeration, 1999: instead of shuffling, walk every way of splitting the undealt cards between two hands, as a binary vector of Hamming weight 13. It sits behind `#ifdef FRANCOIS` in `dealer.c` and is compiled out of both reference binaries — each answers `-e` with \"Exhaust mode not included in this executable\", including the Windows one BBO's lineage comes from. So there is nothing to be compatible with, and dealer3's refusal already matches what a script meets there."),
     },
 ];
 
