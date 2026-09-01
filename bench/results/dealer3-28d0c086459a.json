@@ -1,0 +1,2230 @@
+{
+  "tool": "bench-dealer3",
+  "revision": "v0.4.0-201-g93cf0c2",
+  "source_id": "28d0c086459a",
+  "corpus_id": "7d7033566ed1",
+  "repeats": 3,
+  "scale": 1.0,
+  "scripts": {
+    "Scrambling_2NT": {
+      "deals": 2900000,
+      "hit_rate": 0.00025,
+      "single": {
+        "seconds_best": 0.909,
+        "seconds_median": 0.911,
+        "seconds_all": [
+          0.909,
+          0.911,
+          0.916
+        ],
+        "spread_pct": 0.7700770077007707,
+        "deals": 2900000,
+        "deals_per_sec": 3190319.03190319,
+        "produced": 280,
+        "wall_best": 0.9144699997268617,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.284,
+        "seconds_median": 0.301,
+        "seconds_all": [
+          0.284,
+          0.301,
+          0.336
+        ],
+        "spread_pct": 18.309859154929594,
+        "deals": 2900000,
+        "deals_per_sec": 10211267.605633805,
+        "produced": 280,
+        "wall_best": 0.28931849962100387,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 7676470,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 2.376,
+            "seconds_median": 2.407,
+            "seconds_all": [
+              2.376,
+              2.407,
+              2.411
+            ],
+            "spread_pct": 1.4730639730639792,
+            "deals": 7676470,
+            "deals_per_sec": 3230837.5420875424,
+            "produced": 722,
+            "wall_best": 2.381219749804586,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 1.663,
+            "seconds_median": 1.667,
+            "seconds_all": [
+              1.663,
+              1.667,
+              1.754
+            ],
+            "spread_pct": 5.472038484666264,
+            "deals": 7676470,
+            "deals_per_sec": 4616037.282020445,
+            "produced": 722,
+            "wall_best": 1.6681763748638332,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 1.146,
+            "seconds_median": 1.153,
+            "seconds_all": [
+              1.146,
+              1.153,
+              1.177
+            ],
+            "spread_pct": 2.705061082024445,
+            "deals": 7676470,
+            "deals_per_sec": 6698490.401396161,
+            "produced": 722,
+            "wall_best": 1.1514843753539026,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 0.921,
+            "seconds_median": 0.952,
+            "seconds_all": [
+              0.921,
+              0.952,
+              0.954
+            ],
+            "spread_pct": 3.5830618892508057,
+            "deals": 7676470,
+            "deals_per_sec": 8334929.424538544,
+            "produced": 722,
+            "wall_best": 0.9254720001481473,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 0.845,
+            "seconds_median": 0.846,
+            "seconds_all": [
+              0.845,
+              0.846,
+              0.933
+            ],
+            "spread_pct": 10.414201183431961,
+            "deals": 7676470,
+            "deals_per_sec": 9084579.881656805,
+            "produced": 722,
+            "wall_best": 0.8503527496941388,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 0.754,
+            "seconds_median": 0.812,
+            "seconds_all": [
+              0.754,
+              0.812,
+              0.853
+            ],
+            "spread_pct": 13.129973474801057,
+            "deals": 7676470,
+            "deals_per_sec": 10180994.694960212,
+            "produced": 722,
+            "wall_best": 0.7591238748282194,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.815,
+            "seconds_median": 0.868,
+            "seconds_all": [
+              0.815,
+              0.868,
+              0.885
+            ],
+            "spread_pct": 8.588957055214733,
+            "deals": 7676470,
+            "deals_per_sec": 9418981.595092025,
+            "produced": 722,
+            "wall_best": 0.8202146249823272,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.806,
+            "seconds_median": 0.818,
+            "seconds_all": [
+              0.806,
+              0.818,
+              0.879
+            ],
+            "spread_pct": 9.05707196029776,
+            "deals": 7676470,
+            "deals_per_sec": 9524156.327543424,
+            "produced": 722,
+            "wall_best": 0.81038016686216,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.801,
+            "seconds_median": 0.811,
+            "seconds_all": [
+              0.801,
+              0.811,
+              0.819
+            ],
+            "spread_pct": 2.2471910112359432,
+            "deals": 7676470,
+            "deals_per_sec": 9583607.990012484,
+            "produced": 722,
+            "wall_best": 0.806273709051311,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.789,
+            "seconds_median": 0.814,
+            "seconds_all": [
+              0.789,
+              0.814,
+              0.824
+            ],
+            "spread_pct": 4.435994930291498,
+            "deals": 7676470,
+            "deals_per_sec": 9729366.286438528,
+            "produced": 722,
+            "wall_best": 0.7943227495998144,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "GIB_1N_Basic": {
+      "deals": 2800000,
+      "hit_rate": 0.023,
+      "single": {
+        "seconds_best": 0.935,
+        "seconds_median": 0.936,
+        "seconds_all": [
+          0.935,
+          0.936,
+          0.937
+        ],
+        "spread_pct": 0.2139037433155082,
+        "deals": 2800000,
+        "deals_per_sec": 2994652.4064171123,
+        "produced": 67798,
+        "wall_best": 0.9402840421535075,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.271,
+        "seconds_median": 0.275,
+        "seconds_all": [
+          0.271,
+          0.275,
+          0.299
+        ],
+        "spread_pct": 10.332103321033198,
+        "deals": 2800000,
+        "deals_per_sec": 10332103.32103321,
+        "produced": 67798,
+        "wall_best": 0.2753593339584768,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 7777777,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 2.601,
+            "seconds_median": 2.608,
+            "seconds_all": [
+              2.601,
+              2.608,
+              2.618
+            ],
+            "spread_pct": 0.6535947712418264,
+            "deals": 7777777,
+            "deals_per_sec": 2990302.5759323337,
+            "produced": 189559,
+            "wall_best": 2.6056909589096904,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 1.746,
+            "seconds_median": 1.746,
+            "seconds_all": [
+              1.746,
+              1.746,
+              1.757
+            ],
+            "spread_pct": 0.630011454753717,
+            "deals": 7777777,
+            "deals_per_sec": 4454626.002290951,
+            "produced": 189559,
+            "wall_best": 1.7506337920203805,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 1.155,
+            "seconds_median": 1.183,
+            "seconds_all": [
+              1.155,
+              1.183,
+              1.208
+            ],
+            "spread_pct": 4.588744588744583,
+            "deals": 7777777,
+            "deals_per_sec": 6734006.060606061,
+            "produced": 189559,
+            "wall_best": 1.1592705408111215,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 0.896,
+            "seconds_median": 0.934,
+            "seconds_all": [
+              0.896,
+              0.934,
+              0.936
+            ],
+            "spread_pct": 4.464285714285718,
+            "deals": 7777777,
+            "deals_per_sec": 8680554.6875,
+            "produced": 189559,
+            "wall_best": 0.902648541610688,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 0.852,
+            "seconds_median": 0.872,
+            "seconds_all": [
+              0.852,
+              0.872,
+              0.962
+            ],
+            "spread_pct": 12.910798122065724,
+            "deals": 7777777,
+            "deals_per_sec": 9128846.244131455,
+            "produced": 189559,
+            "wall_best": 0.8572177919559181,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 0.782,
+            "seconds_median": 0.83,
+            "seconds_all": [
+              0.782,
+              0.83,
+              0.893
+            ],
+            "spread_pct": 14.194373401534524,
+            "deals": 7777777,
+            "deals_per_sec": 9946006.393861892,
+            "produced": 189559,
+            "wall_best": 0.787128834053874,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.713,
+            "seconds_median": 0.885,
+            "seconds_all": [
+              0.713,
+              0.885,
+              0.897
+            ],
+            "spread_pct": 25.806451612903235,
+            "deals": 7777777,
+            "deals_per_sec": 10908523.14165498,
+            "produced": 189559,
+            "wall_best": 0.7184609579853714,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.858,
+            "seconds_median": 0.861,
+            "seconds_all": [
+              0.858,
+              0.861,
+              0.876
+            ],
+            "spread_pct": 2.0979020979020997,
+            "deals": 7777777,
+            "deals_per_sec": 9065008.15850816,
+            "produced": 189559,
+            "wall_best": 0.8627638332545757,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.76,
+            "seconds_median": 0.785,
+            "seconds_all": [
+              0.76,
+              0.785,
+              0.844
+            ],
+            "spread_pct": 11.052631578947365,
+            "deals": 7777777,
+            "deals_per_sec": 10233917.105263159,
+            "produced": 189559,
+            "wall_best": 0.7642539162188768,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.758,
+            "seconds_median": 0.817,
+            "seconds_all": [
+              0.758,
+              0.817,
+              0.83
+            ],
+            "spread_pct": 9.498680738786273,
+            "deals": 7777777,
+            "deals_per_sec": 10260919.525065962,
+            "produced": 189559,
+            "wall_best": 0.7627638331614435,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Slam_After_Major_Fit": {
+      "deals": 2700000,
+      "hit_rate": 0.0016,
+      "single": {
+        "seconds_best": 0.87,
+        "seconds_median": 0.879,
+        "seconds_all": [
+          0.87,
+          0.879,
+          1.132
+        ],
+        "spread_pct": 30.11494252873562,
+        "deals": 2700000,
+        "deals_per_sec": 3103448.275862069,
+        "produced": 4588,
+        "wall_best": 0.8756592497229576,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.367,
+        "seconds_median": 0.411,
+        "seconds_all": [
+          0.367,
+          0.411,
+          0.518
+        ],
+        "spread_pct": 41.14441416893734,
+        "deals": 2700000,
+        "deals_per_sec": 7356948.228882834,
+        "produced": 4588,
+        "wall_best": 0.3725591669790447,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 6806722,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 2.189,
+            "seconds_median": 2.24,
+            "seconds_all": [
+              2.189,
+              2.24,
+              2.661
+            ],
+            "spread_pct": 21.5623572407492,
+            "deals": 6806722,
+            "deals_per_sec": 3109512.1059844675,
+            "produced": 11521,
+            "wall_best": 2.1953322920016944,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 1.531,
+            "seconds_median": 1.538,
+            "seconds_all": [
+              1.531,
+              1.538,
+              1.544
+            ],
+            "spread_pct": 0.8491182233834176,
+            "deals": 6806722,
+            "deals_per_sec": 4445932.07054213,
+            "produced": 11521,
+            "wall_best": 1.5365641247481108,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 1.008,
+            "seconds_median": 1.028,
+            "seconds_all": [
+              1.008,
+              1.028,
+              1.047
+            ],
+            "spread_pct": 3.8690476190476115,
+            "deals": 6806722,
+            "deals_per_sec": 6752700.396825396,
+            "produced": 11521,
+            "wall_best": 1.0132046672515571,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 0.775,
+            "seconds_median": 0.786,
+            "seconds_all": [
+              0.775,
+              0.786,
+              0.788
+            ],
+            "spread_pct": 1.677419354838711,
+            "deals": 6806722,
+            "deals_per_sec": 8782867.096774193,
+            "produced": 11521,
+            "wall_best": 0.7804100839421153,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 0.735,
+            "seconds_median": 0.757,
+            "seconds_all": [
+              0.735,
+              0.757,
+              0.774
+            ],
+            "spread_pct": 5.306122448979597,
+            "deals": 6806722,
+            "deals_per_sec": 9260846.258503402,
+            "produced": 11521,
+            "wall_best": 0.7400703332386911,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 0.667,
+            "seconds_median": 0.714,
+            "seconds_all": [
+              0.667,
+              0.714,
+              0.744
+            ],
+            "spread_pct": 11.544227886056964,
+            "deals": 6806722,
+            "deals_per_sec": 10204980.509745127,
+            "produced": 11521,
+            "wall_best": 0.6720415418967605,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.684,
+            "seconds_median": 0.7,
+            "seconds_all": [
+              0.684,
+              0.7,
+              0.705
+            ],
+            "spread_pct": 3.0701754385964777,
+            "deals": 6806722,
+            "deals_per_sec": 9951347.953216374,
+            "produced": 11521,
+            "wall_best": 0.6892888750880957,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.704,
+            "seconds_median": 0.729,
+            "seconds_all": [
+              0.704,
+              0.729,
+              0.733
+            ],
+            "spread_pct": 4.119318181818186,
+            "deals": 6806722,
+            "deals_per_sec": 9668639.204545455,
+            "produced": 11521,
+            "wall_best": 0.7092224173247814,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.599,
+            "seconds_median": 0.611,
+            "seconds_all": [
+              0.599,
+              0.611,
+              0.632
+            ],
+            "spread_pct": 5.509181969949921,
+            "deals": 6806722,
+            "deals_per_sec": 11363475.792988315,
+            "produced": 11521,
+            "wall_best": 0.6039729998447001,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.594,
+            "seconds_median": 0.636,
+            "seconds_all": [
+              0.594,
+              0.636,
+              0.71
+            ],
+            "spread_pct": 19.52861952861953,
+            "deals": 6806722,
+            "deals_per_sec": 11459127.946127947,
+            "produced": 11521,
+            "wall_best": 0.5990696246735752,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "After_Partner_Overcalls": {
+      "deals": 1900000,
+      "hit_rate": 0.0002,
+      "single": {
+        "seconds_best": 1.228,
+        "seconds_median": 1.229,
+        "seconds_all": [
+          1.228,
+          1.229,
+          1.243
+        ],
+        "spread_pct": 1.221498371335515,
+        "deals": 1900000,
+        "deals_per_sec": 1547231.2703583061,
+        "produced": 367,
+        "wall_best": 1.2331525827758014,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.269,
+        "seconds_median": 0.319,
+        "seconds_all": [
+          0.269,
+          0.319,
+          0.329
+        ],
+        "spread_pct": 22.304832713754642,
+        "deals": 1900000,
+        "deals_per_sec": 7063197.026022305,
+        "produced": 367,
+        "wall_best": 0.27419095765799284,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 5816326,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 3.759,
+            "seconds_median": 3.759,
+            "seconds_all": [
+              3.759,
+              3.759,
+              3.781
+            ],
+            "spread_pct": 0.5852620377760107,
+            "deals": 5816326,
+            "deals_per_sec": 1547306.7305134344,
+            "produced": 1080,
+            "wall_best": 3.7636167081072927,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.578,
+            "seconds_median": 2.599,
+            "seconds_all": [
+              2.578,
+              2.599,
+              2.605
+            ],
+            "spread_pct": 1.0473235065942645,
+            "deals": 5816326,
+            "deals_per_sec": 2256138.8673390225,
+            "produced": 1080,
+            "wall_best": 2.582686625421047,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.025,
+            "seconds_median": 2.042,
+            "seconds_all": [
+              2.025,
+              2.042,
+              2.065
+            ],
+            "spread_pct": 1.9753086419753103,
+            "deals": 5816326,
+            "deals_per_sec": 2872259.75308642,
+            "produced": 1080,
+            "wall_best": 2.0296784159727395,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.403,
+            "seconds_median": 1.546,
+            "seconds_all": [
+              1.403,
+              1.546,
+              1.667
+            ],
+            "spread_pct": 18.8168210976479,
+            "deals": 5816326,
+            "deals_per_sec": 4145635.0677120457,
+            "produced": 1080,
+            "wall_best": 1.4076410830020905,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.102,
+            "seconds_median": 1.332,
+            "seconds_all": [
+              1.102,
+              1.332,
+              1.339
+            ],
+            "spread_pct": 21.506352087114326,
+            "deals": 5816326,
+            "deals_per_sec": 5277972.77676951,
+            "produced": 1080,
+            "wall_best": 1.1068893750198185,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.143,
+            "seconds_median": 1.18,
+            "seconds_all": [
+              1.143,
+              1.18,
+              1.18
+            ],
+            "spread_pct": 3.237095363079608,
+            "deals": 5816326,
+            "deals_per_sec": 5088649.168853893,
+            "produced": 1080,
+            "wall_best": 1.1473230407573283,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.98,
+            "seconds_median": 1.069,
+            "seconds_all": [
+              0.98,
+              1.069,
+              1.112
+            ],
+            "spread_pct": 13.469387755102053,
+            "deals": 5816326,
+            "deals_per_sec": 5935026.530612245,
+            "produced": 1080,
+            "wall_best": 0.984910124912858,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.977,
+            "seconds_median": 1.069,
+            "seconds_all": [
+              0.977,
+              1.069,
+              1.1
+            ],
+            "spread_pct": 12.589559877175038,
+            "deals": 5816326,
+            "deals_per_sec": 5953250.76765609,
+            "produced": 1080,
+            "wall_best": 0.9831115417182446,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.923,
+            "seconds_median": 1.004,
+            "seconds_all": [
+              0.923,
+              1.004,
+              1.016
+            ],
+            "spread_pct": 10.075839653304438,
+            "deals": 5816326,
+            "deals_per_sec": 6301544.962080173,
+            "produced": 1080,
+            "wall_best": 0.928720457945019,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.851,
+            "seconds_median": 0.964,
+            "seconds_all": [
+              0.851,
+              0.964,
+              0.995
+            ],
+            "spread_pct": 16.92126909518214,
+            "deals": 5816326,
+            "deals_per_sec": 6834695.652173913,
+            "produced": 1080,
+            "wall_best": 0.855879541952163,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Major_Suit_Fit": {
+      "deals": 1800000,
+      "hit_rate": 0.0024,
+      "single": {
+        "seconds_best": 1.215,
+        "seconds_median": 1.223,
+        "seconds_all": [
+          1.215,
+          1.223,
+          1.242
+        ],
+        "spread_pct": 2.222222222222215,
+        "deals": 1800000,
+        "deals_per_sec": 1481481.4814814813,
+        "produced": 5400,
+        "wall_best": 1.2197721246629953,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.27,
+        "seconds_median": 0.297,
+        "seconds_all": [
+          0.27,
+          0.297,
+          0.297
+        ],
+        "spread_pct": 9.999999999999988,
+        "deals": 1800000,
+        "deals_per_sec": 6666666.666666666,
+        "produced": 5400,
+        "wall_best": 0.27439066721126437,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 5912408,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 3.971,
+            "seconds_median": 3.992,
+            "seconds_all": [
+              3.971,
+              3.992,
+              4.025
+            ],
+            "spread_pct": 1.3598589775875163,
+            "deals": 5912408,
+            "deals_per_sec": 1488896.4996222614,
+            "produced": 17808,
+            "wall_best": 3.975928916130215,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.608,
+            "seconds_median": 2.622,
+            "seconds_all": [
+              2.608,
+              2.622,
+              2.646
+            ],
+            "spread_pct": 1.457055214723919,
+            "deals": 5912408,
+            "deals_per_sec": 2267027.607361963,
+            "produced": 17808,
+            "wall_best": 2.6131436247378588,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.035,
+            "seconds_median": 2.039,
+            "seconds_all": [
+              2.035,
+              2.039,
+              2.056
+            ],
+            "spread_pct": 1.0319410319410274,
+            "deals": 5912408,
+            "deals_per_sec": 2905360.1965601966,
+            "produced": 17808,
+            "wall_best": 2.0400047921575606,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.329,
+            "seconds_median": 1.434,
+            "seconds_all": [
+              1.329,
+              1.434,
+              1.592
+            ],
+            "spread_pct": 19.7893152746426,
+            "deals": 5912408,
+            "deals_per_sec": 4448764.484574868,
+            "produced": 17808,
+            "wall_best": 1.3337139580398798,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.305,
+            "seconds_median": 1.355,
+            "seconds_all": [
+              1.305,
+              1.355,
+              1.445
+            ],
+            "spread_pct": 10.727969348659014,
+            "deals": 5912408,
+            "deals_per_sec": 4530580.842911878,
+            "produced": 17808,
+            "wall_best": 1.3096265411004424,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.083,
+            "seconds_median": 1.132,
+            "seconds_all": [
+              1.083,
+              1.132,
+              1.155
+            ],
+            "spread_pct": 6.648199445983385,
+            "deals": 5912408,
+            "deals_per_sec": 5459287.165281625,
+            "produced": 17808,
+            "wall_best": 1.0872752079740167,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.962,
+            "seconds_median": 1.008,
+            "seconds_all": [
+              0.962,
+              1.008,
+              1.013
+            ],
+            "spread_pct": 5.301455301455295,
+            "deals": 5912408,
+            "deals_per_sec": 6145954.261954262,
+            "produced": 17808,
+            "wall_best": 0.9666065000928938,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.991,
+            "seconds_median": 1.015,
+            "seconds_all": [
+              0.991,
+              1.015,
+              1.017
+            ],
+            "spread_pct": 2.623612512613513,
+            "deals": 5912408,
+            "deals_per_sec": 5966102.9263370335,
+            "produced": 17808,
+            "wall_best": 0.9957019160501659,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.904,
+            "seconds_median": 0.926,
+            "seconds_all": [
+              0.904,
+              0.926,
+              0.964
+            ],
+            "spread_pct": 6.637168141592914,
+            "deals": 5912408,
+            "deals_per_sec": 6540274.3362831855,
+            "produced": 17808,
+            "wall_best": 0.9087081253528595,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.827,
+            "seconds_median": 0.876,
+            "seconds_all": [
+              0.827,
+              0.876,
+              0.95
+            ],
+            "spread_pct": 14.873035066505441,
+            "deals": 5912408,
+            "deals_per_sec": 7149223.700120919,
+            "produced": 17808,
+            "wall_best": 0.8322819168679416,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Drury": {
+      "deals": 1500000,
+      "hit_rate": 5e-05,
+      "single": {
+        "seconds_best": 1.311,
+        "seconds_median": 1.317,
+        "seconds_all": [
+          1.311,
+          1.317,
+          1.321
+        ],
+        "spread_pct": 0.7627765064836011,
+        "deals": 1500000,
+        "deals_per_sec": 1144164.7597254005,
+        "produced": 136,
+        "wall_best": 1.3153264159336686,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.289,
+        "seconds_median": 0.291,
+        "seconds_all": [
+          0.289,
+          0.291,
+          0.3
+        ],
+        "spread_pct": 3.806228373702426,
+        "deals": 1500000,
+        "deals_per_sec": 5190311.418685121,
+        "produced": 136,
+        "wall_best": 0.2939654579386115,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 5000000,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 4.37,
+            "seconds_median": 4.379,
+            "seconds_all": [
+              4.37,
+              4.379,
+              4.393
+            ],
+            "spread_pct": 0.5263157894736771,
+            "deals": 5000000,
+            "deals_per_sec": 1144164.7597254005,
+            "produced": 472,
+            "wall_best": 4.374254624824971,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.939,
+            "seconds_median": 2.96,
+            "seconds_all": [
+              2.939,
+              2.96,
+              2.976
+            ],
+            "spread_pct": 1.2589316093909466,
+            "deals": 5000000,
+            "deals_per_sec": 1701258.931609391,
+            "produced": 472,
+            "wall_best": 2.942985584028065,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.305,
+            "seconds_median": 2.311,
+            "seconds_all": [
+              2.305,
+              2.311,
+              2.329
+            ],
+            "spread_pct": 1.0412147505423002,
+            "deals": 5000000,
+            "deals_per_sec": 2169197.3969631237,
+            "produced": 472,
+            "wall_best": 2.309996707830578,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.769,
+            "seconds_median": 1.805,
+            "seconds_all": [
+              1.769,
+              1.805,
+              1.823
+            ],
+            "spread_pct": 3.0525720746184315,
+            "deals": 5000000,
+            "deals_per_sec": 2826455.624646693,
+            "produced": 472,
+            "wall_best": 1.7740898746997118,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.429,
+            "seconds_median": 1.432,
+            "seconds_all": [
+              1.429,
+              1.432,
+              1.434
+            ],
+            "spread_pct": 0.34989503149054535,
+            "deals": 5000000,
+            "deals_per_sec": 3498950.3149055284,
+            "produced": 472,
+            "wall_best": 1.433128582779318,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.145,
+            "seconds_median": 1.277,
+            "seconds_all": [
+              1.145,
+              1.277,
+              1.339
+            ],
+            "spread_pct": 16.94323144104803,
+            "deals": 5000000,
+            "deals_per_sec": 4366812.227074236,
+            "produced": 472,
+            "wall_best": 1.1496622497215867,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 1.154,
+            "seconds_median": 1.23,
+            "seconds_all": [
+              1.154,
+              1.23,
+              1.265
+            ],
+            "spread_pct": 9.618717504332755,
+            "deals": 5000000,
+            "deals_per_sec": 4332755.632582323,
+            "produced": 472,
+            "wall_best": 1.159240416251123,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 1.111,
+            "seconds_median": 1.128,
+            "seconds_all": [
+              1.111,
+              1.128,
+              1.133
+            ],
+            "spread_pct": 1.980198019801982,
+            "deals": 5000000,
+            "deals_per_sec": 4500450.0450045,
+            "produced": 472,
+            "wall_best": 1.1158479158766568,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.99,
+            "seconds_median": 1.041,
+            "seconds_all": [
+              0.99,
+              1.041,
+              1.055
+            ],
+            "spread_pct": 6.56565656565656,
+            "deals": 5000000,
+            "deals_per_sec": 5050505.05050505,
+            "produced": 472,
+            "wall_best": 0.9947786661796272,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.971,
+            "seconds_median": 0.979,
+            "seconds_all": [
+              0.971,
+              0.979,
+              1.068
+            ],
+            "spread_pct": 9.989701338825961,
+            "deals": 5000000,
+            "deals_per_sec": 5149330.587023687,
+            "produced": 472,
+            "wall_best": 0.976641250308603,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Basic_Takeout_Double": {
+      "deals": 1100000,
+      "hit_rate": 0.00535,
+      "single": {
+        "seconds_best": 1.444,
+        "seconds_median": 1.455,
+        "seconds_all": [
+          1.444,
+          1.455,
+          1.467
+        ],
+        "spread_pct": 1.592797783933527,
+        "deals": 1100000,
+        "deals_per_sec": 761772.8531855956,
+        "produced": 6264,
+        "wall_best": 1.4489463330246508,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.275,
+        "seconds_median": 0.308,
+        "seconds_all": [
+          0.275,
+          0.308,
+          0.338
+        ],
+        "spread_pct": 22.909090909090907,
+        "deals": 1100000,
+        "deals_per_sec": 3999999.9999999995,
+        "produced": 6264,
+        "wall_best": 0.2802532911300659,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 3523131,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 4.63,
+            "seconds_median": 4.659,
+            "seconds_all": [
+              4.63,
+              4.659,
+              4.676
+            ],
+            "spread_pct": 0.9935205183585369,
+            "deals": 3523131,
+            "deals_per_sec": 760935.4211663067,
+            "produced": 19846,
+            "wall_best": 4.634464709088206,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.872,
+            "seconds_median": 2.877,
+            "seconds_all": [
+              2.872,
+              2.877,
+              2.886
+            ],
+            "spread_pct": 0.487465181058504,
+            "deals": 3523131,
+            "deals_per_sec": 1226716.9220055712,
+            "produced": 19846,
+            "wall_best": 2.8764744168147445,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.185,
+            "seconds_median": 2.196,
+            "seconds_all": [
+              2.185,
+              2.196,
+              2.211
+            ],
+            "spread_pct": 1.1899313501144073,
+            "deals": 3523131,
+            "deals_per_sec": 1612416.933638444,
+            "produced": 19846,
+            "wall_best": 2.190536249894649,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.701,
+            "seconds_median": 1.722,
+            "seconds_all": [
+              1.701,
+              1.722,
+              1.729
+            ],
+            "spread_pct": 1.6460905349794255,
+            "deals": 3523131,
+            "deals_per_sec": 2071211.6402116402,
+            "produced": 19846,
+            "wall_best": 1.7057679169811308,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.333,
+            "seconds_median": 1.34,
+            "seconds_all": [
+              1.333,
+              1.34,
+              1.471
+            ],
+            "spread_pct": 10.35258814703677,
+            "deals": 3523131,
+            "deals_per_sec": 2643009.002250563,
+            "produced": 19846,
+            "wall_best": 1.3377232090570033,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.396,
+            "seconds_median": 1.556,
+            "seconds_all": [
+              1.396,
+              1.556,
+              1.799
+            ],
+            "spread_pct": 28.86819484240688,
+            "deals": 3523131,
+            "deals_per_sec": 2523732.808022923,
+            "produced": 19846,
+            "wall_best": 1.400681875180453,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 1.06,
+            "seconds_median": 1.147,
+            "seconds_all": [
+              1.06,
+              1.147,
+              1.293
+            ],
+            "spread_pct": 21.981132075471685,
+            "deals": 3523131,
+            "deals_per_sec": 3323708.4905660376,
+            "produced": 19846,
+            "wall_best": 1.0652300422079861,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 1.023,
+            "seconds_median": 1.026,
+            "seconds_all": [
+              1.023,
+              1.026,
+              1.149
+            ],
+            "spread_pct": 12.316715542522006,
+            "deals": 3523131,
+            "deals_per_sec": 3443920.8211143697,
+            "produced": 19846,
+            "wall_best": 1.0281148748472333,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 1.021,
+            "seconds_median": 1.023,
+            "seconds_all": [
+              1.021,
+              1.023,
+              1.107
+            ],
+            "spread_pct": 8.423114593535757,
+            "deals": 3523131,
+            "deals_per_sec": 3450666.9931439767,
+            "produced": 19846,
+            "wall_best": 1.0264798747375607,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.963,
+            "seconds_median": 1.043,
+            "seconds_all": [
+              0.963,
+              1.043,
+              1.051
+            ],
+            "spread_pct": 9.138110072689509,
+            "deals": 3523131,
+            "deals_per_sec": 3658495.327102804,
+            "produced": 19846,
+            "wall_best": 0.9680499169044197,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "GIB_1C-P-Resp": {
+      "deals": 1000000,
+      "hit_rate": 0.00555,
+      "single": {
+        "seconds_best": 1.498,
+        "seconds_median": 1.498,
+        "seconds_all": [
+          1.498,
+          1.498,
+          1.513
+        ],
+        "spread_pct": 1.0013351134846395,
+        "deals": 1000000,
+        "deals_per_sec": 667556.7423230974,
+        "produced": 6089,
+        "wall_best": 1.502516749780625,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.286,
+        "seconds_median": 0.295,
+        "seconds_all": [
+          0.286,
+          0.295,
+          0.296
+        ],
+        "spread_pct": 3.4965034965035002,
+        "deals": 1000000,
+        "deals_per_sec": 3496503.496503497,
+        "produced": 6089,
+        "wall_best": 0.2903979169204831,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 2278481,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 3.422,
+            "seconds_median": 3.453,
+            "seconds_all": [
+              3.422,
+              3.453,
+              3.497
+            ],
+            "spread_pct": 2.1917007597895886,
+            "deals": 2278481,
+            "deals_per_sec": 665833.138515488,
+            "produced": 13753,
+            "wall_best": 3.4281505825929344,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.065,
+            "seconds_median": 2.07,
+            "seconds_all": [
+              2.065,
+              2.07,
+              2.124
+            ],
+            "spread_pct": 2.857142857142865,
+            "deals": 2278481,
+            "deals_per_sec": 1103380.6295399517,
+            "produced": 13753,
+            "wall_best": 2.0702464999631047,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 1.551,
+            "seconds_median": 1.57,
+            "seconds_all": [
+              1.551,
+              1.57,
+              1.61
+            ],
+            "spread_pct": 3.803997421018708,
+            "deals": 2278481,
+            "deals_per_sec": 1469039.974210187,
+            "produced": 13753,
+            "wall_best": 1.5557811250910163,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.159,
+            "seconds_median": 1.167,
+            "seconds_all": [
+              1.159,
+              1.167,
+              1.224
+            ],
+            "spread_pct": 5.608283002588434,
+            "deals": 2278481,
+            "deals_per_sec": 1965902.5021570318,
+            "produced": 13753,
+            "wall_best": 1.164328375365585,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 0.971,
+            "seconds_median": 0.972,
+            "seconds_all": [
+              0.971,
+              0.972,
+              0.976
+            ],
+            "spread_pct": 0.5149330587023692,
+            "deals": 2278481,
+            "deals_per_sec": 2346530.3810504633,
+            "produced": 13753,
+            "wall_best": 0.9762163339182734,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 0.857,
+            "seconds_median": 0.907,
+            "seconds_all": [
+              0.857,
+              0.907,
+              1.0
+            ],
+            "spread_pct": 16.686114352392067,
+            "deals": 2278481,
+            "deals_per_sec": 2658670.9451575265,
+            "produced": 13753,
+            "wall_best": 0.8616895829327404,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.76,
+            "seconds_median": 0.784,
+            "seconds_all": [
+              0.76,
+              0.784,
+              0.867
+            ],
+            "spread_pct": 14.07894736842105,
+            "deals": 2278481,
+            "deals_per_sec": 2998001.3157894737,
+            "produced": 13753,
+            "wall_best": 0.7651773751713336,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.726,
+            "seconds_median": 0.729,
+            "seconds_all": [
+              0.726,
+              0.729,
+              0.765
+            ],
+            "spread_pct": 5.371900826446286,
+            "deals": 2278481,
+            "deals_per_sec": 3138403.5812672176,
+            "produced": 13753,
+            "wall_best": 0.7311388752423227,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.67,
+            "seconds_median": 0.695,
+            "seconds_all": [
+              0.67,
+              0.695,
+              0.704
+            ],
+            "spread_pct": 5.07462686567163,
+            "deals": 2278481,
+            "deals_per_sec": 3400717.910447761,
+            "produced": 13753,
+            "wall_best": 0.6749405828304589,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.676,
+            "seconds_median": 0.721,
+            "seconds_all": [
+              0.676,
+              0.721,
+              0.743
+            ],
+            "spread_pct": 9.911242603550289,
+            "deals": 2278481,
+            "deals_per_sec": 3370534.023668639,
+            "produced": 13753,
+            "wall_best": 0.6822878327220678,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Splinters_By_Opener": {
+      "deals": 830000,
+      "hit_rate": 0.0003,
+      "single": {
+        "seconds_best": 1.657,
+        "seconds_median": 1.67,
+        "seconds_all": [
+          1.657,
+          1.67,
+          1.68
+        ],
+        "spread_pct": 1.3880506940253416,
+        "deals": 830000,
+        "deals_per_sec": 500905.2504526252,
+        "produced": 157,
+        "wall_best": 1.6614611661061645,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.315,
+        "seconds_median": 0.33,
+        "seconds_all": [
+          0.315,
+          0.33,
+          0.337
+        ],
+        "spread_pct": 6.9841269841269895,
+        "deals": 830000,
+        "deals_per_sec": 2634920.634920635,
+        "produced": 157,
+        "wall_best": 0.31935987528413534,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 2417475,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 4.807,
+            "seconds_median": 4.813,
+            "seconds_all": [
+              4.807,
+              4.813,
+              4.838
+            ],
+            "spread_pct": 0.6448928645724921,
+            "deals": 2417475,
+            "deals_per_sec": 502907.218639484,
+            "produced": 427,
+            "wall_best": 4.813840750139207,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.924,
+            "seconds_median": 3.001,
+            "seconds_all": [
+              2.924,
+              3.001,
+              3.064
+            ],
+            "spread_pct": 4.787961696306434,
+            "deals": 2417475,
+            "deals_per_sec": 826769.8358413132,
+            "produced": 427,
+            "wall_best": 2.929067458026111,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.169,
+            "seconds_median": 2.187,
+            "seconds_all": [
+              2.169,
+              2.187,
+              2.214
+            ],
+            "spread_pct": 2.0746887966804946,
+            "deals": 2417475,
+            "deals_per_sec": 1114557.3997233748,
+            "produced": 427,
+            "wall_best": 2.1758544999174774,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.571,
+            "seconds_median": 1.723,
+            "seconds_all": [
+              1.571,
+              1.723,
+              1.723
+            ],
+            "spread_pct": 9.67536600891153,
+            "deals": 2417475,
+            "deals_per_sec": 1538812.8580521962,
+            "produced": 427,
+            "wall_best": 1.5758241661824286,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.322,
+            "seconds_median": 1.423,
+            "seconds_all": [
+              1.322,
+              1.423,
+              1.459
+            ],
+            "spread_pct": 10.363086232980333,
+            "deals": 2417475,
+            "deals_per_sec": 1828649.7730711042,
+            "produced": 427,
+            "wall_best": 1.3263459578156471,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.245,
+            "seconds_median": 1.27,
+            "seconds_all": [
+              1.245,
+              1.27,
+              1.303
+            ],
+            "spread_pct": 4.658634538152596,
+            "deals": 2417475,
+            "deals_per_sec": 1941746.987951807,
+            "produced": 427,
+            "wall_best": 1.2498326669447124,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 1.01,
+            "seconds_median": 1.064,
+            "seconds_all": [
+              1.01,
+              1.064,
+              1.229
+            ],
+            "spread_pct": 21.68316831683169,
+            "deals": 2417475,
+            "deals_per_sec": 2393539.603960396,
+            "produced": 427,
+            "wall_best": 1.0147018753923476,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 1.036,
+            "seconds_median": 1.098,
+            "seconds_all": [
+              1.036,
+              1.098,
+              1.127
+            ],
+            "spread_pct": 8.78378378378378,
+            "deals": 2417475,
+            "deals_per_sec": 2333470.077220077,
+            "produced": 427,
+            "wall_best": 1.0416099578142166,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.924,
+            "seconds_median": 1.02,
+            "seconds_all": [
+              0.924,
+              1.02,
+              1.067
+            ],
+            "spread_pct": 15.476190476190466,
+            "deals": 2417475,
+            "deals_per_sec": 2616314.935064935,
+            "produced": 427,
+            "wall_best": 0.929008583072573,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.942,
+            "seconds_median": 0.952,
+            "seconds_all": [
+              0.942,
+              0.952,
+              1.09
+            ],
+            "spread_pct": 15.71125265392783,
+            "deals": 2417475,
+            "deals_per_sec": 2566321.6560509554,
+            "produced": 427,
+            "wall_best": 0.9467149996198714,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "Gerber_By_Responder": {
+      "deals": 650000,
+      "hit_rate": 0.00025,
+      "single": {
+        "seconds_best": 1.721,
+        "seconds_median": 1.73,
+        "seconds_all": [
+          1.721,
+          1.73,
+          1.735
+        ],
+        "spread_pct": 0.8134805345729234,
+        "deals": 650000,
+        "deals_per_sec": 377687.3910517141,
+        "produced": 106,
+        "wall_best": 1.7259795828722417,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.29,
+        "seconds_median": 0.293,
+        "seconds_all": [
+          0.29,
+          0.293,
+          0.308
+        ],
+        "spread_pct": 6.206896551724144,
+        "deals": 650000,
+        "deals_per_sec": 2241379.310344828,
+        "produced": 106,
+        "wall_best": 0.29468374978750944,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 1887096,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 5.014,
+            "seconds_median": 5.03,
+            "seconds_all": [
+              5.014,
+              5.03,
+              5.085
+            ],
+            "spread_pct": 1.416035101715192,
+            "deals": 1887096,
+            "deals_per_sec": 376365.3769445552,
+            "produced": 306,
+            "wall_best": 5.0189641658216715,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 2.957,
+            "seconds_median": 2.988,
+            "seconds_all": [
+              2.957,
+              2.988,
+              3.007
+            ],
+            "spread_pct": 1.6909029421711286,
+            "deals": 1887096,
+            "deals_per_sec": 638179.2357118701,
+            "produced": 306,
+            "wall_best": 2.9613000000827014,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 2.19,
+            "seconds_median": 2.216,
+            "seconds_all": [
+              2.19,
+              2.216,
+              2.231
+            ],
+            "spread_pct": 1.8721461187214579,
+            "deals": 1887096,
+            "deals_per_sec": 861687.6712328767,
+            "produced": 306,
+            "wall_best": 2.1947327498346567,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.594,
+            "seconds_median": 1.649,
+            "seconds_all": [
+              1.594,
+              1.649,
+              1.684
+            ],
+            "spread_pct": 5.646173149309903,
+            "deals": 1887096,
+            "deals_per_sec": 1183874.5294855707,
+            "produced": 306,
+            "wall_best": 1.5986490417271852,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.421,
+            "seconds_median": 1.431,
+            "seconds_all": [
+              1.421,
+              1.431,
+              1.437
+            ],
+            "spread_pct": 1.1259676284306837,
+            "deals": 1887096,
+            "deals_per_sec": 1328005.629838142,
+            "produced": 306,
+            "wall_best": 1.4256270830519497,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 1.098,
+            "seconds_median": 1.182,
+            "seconds_all": [
+              1.098,
+              1.182,
+              1.217
+            ],
+            "spread_pct": 10.837887067395263,
+            "deals": 1887096,
+            "deals_per_sec": 1718666.6666666665,
+            "produced": 306,
+            "wall_best": 1.1042090407572687,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 1.071,
+            "seconds_median": 1.076,
+            "seconds_all": [
+              1.071,
+              1.076,
+              1.082
+            ],
+            "spread_pct": 1.0270774976657442,
+            "deals": 1887096,
+            "deals_per_sec": 1761994.3977591037,
+            "produced": 306,
+            "wall_best": 1.0759353330358863,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 0.994,
+            "seconds_median": 1.003,
+            "seconds_all": [
+              0.994,
+              1.003,
+              1.007
+            ],
+            "spread_pct": 1.3078470824949597,
+            "deals": 1887096,
+            "deals_per_sec": 1898486.921529175,
+            "produced": 306,
+            "wall_best": 0.9990039169788361,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.896,
+            "seconds_median": 0.948,
+            "seconds_all": [
+              0.896,
+              0.948,
+              1.021
+            ],
+            "spread_pct": 13.950892857142843,
+            "deals": 1887096,
+            "deals_per_sec": 2106133.9285714286,
+            "produced": 306,
+            "wall_best": 0.9011865411885083,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.901,
+            "seconds_median": 0.931,
+            "seconds_all": [
+              0.901,
+              0.931,
+              1.025
+            ],
+            "spread_pct": 13.762486126526069,
+            "deals": 1887096,
+            "deals_per_sec": 2094446.1709211986,
+            "produced": 306,
+            "wall_best": 0.9058736669830978,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    },
+    "_shuffle_baseline": {
+      "deals": 3700000,
+      "hit_rate": 0.00098,
+      "single": {
+        "seconds_best": 0.695,
+        "seconds_median": 0.696,
+        "seconds_all": [
+          0.695,
+          0.696,
+          0.702
+        ],
+        "spread_pct": 1.0071942446043174,
+        "deals": 3700000,
+        "deals_per_sec": 5323741.007194245,
+        "produced": 3883,
+        "wall_best": 0.6990808341652155,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "auto": {
+        "seconds_best": 0.23,
+        "seconds_median": 0.231,
+        "seconds_all": [
+          0.23,
+          0.231,
+          0.236
+        ],
+        "spread_pct": 2.6086956521739033,
+        "deals": 3700000,
+        "deals_per_sec": 16086956.521739129,
+        "produced": 3883,
+        "wall_best": 0.23429566668346524,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "sweep_deals": 14230769,
+      "sweep": {
+        "default": {
+          "1": {
+            "seconds_best": 2.672,
+            "seconds_median": 2.674,
+            "seconds_all": [
+              2.672,
+              2.674,
+              2.691
+            ],
+            "spread_pct": 0.7110778443113653,
+            "deals": 14230769,
+            "deals_per_sec": 5325886.601796407,
+            "produced": 14629,
+            "wall_best": 2.6769814998842776,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "2": {
+            "seconds_best": 1.488,
+            "seconds_median": 1.493,
+            "seconds_all": [
+              1.488,
+              1.493,
+              1.501
+            ],
+            "spread_pct": 0.873655913978488,
+            "deals": 14230769,
+            "deals_per_sec": 9563688.844086021,
+            "produced": 14629,
+            "wall_best": 1.4926128750666976,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "3": {
+            "seconds_best": 1.276,
+            "seconds_median": 1.287,
+            "seconds_all": [
+              1.276,
+              1.287,
+              1.327
+            ],
+            "spread_pct": 3.99686520376175,
+            "deals": 14230769,
+            "deals_per_sec": 11152640.28213166,
+            "produced": 14629,
+            "wall_best": 1.2810773327946663,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "4": {
+            "seconds_best": 1.036,
+            "seconds_median": 1.042,
+            "seconds_all": [
+              1.036,
+              1.042,
+              1.052
+            ],
+            "spread_pct": 1.5444015444015458,
+            "deals": 14230769,
+            "deals_per_sec": 13736263.513513513,
+            "produced": 14629,
+            "wall_best": 1.0405642502009869,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "5": {
+            "seconds_best": 1.085,
+            "seconds_median": 1.086,
+            "seconds_all": [
+              1.085,
+              1.086,
+              1.088
+            ],
+            "spread_pct": 0.2764976958525451,
+            "deals": 14230769,
+            "deals_per_sec": 13115916.129032258,
+            "produced": 14629,
+            "wall_best": 1.0898095001466572,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "6": {
+            "seconds_best": 0.98,
+            "seconds_median": 0.986,
+            "seconds_all": [
+              0.98,
+              0.986,
+              0.996
+            ],
+            "spread_pct": 1.6326530612244914,
+            "deals": 14230769,
+            "deals_per_sec": 14521192.857142858,
+            "produced": 14629,
+            "wall_best": 0.9847264159470797,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "7": {
+            "seconds_best": 0.913,
+            "seconds_median": 0.941,
+            "seconds_all": [
+              0.913,
+              0.941,
+              0.968
+            ],
+            "spread_pct": 6.024096385542162,
+            "deals": 14230769,
+            "deals_per_sec": 15586822.56297919,
+            "produced": 14629,
+            "wall_best": 0.9176925830543041,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "8": {
+            "seconds_best": 1.053,
+            "seconds_median": 1.073,
+            "seconds_all": [
+              1.053,
+              1.073,
+              1.09
+            ],
+            "spread_pct": 3.5137701804368606,
+            "deals": 14230769,
+            "deals_per_sec": 13514500.474833809,
+            "produced": 14629,
+            "wall_best": 1.057322375010699,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "10": {
+            "seconds_best": 0.917,
+            "seconds_median": 0.928,
+            "seconds_all": [
+              0.917,
+              0.928,
+              0.937
+            ],
+            "spread_pct": 2.1810250817884422,
+            "deals": 14230769,
+            "deals_per_sec": 15518832.061068702,
+            "produced": 14629,
+            "wall_best": 0.9213052908889949,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          },
+          "12": {
+            "seconds_best": 0.906,
+            "seconds_median": 0.929,
+            "seconds_all": [
+              0.906,
+              0.929,
+              0.976
+            ],
+            "spread_pct": 7.726269315673284,
+            "deals": 14230769,
+            "deals_per_sec": 15707250.55187638,
+            "produced": 14629,
+            "wall_best": 0.9108255002647638,
+            "timing": "self",
+            "overhead_subtracted": 0.0
+          }
+        }
+      }
+    }
+  },
+  "partial": false,
+  "written": "2026-09-01 09:25:55",
+  "machine": {
+    "model": "Mac16,11",
+    "cpu": "Apple M4 Pro",
+    "logical_cpus": "12",
+    "performance_cpus": "8",
+    "efficiency_cpus": "4"
+  }
+}
