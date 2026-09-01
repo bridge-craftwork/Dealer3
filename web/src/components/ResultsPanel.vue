@@ -186,6 +186,13 @@
               <tbody>
                 <tr v-for="(row, r) in f.grid.counts" :key="'r' + r">
                   <th scope="row">{{ gridRowLabels(f.grid)[r] }}</th>
+                  <!-- An empty cell is left blank rather than printed as a
+                       zero. On a sparse grid the zeros are the majority, and
+                       setting them in ink makes the reader subtract them back
+                       out; blanking them lets the counts that exist carry the
+                       shape on their own, without leaning on the colour. The
+                       value stays for a screen reader, which cannot see the
+                       blank and would otherwise hear a gap it must interpret. -->
                   <td
                     v-for="(count, c) in row"
                     :key="'c' + c"
@@ -193,16 +200,26 @@
                     :title="heatTitle(f, r, c, count)"
                     :class="{ 'is-zero': !count }"
                   >
-                    {{ count }}
+                    <template v-if="count">{{ count }}</template>
+                    <span v-else class="sr-only">0</span>
                   </td>
-                  <td class="heat-sum">{{ gridRowSum(row) }}</td>
+                  <td class="heat-sum" :class="{ 'is-zero': !gridRowSum(row) }">
+                    <template v-if="gridRowSum(row)">{{ gridRowSum(row) }}</template>
+                    <span v-else class="sr-only">0</span>
+                  </td>
                 </tr>
               </tbody>
               <tfoot>
                 <tr>
                   <th scope="row">Sum</th>
-                  <td v-for="(sum, c) in gridColumnSums(f.grid)" :key="'s' + c" class="heat-sum">
-                    {{ sum }}
+                  <td
+                    v-for="(sum, c) in gridColumnSums(f.grid)"
+                    :key="'s' + c"
+                    class="heat-sum"
+                    :class="{ 'is-zero': !sum }"
+                  >
+                    <template v-if="sum">{{ sum }}</template>
+                    <span v-else class="sr-only">0</span>
                   </td>
                   <td class="heat-sum heat-total">{{ gridTotal(f.grid) }}</td>
                 </tr>
@@ -709,9 +726,10 @@ const formatValue = formatAverage
   color: var(--fg);
   font-variant-numeric: tabular-nums;
 }
-/* An empty cell recedes to the surface: on a sparse grid, nothing should look
-   like nothing rather than like a faint something. */
-.heat td.is-zero { background: transparent; color: var(--fg-muted); }
+/* An empty cell recedes to the surface and is left blank: on a sparse grid,
+   nothing should look like nothing rather than like a faint something, and a
+   printed zero is neither. */
+.heat td.is-zero { background: transparent; }
 /* The margins are totals, not observations. Keeping them off the colour ramp
    stops the largest numbers in the table from owning the darkest end of it and
    flattening the cells the grid is actually about. */
