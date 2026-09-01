@@ -124,6 +124,38 @@ scripts/bench-dealer3.py --scripts Bergen_Raises,Negative_Double
 It is on `bench-reference.py` and `bench-verify.py` too. Use the full corpus
 for anything being recorded or compared across revisions.
 
+## Reading the two dealer3 numbers
+
+They answer different questions and should not be collapsed into one headline.
+
+**Single-threaded (`-R 1`) is how efficient the main code path is.** It is one
+core doing one deal's work, directly comparable with the reference programs,
+none of which thread their deal loop. It is also the stable number: a
+single-threaded process gets a full core even on a machine that is otherwise
+busy, so repeats land within a percent or two.
+
+**Threaded (`auto`) is how effective we are with the cores available.** It is
+wall-clock throughput, not one core's effort, so it belongs in a different
+column of the mind. It is the number that matters in practice, because a normal
+run is threaded.
+
+As measured here, on an Apple M4 Pro (8P + 4E), against the natively-built
+original C dealer:
+
+| | vs `dealer-c` |
+|---|---|
+| dealer3 `-R 1` | ~11% slower |
+| dealer3 `-R 1` vs DealerV2_4 | ~14% faster |
+| **dealer3 threaded** | **~4.4x faster** |
+
+The threaded figure is the real win, and it is a **floor rather than a
+ceiling**: the machine it was measured on was not idle, and where a
+single-threaded run simply takes one free core, a twelve-thread run contends
+with whatever else is running for the other eleven. That is also why the
+threaded rows are the noisiest in the report — repeats vary by tens of percent
+where single-threaded repeats vary by one or two — so read them to two
+significant figures at most.
+
 ## What is actually being measured
 
 **Deals evaluated per second, at a fixed deal count.** Not "time to produce 40

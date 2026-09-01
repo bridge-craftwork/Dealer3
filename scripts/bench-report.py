@@ -88,7 +88,8 @@ def main():
             continue
         refrec = (ref or {}).get("scripts", {}).get(name, {})
         baseline = {"exe": rate(refrec, "dealer.exe"), "c": rate(refrec, "dealer-c"),
-                    "v2": rate(refrec, "dealerv2_4"), "d3_1": rate(rec, "single")}
+                    "v2": rate(refrec, "dealerv2_4"), "d3_1": rate(rec, "single"),
+                    "d3_auto": rate(rec, "auto")}
 
     for name, rec in d3["scripts"].items():
         if name == bl.BASELINE_NAME:
@@ -208,7 +209,8 @@ def _generation(baseline, rows):
           f"  {'gen share':>10}")
     print("-" * 58)
 
-    labels = {"exe": "dealer.exe", "c": "dealer-c", "v2": "DealerV2_4", "d3_1": "dealer3 -R1"}
+    labels = {"exe": "dealer.exe", "c": "dealer-c", "v2": "DealerV2_4",
+              "d3_1": "dealer3 -R1", "d3_auto": "dealer3 auto"}
     summary = {}
     for key, label in labels.items():
         gen_rate = baseline.get(key)
@@ -229,6 +231,12 @@ def _generation(baseline, rows):
     print("-" * 58)
     print("Mean over the corpus. 'generate' is the _shuffle_baseline entry:")
     print("RNG and shuffle with a near-free condition.")
+
+    if "d3_auto" in summary:
+        print("\n'dealer3 auto' is wall time per deal with every core working, so it is\n"
+              "throughput per deal and not work per deal -- the only row here that is\n"
+              "not one core's effort. It is also the noisiest: repeats vary by tens of\n"
+              "percent where the single-threaded rows vary by one or two.")
 
     for key, label in (("c", "the original C dealer"), ("v2", "DealerV2_4"),
                        ("exe", "dealer.exe (emulated)")):
