@@ -93,9 +93,15 @@ SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes"
 
 # Map G: drive to GitHub folder (must be done each SSH session)
 # Parallels maps \\Mac\Home to macOS $HOME, so strip $HOME prefix
+#
+# /y matters: if the VM has a *different* path remembered for G: -- which it
+# will if $WINDOWS_GITHUB_HOME ever changed -- `net use` stops to ask whether
+# to overwrite it. An SSH session has nobody to answer, so the mapping is left
+# as it was and every path built below resolves against the wrong root. The
+# failure reads as "No such file or directory" for files that plainly exist.
 _REL="${WINDOWS_GITHUB_HOME#$HOME}"
 _UNC="\\\\Mac\\Home${_REL//\//\\}"
-DRIVE_MAP="net use G: \"${_UNC}\" >nul 2>&1 & "
+DRIVE_MAP="net use G: \"${_UNC}\" /y >nul 2>&1 & "
 SSH_TARGET="${WINDOWS_USER}@${WINDOWS_HOST}"
 
 # Run command with timeout (kills if exceeded)

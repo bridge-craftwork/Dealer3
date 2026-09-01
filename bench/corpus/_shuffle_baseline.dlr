@@ -1,0 +1,7 @@
+# Synthetic. Not from Practice-Bidding-Scenarios.
+#
+# Measures deal generation -- RNG plus shuffle -- with as little condition
+# evaluation as the language permits, so the generation half of the comparison
+# can be read on its own. See BASELINE_NAME in scripts/benchlib.py.
+hcp(north) >= 24
+action average "bench" hcp(north)

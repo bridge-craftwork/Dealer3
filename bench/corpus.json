@@ -1,0 +1,496 @@
+{
+  "built_with": "v0.4.0-196-gd638789",
+  "source": "/Users/rick/Development/GitHub/Practice-Bidding-Scenarios/dlr",
+  "target_seconds": 2.0,
+  "verified_against": [
+    "dealer3",
+    "dealer.exe",
+    "dealerv2_4"
+  ],
+  "considered": 347,
+  "survived": 286,
+  "distinct": 202,
+  "similarity_threshold": 0.85,
+  "scripts": [
+    {
+      "name": "Scrambling_2NT",
+      "file": "Scrambling_2NT.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Scrambling_2NT.dlr",
+      "notes": [
+        "stripped block comments",
+        "replaced action block"
+      ],
+      "imports": [],
+      "signature": "dealer west wS = spades(west)>N and spades(west)>=hearts(west) and spades(west)>=diamonds(west) and spades(west)>=clubs(west) wH = hearts(west)>N and hearts(west)>spades(west)  and hearts(west)>=diamonds(west) and hearts(west)>=clubs(west) sNFit = wS and spades(east)==N hNFit = wH and hearts(east)==N ewNFit = (sNFit or hNFit) and hcp(east)>N and hcp(east)<N sNFit = wS and spades(east)==N hNFit = wH and hearts(east)==N ewNFit = (sNFit or hNFit) and hcp(east)>N and hcp(east)<N OBAR = hcp(west)>N and hcp(west)<N and (ewNFit or ewNFit) sShape = wS ? shape(south,N+N+N+N+N) : shape(south,N+N+N+N+N) hcpBoost = shape(south,any N) ? N : N sTOX = sShape and hcp(south)>(N + hcpBoost)  // require an extra hcp for N nMajor    = spades(north)>N or hearts(north)>N   // with a Major, North has option of free-bid or scramble & bid twoSuits  = shape(north,any Nxx + any Nxx) nFreeBid  = (nMajor and hcp(north)>N) or not twoSuits nScramble = ((not nMajor and shape(north,xxN + xxN + xxN)) or (nMajor and hcp(north)<N)) and not nFreeBid OBAR and sTOX and (nFreeBid or nScramble) action average \"bench\" hcp(north)",
+      "produced_at_verify": 5,
+      "hit_rate": 0.00025,
+      "seconds_per_deal_r1": 6.7e-07,
+      "deals": 2900000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Scrambling_2NT"
+      ]
+    },
+    {
+      "name": "GIB_1N_Basic",
+      "file": "GIB_1N_Basic.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/GIB_1N_Basic.dlr",
+      "notes": [
+        "stripped block comments",
+        "dropped 1 produce/generate line(s)",
+        "replaced action block"
+      ],
+      "imports": [
+        "GIB 1 Notrump (North)"
+      ],
+      "signature": "dealer north //   Total Points = HCP + Short-Suit Points - Penalty Points //   Short-Suit Points: N for void, N for singleton, N for doubleton //   Penalty Points: N for each honor (K/Q/J) in a short suit (devalues wasted honors like Kx, Qx) nSpadeSSP = spades(north)<N   ? N-spades(north)   : N nHeartSSP = hearts(north)<N   ? N-hearts(north)   : N nDiamSSP  = diamonds(north)<N ? N-diamonds(north) : N nClubSSP  = clubs(north)<N    ? N-clubs(north)    : N nSSP = nSpadeSSP + nHeartSSP + nDiamSSP + nClubSSP nSpadePP = spades(north)<N   and hcp(north,spades)>N   ? N : N nHeartPP = hearts(north)<N   and hcp(north,hearts)>N   ? N : N nDiamPP  = diamonds(north)<N and hcp(north,diamonds)>N ? N : N nClubPP  = clubs(north)<N    and hcp(north,clubs)>N    ? N : N nPP = nSpadePP + nHeartPP + nDiamPP + nClubPP tpNorth = hcp(north) + nSSP - nPP eSpadeSSP = spades(east)<N   ? N-spades(east)   : N eHeartSSP = hearts(east)<N   ? N-hearts(east)   : N eDiamSSP  = diamonds(east)<N ? N-diamonds(east) : N eClubSSP  = clubs(east)<N    ? N-clubs(east)    : N eSSP = eSpadeSSP + eHeartSSP + eDiamSSP + eClubSSP eSpadePP = spades(east)<N   and hcp(east,spades)>N   ? N : N eHeartPP = hearts(east)<N   and hcp(east,hearts)>N   ? N : N eDiamPP  = diamonds(east)<N and hcp(east,diamonds)>N ? N : N eClubPP  = clubs(east)<N    and hcp(east,clubs)>N    ? N : N ePP = eSpadePP + eHeartPP + eDiamPP + eClubPP tpEast = hcp(east) + eSSP - ePP sSpadeSSP = spades(south)<N   ? N-spades(south)   : N sHeartSSP = hearts(south)<N   ? N-hearts(south)   : N sDiamSSP  = diamonds(south)<N ? N-diamonds(south) : N sClubSSP  = clubs(south)<N    ? N-clubs(south)    : N sSSP = sSpadeSSP + sHeartSSP + sDiamSSP + sClubSSP sSpadePP = spades(south)<N   and hcp(south,spades)>N   ? N : N sHeartPP = hearts(south)<N   and hcp(south,hearts)>N   ? N : N sDiamPP  = diamonds(south)<N and hcp(south,diamonds)>N ? N : N sClubPP  = clubs(south)<N    and hcp(south,clubs)>N    ? N : N sPP = sSpadePP + sHeartPP + sDiamPP + sClubPP tpSouth = hcp(south) + sSSP - sPP wSpadeSSP = spades(west)<N   ? N-spades(west)   : N wHeartSSP = hearts(west)<N   ? N-hearts(west)   : N wDiamSSP  = diamonds(west)<N ? N-diamonds(west) : N wClubSSP  = clubs(west)<N    ? N-clubs(west)    : N wSSP = wSpadeSSP + wHeartSSP + wDiamSSP + wClubSSP wSpadePP = spades(west)<N   and hcp(west,spades)>N   ? N : N wHeartPP = hearts(west)<N   and hcp(west,hearts)>N   ? N : N wDiamPP  = diamonds(west)<N and hcp(west,diamonds)>N ? N : N wClubPP  = clubs(west)<N    and hcp(west,clubs)>N    ? N : N wPP = wSpadePP + wHeartPP + wDiamPP + wClubPP tpWest = hcp(west) + wSSP - wPP tpNS = tpNorth + tpSouth tpEW = tpEast + tpWest ntP = hcp(north) + shape(north,Nxxx+xNxx) ntN = shape(north, any N+any N+any N) and hcp(north)>N and ntP<N ntN = shape(north, any N-Nxxx-xNxx-Nxxx) and hcp(north)>N and hcp(north)<N gibNT = ntN or ntN stayman = shape(south,Nxx+Nxx+Nxxx+xNxx) and hcp(south)>N texas   = (spades(south)>N or hearts(south)>N) and tpSouth>N jacoby  = (spades(south)>N or hearts(south)>N) and not (stayman or texas) threeNT = not (stayman or texas or jacoby) and hcp(south)>N twoSuit = shape(south,any Nxx +any Nxx +any Nxx +any Nxx +any Nxx) gibNT and (stayman or jacoby or threeNT) and hcp(south)<N and not twoSuit action average \"bench\" hcp(north)",
+      "produced_at_verify": 460,
+      "hit_rate": 0.023,
+      "seconds_per_deal_r1": 7.000000000000001e-07,
+      "deals": 2800000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "GIB_1N_Basic"
+      ]
+    },
+    {
+      "name": "Slam_After_Major_Fit",
+      "file": "Slam_After_Major_Fit.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Slam_After_Major_Fit.dlr",
+      "notes": [
+        "stripped block comments",
+        "replaced action block"
+      ],
+      "imports": [
+        "Define Calm Opponents",
+        "GIB 1 Notrump"
+      ],
+      "signature": "dealer south cce = topN(east,clubs)<N cde = topN(east,diamonds)<N che = topN(east,hearts)<N cse = topN(east,spades)<N noConEast = cce and cde and che and cse ccw = topN(west,clubs)<N cdw = topN(west,diamonds)<N chw = topN(west,hearts)<N csw = topN(west,spades)<N noConWest = ccw and cdw and chw and csw balEast    = shape(east,any N +any N) unbalEast  = shape(east,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) balWest    = shape(west,any N +any N) unbalWest  = shape(west,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) calmEast = (unbalEast and noConEast and hcp(east)<N) or (balEast and hcp(east)<N) calmWest = (unbalWest and noConWest and hcp(west)<N) or (balWest and hcp(west)<N) calmOpps = calmEast and calmWest ntP = hcp(south) + shape(south,Nxxx+xNxx) ntN = shape(south, any N+any N+any N) and hcp(south)>N and ntP<N ntN = shape(south, any N-Nxxx-xNxx-Nxxx) and hcp(south)>N and hcp(south)<N gibNT = ntN or ntN heartFit = shape(south,xNxx + xNxx + xNxx -any Nxx -any Nxx) and hearts(north)>N spadeFit = shape(south,Nxxx + Nxxx + Nxxx -any Nxx -any Nxx) and spades(north)>N oneM = (heartFit or spadeFit) and not gibNT oneM and hcp(south)>N and hcp(south)<N and hcp(north)>N and (hcp(north)+hcp(south))>N and calmWest action average \"bench\" hcp(north)",
+      "produced_at_verify": 32,
+      "hit_rate": 0.0016,
+      "seconds_per_deal_r1": 7.3e-07,
+      "deals": 2700000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Slam_After_Major_Fit"
+      ]
+    },
+    {
+      "name": "After_Partner_Overcalls",
+      "file": "After_Partner_Overcalls.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/After_Partner_Overcalls.dlr",
+      "notes": [
+        "stripped block comments",
+        "dropped 1 produce/generate line(s)",
+        "replaced action block"
+      ],
+      "imports": [
+        "GIB 1 Notrump"
+      ],
+      "signature": "dealer east ntP = hcp(south) + shape(south,Nxxx+xNxx) ntN = shape(south, any N+any N+any N) and hcp(south)>N and ntP<N ntN = shape(south, any N-Nxxx-xNxx-Nxxx) and hcp(south)>N and hcp(south)<N gibNT = ntN or ntN s = spades(east) h = hearts(east) d = diamonds(east) c = clubs(east) oS = s>N and s>=h and s>=d and s>=c oH = not oS and h>N and h>=d and h>=c oD = not (oS or oH) and ((d>N and d>=c) or c<N) oC = not (oS or oH or oD) openingSuit = (oS or oH or oD or oC) eRS = oS ? N : N eRH = oH ? N : N eRD = oD ? N : N eRC = oC ? N : N eRank = eRS+eRH+eRD+eRC sGoodS = spades(south)>N   and topN(south,spades)==N   and not oS sGoodH = hearts(south)>N   and topN(south,hearts)==N   and not oH sGoodD = diamonds(south)>N and topN(south,diamonds)==N and not oD sGoodC = clubs(south)>N    and topN(south,clubs)==N    and not oC sShape = shape(south,any Nxxx + any Nxxx + any Nxxx + any Nxxx - any Nxx - any Nxx - any Nxx - any Nxx - any Nxx) sRS = sGoodS ? N : N sRH = sGoodH ? N : N sRD = sGoodD ? N : N sRC = sGoodC ? N : N sRank = sRS + sRH + sRD + sRC sSP = oS and hascard(south,AS) ? hcp(south,spades)-N   : hcp(south,spades) sHP = oH and hascard(south,AH) ? hcp(south,hearts)-N   : hcp(south,hearts) sDP = oD and hascard(south,AD) ? hcp(south,diamonds)-N : hcp(south,diamonds) sCP = oC and hascard(south,AC) ? hcp(south,clubs)-N    : hcp(south,clubs) WP = hcp(south) - sSP - sHP - sDP - sCP // only one will be non-zero sSSP = sGoodS ? spades(south)-N   : N sHSP = sGoodH ? hearts(south)-N   : N sDSP = sGoodD ? diamonds(south)-N : N sCSP = sGoodC ? clubs(south)-N    : N sSuitPoints = hcp(south) + sSSP + sHSP + sDSP + sCSP sTP = WP + sSuitPoints sMin = sRank>eRank ? sTP>=N : sTP>=N sMax = sTP<N     // avoid too strong to overcall. sRange = sMin and sMax shortS = oS and spades(south)<N shortH = oH and hearts(south)<N shortD = oD and diamonds(south)<N shortC = oC and clubs(south)<N shortOS = shortS or shortH or shortD or shortC sX = shape(south,any N +any N +any N +any N +any N +any N) and shortOS and hcp(south)>N sJump = shape(south,any Nxxx +any Nxxx +any Nxxx) and hcp(south)>N and hcp(south)<N sTwoSuits = shape(south,any Nxx+any Nxx+any Nxx+any Nxx+any Nxx) eOpens = (oC or oD or oH or oS) and hcp(east)>N and hcp(east)<N sOvercalls = (sGoodS or sGoodH or sGoodD or sGoodC) and sShape and sRange and not (sX or sJump or sTwoSuits or gibNT) wSFit = oS and spades(west)<N wHFit = oH and hearts(west)<N wDFit = oD and diamonds(west)<N wCFit = oC and clubs(west)<N wPasses = (wSFit or wHFit or wDFit or wCFit) and hcp(west)<N and shape(west,any N +any N -Nxxx -xNxx) nFitsS = sGoodS and spades(north)>N nFitsH = sGoodS and hearts(north)>N nFitsD = sGoodD and diamonds(north)>N nFitsC = sGoodC and clubs(north)>N nFit   = (nFitsS or nFitsH or nFitsD or nFitsC) nCS = oC and clubs(north)>N    and topN(north,clubs)>N nDS = oD and diamonds(north)>N and topN(north,diamonds)>N nHS = oH and hearts(north)>N   and topN(north,hearts)>N nSS = oS and spades(north)>N   and topN(north,spades)>N nStop = nCS or nDS or nHS or nSS nRaises  = nFit and hcp(north)>N and hcp(north)<N nCueBids = nFit and hcp(north)>N nNewSuit = shape(north,any Nxxx+any Nxxx) and hcp(north)>N and not nFit nNotrump = not (nRaises or nCueBids or nNewSuit) and nStop and hcp(north)>N nPunts   = not (nRaises or nCueBids or nNewSuit or nNotrump) cN = hascard(west,NC) cN = hascard(east,ND) cN = hascard(west,NC) cN = hascard(east,ND) keepN = cN and cN          // this is used later w/cN & cN expressions keepN = cN or cN           // this is used later w/cN & cN expressions keepN = keepN and cN keepN = keepN and keepN keepN = keepN and not cN keepN = cN and keepN keepN = cN and not keepN keepN = cN and not cN keepN = cN keepN = keepN or cN keepN = cN or (cN and keepN) keepN = keepN or keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keep   = N keepN  = N levelRaise = nRaises  and keepN levelCue   = nCueBids and keep levelSuit  = nNewSuit and keepN levelNT    = nNotrump and keep levelPunts = nPunts   and keepN levelTheDeal = nRaises or nCueBids or nNewSuit or levelNT or levelPunts eOpens and sOvercalls and wPasses and (nRaises or nCueBids or nNewSuit or nNotrump or nPunts) and levelTheDeal action average \"bench\" hcp(north)",
+      "produced_at_verify": 4,
+      "hit_rate": 0.0002,
+      "seconds_per_deal_r1": 1.02e-06,
+      "deals": 1900000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "After_Partner_Overcalls"
+      ]
+    },
+    {
+      "name": "Major_Suit_Fit",
+      "file": "Major_Suit_Fit.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Major_Suit_Fit.dlr",
+      "notes": [
+        "stripped block comments",
+        "replaced action block"
+      ],
+      "imports": [
+        "Predict Opening 1-Bid North"
+      ],
+      "signature": "dealer north ntP = hcp(north) + shape(north,Nxxx+xNxx) ntN = shape(north, any N+any N+any N) and hcp(north)>N and ntP<N ntN = shape(north, any N -Nxxx-xNxx-Nxxx) and hcp(north)>N and hcp(north)<N gibNT = ntN or ntN ssp = spades(north)<N and hcp(north,spades)>N     ? N : N shp = hearts(north)<N and hcp(north,hearts)>N     ? N : N sdp = diamonds(north)<N and hcp(north,diamonds)>N ? N : N scp = clubs(north)<N and hcp(north,clubs)>N       ? N : N svN = shape(north, any Nxxx) ? N : N ssN = shape(north, any Nxxx) ? N : N // allow for N singletons ssN = shape(north, any Nxx) ? N : N sdN = shape(north, any Nxxx) ? N : N // allow for N doubletons sdN = shape(north, any Nxx) ? N : N sdN = shape(north, any Nx) ? N : N nTP = hcp(north) + svN+ssN+ssN+sdN+sdN+sdN -ssp-shp-sdp-scp lpN = spades(north)>N ? spades(north)-N : N lpN = hearts(north)>N ? hearts(north)-N : N lpN = diamonds(north)>N ? diamonds(north)-N : N lpN = clubs(north)>N ? clubs(north)-N : N lengthPoints = lpN + lpN + lpN + lpN suitPoints = hcp(north) + lengthPoints TwoNtShape = shape(north, any N +any N +any N +any N) oneNT   = gibNT twoNT   = TwoNtShape and hcp(north)>N and hcp(north)<N gNShape = shape(north,any Nxxx +any Nxxx +any Nxxx -any Nxxx -any Nxxx -any Nxxx) threeNT = (topN(north,clubs)==N and clubs(north)>N) or (topN(north,diamonds)==N and diamonds(north)>N) and hcp(north)<N and gNShape caseN = hcp(north)>N and nTP>N caseN = hcp(north)>N and nTP>N and losers(north)<N and (spades(north)>N or hearts(north)>N) caseN = hcp(north)>N and nTP>N and losers(north)<N and (diamonds(north)>N or clubs(north)>N) gameForceNC = (caseN or caseN or caseN) PN = gameForceNC PN = PN or threeNT or twoNT or oneNT qNofN = (topN(north,spades)>N or topN(north,hearts)>N) and controls(north)>N lgtN  = (spades(north)>N or hearts(north)>N) and shape(north,any Nxxx +any Nxx +any Nxx +any Nxxx+any Nxxx -any Nxxx -any Nxx) and nTP>(hcp(north) +N) s = spades(north) h = hearts(north) d = diamonds(north) c = clubs(north) lS = s>N and s>=h and s>=d and s>=c lH = h>N and h>s and h>=d and h>=c lM = lS or lH hsOKN = lM and hcp(north)>N hsOKN = lM and hcp(north)>N and nTP>N and not hsOKN hsOKN = lM and hcp(north)>N  and lgtN and qNofN and not (hsOKN or hsOKN) hsRange = (hsOKN or hsOKN or hsOKN) and not PN dOKN = hcp(north)>N and (diamonds(north)>N or shape(north, N)) dOKN = hcp(north)>N  and nTP>N and diamonds(north)>N and not dOKN dRange = (dOKN or dOKN) and not PN cOKN = hcp(north)>N and nTP>N and spades(north)==N cOKN = hcp(north)>N  and nTP>N and clubs(north)>N and not cOKN cOKN = hcp(north)>N and clubs(north)>N            and not (cOKN or cOKN) cRange = (cOKN or cOKN or cOKN) and clubs(north)>N and clubs(north)>diamonds(north) and not PN oS = s>N and s>=h and s>=d and s>=c and hsRange oH = not oS and h>N and h>=d and h>=c and hsRange oD = not (oS or oH) and ((d>N and d>=c) or c<N) and dRange oC = not (oS or oH or oD) and cRange openingSuit = (oS or oH or oD or oC) oneSpade   = oS oneHeart   = oH oneDiamond = oD oneClub    = oC //   Total Points = HCP + Short-Suit Points - Penalty Points //   Short-Suit Points: N for void, N for singleton, N for doubleton //   Penalty Points: N for each honor (K/Q/J) in a short suit (devalues wasted honors like Kx, Qx) nSpadeSSP = spades(north)<N   ? N-spades(north)   : N nHeartSSP = hearts(north)<N   ? N-hearts(north)   : N nDiamSSP  = diamonds(north)<N ? N-diamonds(north) : N nClubSSP  = clubs(north)<N    ? N-clubs(north)    : N nSSP = nSpadeSSP + nHeartSSP + nDiamSSP + nClubSSP nSpadePP = spades(north)<N   and hcp(north,spades)>N   ? N : N nHeartPP = hearts(north)<N   and hcp(north,hearts)>N   ? N : N nDiamPP  = diamonds(north)<N and hcp(north,diamonds)>N ? N : N nClubPP  = clubs(north)<N    and hcp(north,clubs)>N    ? N : N nPP = nSpadePP + nHeartPP + nDiamPP + nClubPP tpNorth = hcp(north) + nSSP - nPP eSpadeSSP = spades(east)<N   ? N-spades(east)   : N eHeartSSP = hearts(east)<N   ? N-hearts(east)   : N eDiamSSP  = diamonds(east)<N ? N-diamonds(east) : N eClubSSP  = clubs(east)<N    ? N-clubs(east)    : N eSSP = eSpadeSSP + eHeartSSP + eDiamSSP + eClubSSP eSpadePP = spades(east)<N   and hcp(east,spades)>N   ? N : N eHeartPP = hearts(east)<N   and hcp(east,hearts)>N   ? N : N eDiamPP  = diamonds(east)<N and hcp(east,diamonds)>N ? N : N eClubPP  = clubs(east)<N    and hcp(east,clubs)>N    ? N : N ePP = eSpadePP + eHeartPP + eDiamPP + eClubPP tpEast = hcp(east) + eSSP - ePP sSpadeSSP = spades(south)<N   ? N-spades(south)   : N sHeartSSP = hearts(south)<N   ? N-hearts(south)   : N sDiamSSP  = diamonds(south)<N ? N-diamonds(south) : N sClubSSP  = clubs(south)<N    ? N-clubs(south)    : N sSSP = sSpadeSSP + sHeartSSP + sDiamSSP + sClubSSP sSpadePP = spades(south)<N   and hcp(south,spades)>N   ? N : N sHeartPP = hearts(south)<N   and hcp(south,hearts)>N   ? N : N sDiamPP  = diamonds(south)<N and hcp(south,diamonds)>N ? N : N sClubPP  = clubs(south)<N    and hcp(south,clubs)>N    ? N : N sPP = sSpadePP + sHeartPP + sDiamPP + sClubPP tpSouth = hcp(south) + sSSP - sPP wSpadeSSP = spades(west)<N   ? N-spades(west)   : N wHeartSSP = hearts(west)<N   ? N-hearts(west)   : N wDiamSSP  = diamonds(west)<N ? N-diamonds(west) : N wClubSSP  = clubs(west)<N    ? N-clubs(west)    : N wSSP = wSpadeSSP + wHeartSSP + wDiamSSP + wClubSSP wSpadePP = spades(west)<N   and hcp(west,spades)>N   ? N : N wHeartPP = hearts(west)<N   and hcp(west,hearts)>N   ? N : N wDiamPP  = diamonds(west)<N and hcp(west,diamonds)>N ? N : N wClubPP  = clubs(west)<N    and hcp(west,clubs)>N    ? N : N wPP = wSpadePP + wHeartPP + wDiamPP + wClubPP tpWest = hcp(west) + wSSP - wPP tpNS = tpNorth + tpSouth tpEW = tpEast + tpWest ePreempt  = shape(east,any Nxxx +any Nxxx +any Nxxx +any Nxxx) and hcp(east)>N eNSuits   = shape(east,any Nxx +any Nxx +any Nxx +any Nxx +any Nxx) and hcp(east)>N eOvercall = shape(east,any Nxxx) and hcp(east)>N ePasses   = hcp(east)<N and not(ePreempt or eNSuits or eOvercall) spadeFitN = oS and spades(south)==N spadeFitN = oS and spades(south)==N spadeFitN = oS and spades(south)>N heartFitN = oH and hearts(south)==N heartFitN = oH and hearts(south)==N heartFitN = oH and hearts(south)>N fitN = spadeFitN or heartFitN fitN = spadeFitN or heartFitN fitN = spadeFitN or heartFitN sP = tpSouth + (fitN and shape(south,xxxx-any N)) Splinter = fitN and shape(south,any Nxxx +any Nxxx) and sP>N and sP<N preempt = sP<N            and fitN faulty  = sP>N  and sP<N  and (fitN or fitN) simple  = sP>N  and sP<N and (fitN or fitN) inviteN = sP>N and sP<N and fitN inviteN = sP>N and sP<N and fitN cN = hascard(west,NC) cN = hascard(east,ND) cN = hascard(west,NC) cN = hascard(east,ND) keepN = cN and cN          // this is used later w/cN & cN expressions keepN = cN or cN           // this is used later w/cN & cN expressions keepN = keepN and cN keepN = keepN and keepN keepN = keepN and not cN keepN = cN and keepN keepN = cN and not keepN keepN = cN and not cN keepN = cN keepN = keepN or cN keepN = cN or (cN and keepN) keepN = keepN or keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keep   = N keepN  = N levN = faulty  and keepN levN = simple  and keepN levN = inviteN and keepN levN = inviteN and keepN levN = preempt and keep levelTheDeal = levN or levN or levN or levN or levN nOpens = (oH or oS) and hcp(north)>N and hcp(north)<N sResponds = (preempt or faulty or simple or inviteN or inviteN) and not Splinter nOpens and ePasses and sResponds and levelTheDeal action average \"bench\" hcp(north)",
+      "produced_at_verify": 48,
+      "hit_rate": 0.0024,
+      "seconds_per_deal_r1": 1.1e-06,
+      "deals": 1800000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Major_Suit_Fit"
+      ]
+    },
+    {
+      "name": "Drury",
+      "file": "Drury.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Drury.dlr",
+      "notes": [
+        "stripped block comments",
+        "dropped 1 produce/generate line(s)",
+        "replaced action block"
+      ],
+      "imports": [
+        "Define Calm Opponents"
+      ],
+      "signature": "dealer south cce = topN(east,clubs)<N cde = topN(east,diamonds)<N che = topN(east,hearts)<N cse = topN(east,spades)<N noConEast = cce and cde and che and cse ccw = topN(west,clubs)<N cdw = topN(west,diamonds)<N chw = topN(west,hearts)<N csw = topN(west,spades)<N noConWest = ccw and cdw and chw and csw balEast    = shape(east,any N +any N) unbalEast  = shape(east,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) balWest    = shape(west,any N +any N) unbalWest  = shape(west,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) calmEast = (unbalEast and noConEast and hcp(east)<N) or (balEast and hcp(east)<N) calmWest = (unbalWest and noConWest and hcp(west)<N) or (balWest and hcp(west)<N) calmOpps = calmEast and calmWest //   Total Points = HCP + Short-Suit Points - Penalty Points //   Short-Suit Points: N for void, N for singleton, N for doubleton //   Penalty Points: N for each honor (K/Q/J) in a short suit (devalues wasted honors like Kx, Qx) nSpadeSSP = spades(north)<N   ? N-spades(north)   : N nHeartSSP = hearts(north)<N   ? N-hearts(north)   : N nDiamSSP  = diamonds(north)<N ? N-diamonds(north) : N nClubSSP  = clubs(north)<N    ? N-clubs(north)    : N nSSP = nSpadeSSP + nHeartSSP + nDiamSSP + nClubSSP nSpadePP = spades(north)<N   and hcp(north,spades)>N   ? N : N nHeartPP = hearts(north)<N   and hcp(north,hearts)>N   ? N : N nDiamPP  = diamonds(north)<N and hcp(north,diamonds)>N ? N : N nClubPP  = clubs(north)<N    and hcp(north,clubs)>N    ? N : N nPP = nSpadePP + nHeartPP + nDiamPP + nClubPP tpNorth = hcp(north) + nSSP - nPP eSpadeSSP = spades(east)<N   ? N-spades(east)   : N eHeartSSP = hearts(east)<N   ? N-hearts(east)   : N eDiamSSP  = diamonds(east)<N ? N-diamonds(east) : N eClubSSP  = clubs(east)<N    ? N-clubs(east)    : N eSSP = eSpadeSSP + eHeartSSP + eDiamSSP + eClubSSP eSpadePP = spades(east)<N   and hcp(east,spades)>N   ? N : N eHeartPP = hearts(east)<N   and hcp(east,hearts)>N   ? N : N eDiamPP  = diamonds(east)<N and hcp(east,diamonds)>N ? N : N eClubPP  = clubs(east)<N    and hcp(east,clubs)>N    ? N : N ePP = eSpadePP + eHeartPP + eDiamPP + eClubPP tpEast = hcp(east) + eSSP - ePP sSpadeSSP = spades(south)<N   ? N-spades(south)   : N sHeartSSP = hearts(south)<N   ? N-hearts(south)   : N sDiamSSP  = diamonds(south)<N ? N-diamonds(south) : N sClubSSP  = clubs(south)<N    ? N-clubs(south)    : N sSSP = sSpadeSSP + sHeartSSP + sDiamSSP + sClubSSP sSpadePP = spades(south)<N   and hcp(south,spades)>N   ? N : N sHeartPP = hearts(south)<N   and hcp(south,hearts)>N   ? N : N sDiamPP  = diamonds(south)<N and hcp(south,diamonds)>N ? N : N sClubPP  = clubs(south)<N    and hcp(south,clubs)>N    ? N : N sPP = sSpadePP + sHeartPP + sDiamPP + sClubPP tpSouth = hcp(south) + sSSP - sPP wSpadeSSP = spades(west)<N   ? N-spades(west)   : N wHeartSSP = hearts(west)<N   ? N-hearts(west)   : N wDiamSSP  = diamonds(west)<N ? N-diamonds(west) : N wClubSSP  = clubs(west)<N    ? N-clubs(west)    : N wSSP = wSpadeSSP + wHeartSSP + wDiamSSP + wClubSSP wSpadePP = spades(west)<N   and hcp(west,spades)>N   ? N : N wHeartPP = hearts(west)<N   and hcp(west,hearts)>N   ? N : N wDiamPP  = diamonds(west)<N and hcp(west,diamonds)>N ? N : N wClubPP  = clubs(west)<N    and hcp(west,clubs)>N    ? N : N wPP = wSpadePP + wHeartPP + wDiamPP + wClubPP tpWest = hcp(west) + wSSP - wPP tpNS = tpNorth + tpSouth tpEW = tpEast + tpWest sPasses   = tpSouth<N and hcp(south)<N and shape(south,any xxxx -any Nxxx -any Nxxx -any Nxxx -any Nxxx -any Nxx) rebiddableD = diamonds(south)==N and hcp(south,diamonds)>N rebbidableC = clubs(south)==N    and hcp(south,clubs)>N sSJS = (rebiddableD or rebbidableC) and hcp(south)>N and tpSouth>N nBal = shape(north,any N+any N+any N) nNNT = nBal and hcp(north)>N and hcp(north)<N nNNT = nBal and hcp(north)>N and hcp(north)<N nNT = nNNT or nNNT //nMin = tpNorth==N and hcp(north)==N nSpade = spades(north)>N and hearts(north)<N and diamonds(north)<N and clubs(north)<N and spades(south)>N and hearts(south)<N nHeart = hearts(north)>N and spades(north)<N and diamonds(north)<N and clubs(north)<N and hearts(south)>N and spades(south)<N len = hearts(north)>spades(north) ? hearts(north) : spades(north) nMin = len == N ? N : N nRange = hcp(north)>nMin and hcp(north)<N nOpens = (nSpade or nHeart) and nRange and not nNT and diamonds(north)<len and clubs(north)<len sResponds = tpSouth>N and not sSJS cN = hascard(west,NC) cN = hascard(east,ND) cN = hascard(west,NC) cN = hascard(east,ND) keepN = cN and cN          // this is used later w/cN & cN expressions keepN = cN or cN           // this is used later w/cN & cN expressions keepN = keepN and cN keepN = keepN and keepN keepN = keepN and not cN keepN = cN and keepN keepN = cN and not keepN keepN = cN and not cN keepN = cN keepN = keepN or cN keepN = cN or (cN and keepN) keepN = keepN or keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keep   = N keepN  = N nLow  = hcp(north) < N nMid  = hcp(north) > N and hcp(north) < N nHigh = hcp(north) > N levLow  = nLow  and keep levMid  = nMid  and keepN levHigh = nHigh and keepN levelTheDeal = levLow or levMid or levHigh sPasses and nOpens and calmOpps and sResponds and levelTheDeal action average \"bench\" hcp(north)",
+      "produced_at_verify": 1,
+      "hit_rate": 5e-05,
+      "seconds_per_deal_r1": 1.2700000000000001e-06,
+      "deals": 1500000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Drury"
+      ]
+    },
+    {
+      "name": "Basic_Takeout_Double",
+      "file": "Basic_Takeout_Double.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Basic_Takeout_Double.dlr",
+      "notes": [
+        "stripped block comments",
+        "replaced action block"
+      ],
+      "imports": [
+        "Predict Opening 1-Bid East"
+      ],
+      "signature": "dealer east ntP = hcp(east) + shape(east,Nxxx+xNxx) ntN = shape(east, any N+any N+any N) and hcp(east)>N and ntP<N ntN = shape(east, any N -Nxxx-xNxx-Nxxx) and hcp(east)>N and hcp(east)<N gibNT = ntN or ntN ssp = spades(east)<N and hcp(east,spades)>N     ? N : N shp = hearts(east)<N and hcp(east,hearts)>N     ? N : N sdp = diamonds(east)<N and hcp(east,diamonds)>N ? N : N scp = clubs(east)<N and hcp(east,clubs)>N       ? N : N svN = shape(east, any Nxxx) ? N : N ssN = shape(east, any Nxxx) ? N : N // allow for N singletons ssN = shape(east, any Nxx) ? N : N sdN = shape(east, any Nxxx) ? N : N // allow for N doubletons sdN = shape(east, any Nxx) ? N : N sdN = shape(east, any Nx) ? N : N sTP = hcp(east) + svN+ssN+ssN+sdN+sdN+sdN -ssp-shp-sdp-scp lpN = spades(east)>N ? spades(east)-N : N lpN = hearts(east)>N ? hearts(east)-N : N lpN = diamonds(east)>N ? diamonds(east)-N : N lpN = clubs(east)>N ? clubs(east)-N : N lengthPoints = lpN + lpN + lpN + lpN suitPoints = hcp(east) + lengthPoints TwoNtShape = shape(east, any N +any N +any N +any N) oneNT   = gibNT twoNT   = TwoNtShape and hcp(east)>N and hcp(east)<N gNShape = shape(east,any Nxxx +any Nxxx +any Nxxx -any Nxxx -any Nxxx -any Nxxx) gambleN = (topN(east,clubs)==N and clubs(east)>N) or (topN(east,diamonds)==N and diamonds(east)>N) and hcp(east)<N and gNShape caseN = hcp(east)>N and sTP>N caseN = hcp(east)>N and sTP>N and losers(east)<N and (spades(east)>N or hearts(east)>N) caseN = hcp(east)>N and sTP>N and losers(east)<N and (diamonds(east)>N or clubs(east)>N) gameForceNC = (caseN or caseN or caseN) PN = gameForceNC PN = PN or gambleN or twoNT or oneNT qNofN = (topN(east,spades)>N or topN(east,hearts)>N) and controls(east)>N lgtN  = (spades(east)>N or hearts(east)>N) and shape(east,any Nxxx +any Nxx +any Nxx +any Nxxx+any Nxxx -any Nxxx -any Nxx) and sTP>(hcp(east) +N) s = spades(east) h = hearts(east) d = diamonds(east) c = clubs(east) lS = s>N and s>=h and s>=d and s>=c lH = h>N and h>s and h>=d and h>=c lM = lS or lH hsOKN = lM and hcp(east)>N hsOKN = lM and hcp(east)>N and sTP>N and not hsOKN hsOKN = lM and hcp(east)>N  and lgtN and qNofN and not (hsOKN or hsOKN) hsRange = (hsOKN or hsOKN or hsOKN) and not PN dOKN = hcp(east)>N and (diamonds(east)>N or shape(east, N)) dOKN = hcp(east)>N  and sTP>N and diamonds(east)>N and not dOKN dRange = (dOKN or dOKN) and not PN cOKN = hcp(east)>N and sTP>N and spades(east)==N cOKN = hcp(east)>N  and sTP>N and clubs(east)>N and not cOKN cOKN = hcp(east)>N and clubs(east)>N            and not (cOKN or cOKN) cRange = (cOKN or cOKN or cOKN) and clubs(east)>N and clubs(east)>diamonds(east) and not PN oS = s>N and s>=h and s>=d and s>=c and hsRange oH = not oS and h>N and h>=d and h>=c and hsRange oD = not (oS or oH) and ((d>N and d>=c) or c<N) and dRange oC = not (oS or oH or oD) and cRange openingSuit = (oS or oH or oD or oC) oneSpade   = oS oneHeart   = oH oneDiamond = oD oneClub    = oC eNotNT   = not gibNT eastHand = openingSuit and eNotNT sHcp     = hcp(south) > N and hcp(south) < N sShape   = shape(south, any N + any N) sNoLong  = spades(south) < N and hearts(south) < N and diamonds(south) < N and clubs(south) < N sShortInOpener = (oS and spades(south) < N) or (oH and hearts(south) < N) or (oD and diamonds(south) < N) or (oC and clubs(south) < N) southHand = sHcp and sShape and sNoLong and sShortInOpener wHcp = hcp(west) < N eastHand and southHand and wHcp action average \"bench\" hcp(north)",
+      "produced_at_verify": 107,
+      "hit_rate": 0.00535,
+      "seconds_per_deal_r1": 1.7e-06,
+      "deals": 1100000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Basic_Takeout_Double"
+      ]
+    },
+    {
+      "name": "GIB_1C-P-Resp",
+      "file": "GIB_1C-P-Resp.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/GIB_1C-P-Resp.dlr",
+      "notes": [
+        "stripped block comments",
+        "replaced action block"
+      ],
+      "imports": [
+        "Define Calm Opponents",
+        "Predict Opening 1-Bid North"
+      ],
+      "signature": "dealer north cce = topN(east,clubs)<N cde = topN(east,diamonds)<N che = topN(east,hearts)<N cse = topN(east,spades)<N noConEast = cce and cde and che and cse ccw = topN(west,clubs)<N cdw = topN(west,diamonds)<N chw = topN(west,hearts)<N csw = topN(west,spades)<N noConWest = ccw and cdw and chw and csw balEast    = shape(east,any N +any N) unbalEast  = shape(east,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) balWest    = shape(west,any N +any N) unbalWest  = shape(west,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) calmEast = (unbalEast and noConEast and hcp(east)<N) or (balEast and hcp(east)<N) calmWest = (unbalWest and noConWest and hcp(west)<N) or (balWest and hcp(west)<N) calmOpps = calmEast and calmWest ntP = hcp(north) + shape(north,Nxxx+xNxx) ntN = shape(north, any N+any N+any N) and hcp(north)>N and ntP<N ntN = shape(north, any N -Nxxx-xNxx-Nxxx) and hcp(north)>N and hcp(north)<N gibNT = ntN or ntN ssp = spades(north)<N and hcp(north,spades)>N     ? N : N shp = hearts(north)<N and hcp(north,hearts)>N     ? N : N sdp = diamonds(north)<N and hcp(north,diamonds)>N ? N : N scp = clubs(north)<N and hcp(north,clubs)>N       ? N : N svN = shape(north, any Nxxx) ? N : N ssN = shape(north, any Nxxx) ? N : N // allow for N singletons ssN = shape(north, any Nxx) ? N : N sdN = shape(north, any Nxxx) ? N : N // allow for N doubletons sdN = shape(north, any Nxx) ? N : N sdN = shape(north, any Nx) ? N : N nTP = hcp(north) + svN+ssN+ssN+sdN+sdN+sdN -ssp-shp-sdp-scp lpN = spades(north)>N ? spades(north)-N : N lpN = hearts(north)>N ? hearts(north)-N : N lpN = diamonds(north)>N ? diamonds(north)-N : N lpN = clubs(north)>N ? clubs(north)-N : N lengthPoints = lpN + lpN + lpN + lpN suitPoints = hcp(north) + lengthPoints TwoNtShape = shape(north, any N +any N +any N +any N) oneNT   = gibNT twoNT   = TwoNtShape and hcp(north)>N and hcp(north)<N gNShape = shape(north,any Nxxx +any Nxxx +any Nxxx -any Nxxx -any Nxxx -any Nxxx) threeNT = (topN(north,clubs)==N and clubs(north)>N) or (topN(north,diamonds)==N and diamonds(north)>N) and hcp(north)<N and gNShape caseN = hcp(north)>N and nTP>N caseN = hcp(north)>N and nTP>N and losers(north)<N and (spades(north)>N or hearts(north)>N) caseN = hcp(north)>N and nTP>N and losers(north)<N and (diamonds(north)>N or clubs(north)>N) gameForceNC = (caseN or caseN or caseN) PN = gameForceNC PN = PN or threeNT or twoNT or oneNT qNofN = (topN(north,spades)>N or topN(north,hearts)>N) and controls(north)>N lgtN  = (spades(north)>N or hearts(north)>N) and shape(north,any Nxxx +any Nxx +any Nxx +any Nxxx+any Nxxx -any Nxxx -any Nxx) and nTP>(hcp(north) +N) s = spades(north) h = hearts(north) d = diamonds(north) c = clubs(north) lS = s>N and s>=h and s>=d and s>=c lH = h>N and h>s and h>=d and h>=c lM = lS or lH hsOKN = lM and hcp(north)>N hsOKN = lM and hcp(north)>N and nTP>N and not hsOKN hsOKN = lM and hcp(north)>N  and lgtN and qNofN and not (hsOKN or hsOKN) hsRange = (hsOKN or hsOKN or hsOKN) and not PN dOKN = hcp(north)>N and (diamonds(north)>N or shape(north, N)) dOKN = hcp(north)>N  and nTP>N and diamonds(north)>N and not dOKN dRange = (dOKN or dOKN) and not PN cOKN = hcp(north)>N and nTP>N and spades(north)==N cOKN = hcp(north)>N  and nTP>N and clubs(north)>N and not cOKN cOKN = hcp(north)>N and clubs(north)>N            and not (cOKN or cOKN) cRange = (cOKN or cOKN or cOKN) and clubs(north)>N and clubs(north)>diamonds(north) and not PN oS = s>N and s>=h and s>=d and s>=c and hsRange oH = not oS and h>N and h>=d and h>=c and hsRange oD = not (oS or oH) and ((d>N and d>=c) or c<N) and dRange oC = not (oS or oH or oD) and cRange openingSuit = (oS or oH or oD or oC) oneSpade   = oS oneHeart   = oH oneDiamond = oD oneClub    = oC //   Total Points = HCP + Short-Suit Points - Penalty Points //   Short-Suit Points: N for void, N for singleton, N for doubleton //   Penalty Points: N for each honor (K/Q/J) in a short suit (devalues wasted honors like Kx, Qx) nSpadeSSP = spades(north)<N   ? N-spades(north)   : N nHeartSSP = hearts(north)<N   ? N-hearts(north)   : N nDiamSSP  = diamonds(north)<N ? N-diamonds(north) : N nClubSSP  = clubs(north)<N    ? N-clubs(north)    : N nSSP = nSpadeSSP + nHeartSSP + nDiamSSP + nClubSSP nSpadePP = spades(north)<N   and hcp(north,spades)>N   ? N : N nHeartPP = hearts(north)<N   and hcp(north,hearts)>N   ? N : N nDiamPP  = diamonds(north)<N and hcp(north,diamonds)>N ? N : N nClubPP  = clubs(north)<N    and hcp(north,clubs)>N    ? N : N nPP = nSpadePP + nHeartPP + nDiamPP + nClubPP tpNorth = hcp(north) + nSSP - nPP eSpadeSSP = spades(east)<N   ? N-spades(east)   : N eHeartSSP = hearts(east)<N   ? N-hearts(east)   : N eDiamSSP  = diamonds(east)<N ? N-diamonds(east) : N eClubSSP  = clubs(east)<N    ? N-clubs(east)    : N eSSP = eSpadeSSP + eHeartSSP + eDiamSSP + eClubSSP eSpadePP = spades(east)<N   and hcp(east,spades)>N   ? N : N eHeartPP = hearts(east)<N   and hcp(east,hearts)>N   ? N : N eDiamPP  = diamonds(east)<N and hcp(east,diamonds)>N ? N : N eClubPP  = clubs(east)<N    and hcp(east,clubs)>N    ? N : N ePP = eSpadePP + eHeartPP + eDiamPP + eClubPP tpEast = hcp(east) + eSSP - ePP sSpadeSSP = spades(south)<N   ? N-spades(south)   : N sHeartSSP = hearts(south)<N   ? N-hearts(south)   : N sDiamSSP  = diamonds(south)<N ? N-diamonds(south) : N sClubSSP  = clubs(south)<N    ? N-clubs(south)    : N sSSP = sSpadeSSP + sHeartSSP + sDiamSSP + sClubSSP sSpadePP = spades(south)<N   and hcp(south,spades)>N   ? N : N sHeartPP = hearts(south)<N   and hcp(south,hearts)>N   ? N : N sDiamPP  = diamonds(south)<N and hcp(south,diamonds)>N ? N : N sClubPP  = clubs(south)<N    and hcp(south,clubs)>N    ? N : N sPP = sSpadePP + sHeartPP + sDiamPP + sClubPP tpSouth = hcp(south) + sSSP - sPP wSpadeSSP = spades(west)<N   ? N-spades(west)   : N wHeartSSP = hearts(west)<N   ? N-hearts(west)   : N wDiamSSP  = diamonds(west)<N ? N-diamonds(west) : N wClubSSP  = clubs(west)<N    ? N-clubs(west)    : N wSSP = wSpadeSSP + wHeartSSP + wDiamSSP + wClubSSP wSpadePP = spades(west)<N   and hcp(west,spades)>N   ? N : N wHeartPP = hearts(west)<N   and hcp(west,hearts)>N   ? N : N wDiamPP  = diamonds(west)<N and hcp(west,diamonds)>N ? N : N wClubPP  = clubs(west)<N    and hcp(west,clubs)>N    ? N : N wPP = wSpadePP + wHeartPP + wDiamPP + wClubPP tpWest = hcp(west) + wSSP - wPP tpNS = tpNorth + tpSouth tpEW = tpEast + tpWest eAS = hascard(east,AS) eKS = hascard(east,KS) eQS = hascard(east,QS) eJS = hascard(east,JS) eTS = hascard(east,TS) eNS = hascard(east,NS) eAH = hascard(east,AH) eKH = hascard(east,KH) eQH = hascard(east,QH) eJH = hascard(east,JH) eTH = hascard(east,TH) eNH = hascard(east,NH) eAD = hascard(east,AD) eKD = hascard(east,KD) eQD = hascard(east,QD) eJD = hascard(east,JD) eTD = hascard(east,TD) eND = hascard(east,ND) eSN = ((eAS and eKS) or (eAS and eQS and (eJS or eTS or eNS)) or (eAS and eJS and eTS and eNS) or (eKS and eQS and (eJS or eTS))) and spades(east)==N eHN = ((eAH and eKH) or (eAH and eQH and (eJH or eTH or eNH)) or (eAH and eJH and eTH and eNH) or (eKH and eQH and (eJH or eTH))) and hearts(east)==N eDN = ((eAD and eKD) or (eAD and eQD and (eJD or eTD or eND)) or (eAD and eJD and eTD and eND) or (eKD and eQD and (eJD or eTD))) and diamonds(east)==N ess = (eSN and eHN) or (eSN and eDN) or (eHN or eDN) X = (hcp(east)==N or hcp(east)==N) and spades(east)==hearts(east)==(N or N)  // I'm out of 'shape' statements reverse = shape(north,Nxx+xNx+xxN) and hcp(north)>N eRange = tpEast>=N and tpEast<=N and not X cOC = oneClub    and (eDN or eHN or eSN) and clubs(east)==N dOC = oneDiamond and (eHN or eSN)        and diamonds(east)==N hOC = oneHeart   and eSN                 and hearts(east)==N eOvercalls = (cOC or dOC or hOC) and eRange and shape(east,any N +any N) eTakeOutDouble = (balEast and hcp(east)>N and clubs(east)==N) or (balWest and hcp(west)>N and clubs(west)==N)  // Must know opening suit oppsPass = calmOpps and not (eOvercalls or eTakeOutDouble) sC = clubs(south) sD = diamonds(south) sH = hearts(south) sS = spades(south) sRS = sS>N or (sS==N and topN(south,spades)>N) sRH = sH>N or (sH==N and topN(south,hearts)>N) sRD = sD>N or (sD==N and topN(south,diamonds)>N) sRC = sC>N or (sC==N and topN(south,clubs)>N) sRebiddableSuit = sRS or sRH or sRD or sRC dStop = (hcp(south,diamonds) + sD)>N ? N : N      // Dealer doesn't allow fractions; so N pts for stop hStop = (hcp(south,hearts)   + sH)>N ? N : N sStop = (hcp(south,spades)   + sS)>N ? N : N dHalf = not dStop and ((hcp(south,diamonds)>N) + sD)==N   // and N pt for half-stop: any N-cards or honor doubleton hHalf = not hStop and ((hcp(south,hearts)>N)   + sH)==N sHalf = not sStop and ((hcp(south,spades)>N)   + sS)==N stops = dStop + hStop + sStop + dHalf + hHalf +sHalf sN = sS==N and sH==N  and sD==N sN = sS==N and sH==N  and sD==N sxxN = (sS==N or sS==N) and sD==N and sC==N  // N or N sBal  = (sN or sN or sxxN)  // no N-card major sRange = sRebiddableSuit ? tpSouth>N and tpSouth<N : tpSouth>N   // no upper range without rebiddable suit rSN = sS>N and sS>=sH                   // higher ranking of N+card suits rSN = tpSouth<N and sS==N and sS>sH        // skip longer D w/<N rSN = sS==N and sS>sH and sD<N          // prefer N-card H/S to N-card D rNS = rSN or rSN or rSN rHN = sH>N and sH>sS rHN = tpSouth<N and sH==N and sH>=sS rHN = sH==N and sD<N rNH = (rHN or rHN or rHN) and not rNS rM = rNH or rNS rNx   = sC>N and shape(south,N+N+any Nxxx +any Nxxx) and tpSouth>N and not rM    // splinter rNCN = sN       and hcp(south)>N  and hcp(south)<N and stops<N and not rM rNCN = sxxN       and hcp(south)>N  and hcp(south)<N and stops<N and not rM rNCNN = sN+sxxN and hcp(south)>N and hcp(south)<N             and not rM          // GIB goes through NC w/a bal N-N rNCxN = sC>N        and sD<N and hcp(south)>N                       and not (rM or rNx) rNC = rNCN or rNCN or rNCNN or rNCxN rNC = sC>N and sD<N and hcp(south)<N and tpSouth>N                     and not (rM or rNx) rC  = rNCN or rNCN or rNCNN or rNCxN or rNC or rNx rNN  = hcp(south)>N  and hcp(south)<N and sBal and not rC rNNa = hcp(south)>N and hcp(south)<N and sxxN and stops>N and hcp(south,diamonds)>N and not rC // prefer ND or NC rNNb = hcp(south)>N and hcp(south)<N and sN and stops>N                           and not rC // no alternative rNNc = hcp(south)>N and hcp(south)<N and sN and stops>N                           and not rC // prefer ND rNN = rNNa or rNNb or rNNc rNN = sN and hcp(south)>N and hcp(south)<N  and sBal  and stops>N                 and not rC rN  = rNN or rNN or rNN rND = sD>N and not (rM or rN or rC) // Change the following line to get the responses you want -------- // sResponds = rND or rNH or rNS or rNN or rNC or rNN or rNC or rNx or rNN // // ---------------------------------------------------------------- oneClub and not eOvercalls and sRange and sResponds and oppsPass action average \"bench\" hcp(north)",
+      "produced_at_verify": 111,
+      "hit_rate": 0.00555,
+      "seconds_per_deal_r1": 1.9e-06,
+      "deals": 1000000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "GIB_1C-P-Resp"
+      ]
+    },
+    {
+      "name": "Splinters_By_Opener",
+      "file": "Splinters_By_Opener.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Splinters_By_Opener.dlr",
+      "notes": [
+        "stripped block comments",
+        "dropped 1 produce/generate line(s)",
+        "replaced action block"
+      ],
+      "imports": [
+        "Define Calm Opponents",
+        "Predict Opening 1-Bid South"
+      ],
+      "signature": "dealer south cce = topN(east,clubs)<N cde = topN(east,diamonds)<N che = topN(east,hearts)<N cse = topN(east,spades)<N noConEast = cce and cde and che and cse ccw = topN(west,clubs)<N cdw = topN(west,diamonds)<N chw = topN(west,hearts)<N csw = topN(west,spades)<N noConWest = ccw and cdw and chw and csw balEast    = shape(east,any N +any N) unbalEast  = shape(east,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) balWest    = shape(west,any N +any N) unbalWest  = shape(west,xxxx -any N -any N -any Nxxx -any Nxxx -any Nxxx-any Nxxx -any Nxx) calmEast = (unbalEast and noConEast and hcp(east)<N) or (balEast and hcp(east)<N) calmWest = (unbalWest and noConWest and hcp(west)<N) or (balWest and hcp(west)<N) calmOpps = calmEast and calmWest ntP = hcp(south) + shape(south,Nxxx+xNxx) ntN = shape(south, any N+any N+any N) and hcp(south)>N and ntP<N ntN = shape(south, any N -Nxxx-xNxx-Nxxx) and hcp(south)>N and hcp(south)<N gibNT = ntN or ntN ssp = spades(south)<N and hcp(south,spades)>N     ? N : N shp = hearts(south)<N and hcp(south,hearts)>N     ? N : N sdp = diamonds(south)<N and hcp(south,diamonds)>N ? N : N scp = clubs(south)<N and hcp(south,clubs)>N       ? N : N svN = shape(south, any Nxxx) ? N : N ssN = shape(south, any Nxxx) ? N : N // allow for N singletons ssN = shape(south, any Nxx) ? N : N sdN = shape(south, any Nxxx) ? N : N // allow for N doubletons sdN = shape(south, any Nxx) ? N : N sdN = shape(south, any Nx) ? N : N sTP = hcp(south) + svN+ssN+ssN+sdN+sdN+sdN -ssp-shp-sdp-scp lpN = spades(south)>N ? spades(south)-N : N lpN = hearts(south)>N ? hearts(south)-N : N lpN = diamonds(south)>N ? diamonds(south)-N : N lpN = clubs(south)>N ? clubs(south)-N : N lengthPoints = lpN + lpN + lpN + lpN suitPoints = hcp(south) + lengthPoints TwoNtShape = shape(south, any N +any N +any N +any N) oneNT   = gibNT twoNT   = TwoNtShape and hcp(south)>N and hcp(south)<N gNShape = shape(south,any Nxxx +any Nxxx +any Nxxx -any Nxxx -any Nxxx -any Nxxx) threeNT = (topN(south,clubs)==N and clubs(south)>N) or (topN(south,diamonds)==N and diamonds(south)>N) and hcp(south)<N and gNShape caseN = hcp(south)>N and sTP>N caseN = hcp(south)>N and sTP>N and losers(south)<N and (spades(south)>N or hearts(south)>N) caseN = hcp(south)>N and sTP>N and losers(south)<N and (diamonds(south)>N or clubs(south)>N) gameForceNC = (caseN or caseN or caseN) PN = gameForceNC PN = PN or threeNT or twoNT or oneNT qNofN = (topN(south,spades)>N or topN(south,hearts)>N) and controls(south)>N lgtN  = (spades(south)>N or hearts(south)>N) and shape(south,any Nxxx +any Nxx +any Nxx +any Nxxx+any Nxxx -any Nxxx -any Nxx) and sTP>(hcp(south) +N) s = spades(south) h = hearts(south) d = diamonds(south) c = clubs(south) lS = s>N and s>=h and s>=d and s>=c lH = h>N and h>s and h>=d and h>=c lM = lS or lH hsOKN = lM and hcp(south)>N hsOKN = lM and hcp(south)>N and sTP>N and not hsOKN hsOKN = lM and hcp(south)>N  and lgtN and qNofN and not (hsOKN or hsOKN) hsRange = (hsOKN or hsOKN or hsOKN) and not PN dOKN = hcp(south)>N and (diamonds(south)>N or shape(south, N)) dOKN = hcp(south)>N  and sTP>N and diamonds(south)>N and not dOKN dRange = (dOKN or dOKN) and not PN cOKN = hcp(south)>N and sTP>N and spades(south)==N cOKN = hcp(south)>N  and sTP>N and clubs(south)>N and not cOKN cOKN = hcp(south)>N and clubs(south)>N            and not (cOKN or cOKN) cRange = (cOKN or cOKN or cOKN) and clubs(south)>N and clubs(south)>diamonds(south) and not PN oS = s>N and s>=h and s>=d and s>=c and hsRange oH = not oS and h>N and h>=d and h>=c and hsRange oD = not (oS or oH) and ((d>N and d>=c) or c<N) and dRange oC = not (oS or oH or oD) and cRange openingSuit = (oS or oH or oD or oC) oneSpade   = oS oneHeart   = oH oneDiamond = oD oneClub    = oC sP = hcp(south) nP = hcp(north) sN = spades(north) hN = hearts(north) dN = diamonds(north) cN = clubs(north) nRS  =  nP<N ? sN>N and sN>hN : sN>N and sN>hN and sN>=dN and sN>=cN               // avoid N/N in minor nRH  = (nP<N ? hN>N           : hN>N           and hN>=dN and hN>=cN) and not (nRS) nRD = dN>N           and dN>=cN and not (nRS or nRH) nRC = cN>N           and cN>N   and not (nRS or nRH or nRD) nRN = not (nRS or nRH or nRD or nRC) sRC = clubs(south)>N sRD = diamonds(south)>N sRH = hearts(south)>N sRS = spades(south)>N sRN = shape(south,any N+any N+any N) CD = oC and nRD CH = oC and nRH CS = oC and nRS CN = oC and nRN CC = oC and nRC DH = oD and nRH DS = oD and nRS DN = oD and nRN DD = oD and not (DH or DS or DN) HS = sP<N ? oH and nRS and hN<N : oH and nRS and hN<N     // no Jacoby NN HN = oH and nRN HH = oH and not (HS or HN) Cshort = (shape(south,xxxN) and (topN(south,clubs)   ==N or hascard(south,AC)) or shape(south,xxxN)) Dshort = (shape(south,xxNx) and (topN(south,diamonds)==N or hascard(south,AD)) or shape(south,xxNx)) Hshort = (shape(south,xNxx) and (topN(south,hearts)  ==N or hascard(south,AH)) or shape(south,xNxx)) Sshort = (shape(south,Nxxx) and (topN(south,spades)  ==N or hascard(south,AS)) or shape(south,Nxxx)) CHND = CH and h>N and Dshort  // invite CHNS = CH and h>N and Sshort CSND = CS and s>N and Dshort  // invite CSNH = CS and s>N and Hshort  // invite DHNC = DH and h>N and Cshort DHNS = DH and h>N and Sshort DSNC = DS and s>N and Cshort DSNH = DS and s>N and Hshort  // invite HSNC = HS and s>N and Cshort HSND = HS and s>N and Dshort jReverse   = (CHND or CSND or CSNH or DSNH) and hcp(south)>N and hcp(south)<N jJumpShift = (CHNS or DHNC or DHNS or DSNC or HSNC or HSND) and hcp(south)>N and hcp(south)<N northOK = N sOpens = jReverse or jJumpShift northRange = hcp(north)>N  and hcp(north)<N  // no jump shifts sOpens and northRange and calmOpps action average \"bench\" hcp(north)",
+      "produced_at_verify": 6,
+      "hit_rate": 0.0003,
+      "seconds_per_deal_r1": 2.4e-06,
+      "deals": 830000,
+      "cluster_size": 2,
+      "cluster_members": [
+        "Reversed_Splinters_By_Opener",
+        "Splinters_By_Opener"
+      ]
+    },
+    {
+      "name": "Gerber_By_Responder",
+      "file": "Gerber_By_Responder.dlr",
+      "source": "Practice-Bidding-Scenarios/dlr/Gerber_By_Responder.dlr",
+      "notes": [
+        "stripped block comments",
+        "dropped 1 produce/generate line(s)",
+        "replaced action block"
+      ],
+      "imports": [
+        "Predict Opening 1-Bid South"
+      ],
+      "signature": "dealer south ntP = hcp(south) + shape(south,Nxxx+xNxx) ntN = shape(south, any N+any N+any N) and hcp(south)>N and ntP<N ntN = shape(south, any N -Nxxx-xNxx-Nxxx) and hcp(south)>N and hcp(south)<N gibNT = ntN or ntN ssp = spades(south)<N and hcp(south,spades)>N     ? N : N shp = hearts(south)<N and hcp(south,hearts)>N     ? N : N sdp = diamonds(south)<N and hcp(south,diamonds)>N ? N : N scp = clubs(south)<N and hcp(south,clubs)>N       ? N : N svN = shape(south, any Nxxx) ? N : N ssN = shape(south, any Nxxx) ? N : N // allow for N singletons ssN = shape(south, any Nxx) ? N : N sdN = shape(south, any Nxxx) ? N : N // allow for N doubletons sdN = shape(south, any Nxx) ? N : N sdN = shape(south, any Nx) ? N : N sTP = hcp(south) + svN+ssN+ssN+sdN+sdN+sdN -ssp-shp-sdp-scp lpN = spades(south)>N ? spades(south)-N : N lpN = hearts(south)>N ? hearts(south)-N : N lpN = diamonds(south)>N ? diamonds(south)-N : N lpN = clubs(south)>N ? clubs(south)-N : N lengthPoints = lpN + lpN + lpN + lpN suitPoints = hcp(south) + lengthPoints TwoNtShape = shape(south, any N +any N +any N +any N) oneNT   = gibNT twoNT   = TwoNtShape and hcp(south)>N and hcp(south)<N gNShape = shape(south,any Nxxx +any Nxxx +any Nxxx -any Nxxx -any Nxxx -any Nxxx) threeNT = (topN(south,clubs)==N and clubs(south)>N) or (topN(south,diamonds)==N and diamonds(south)>N) and hcp(south)<N and gNShape caseN = hcp(south)>N and sTP>N caseN = hcp(south)>N and sTP>N and losers(south)<N and (spades(south)>N or hearts(south)>N) caseN = hcp(south)>N and sTP>N and losers(south)<N and (diamonds(south)>N or clubs(south)>N) gameForceNC = (caseN or caseN or caseN) PN = gameForceNC PN = PN or threeNT or twoNT or oneNT qNofN = (topN(south,spades)>N or topN(south,hearts)>N) and controls(south)>N lgtN  = (spades(south)>N or hearts(south)>N) and shape(south,any Nxxx +any Nxx +any Nxx +any Nxxx+any Nxxx -any Nxxx -any Nxx) and sTP>(hcp(south) +N) s = spades(south) h = hearts(south) d = diamonds(south) c = clubs(south) lS = s>N and s>=h and s>=d and s>=c lH = h>N and h>s and h>=d and h>=c lM = lS or lH hsOKN = lM and hcp(south)>N hsOKN = lM and hcp(south)>N and sTP>N and not hsOKN hsOKN = lM and hcp(south)>N  and lgtN and qNofN and not (hsOKN or hsOKN) hsRange = (hsOKN or hsOKN or hsOKN) and not PN dOKN = hcp(south)>N and (diamonds(south)>N or shape(south, N)) dOKN = hcp(south)>N  and sTP>N and diamonds(south)>N and not dOKN dRange = (dOKN or dOKN) and not PN cOKN = hcp(south)>N and sTP>N and spades(south)==N cOKN = hcp(south)>N  and sTP>N and clubs(south)>N and not cOKN cOKN = hcp(south)>N and clubs(south)>N            and not (cOKN or cOKN) cRange = (cOKN or cOKN or cOKN) and clubs(south)>N and clubs(south)>diamonds(south) and not PN oS = s>N and s>=h and s>=d and s>=c and hsRange oH = not oS and h>N and h>=d and h>=c and hsRange oD = not (oS or oH) and ((d>N and d>=c) or c<N) and dRange oC = not (oS or oH or oD) and cRange openingSuit = (oS or oH or oD or oC) oneSpade   = oS oneHeart   = oH oneDiamond = oD oneClub    = oC sP = hcp(south) nP = hcp(north) sN = spades(north) hN = hearts(north) dN = diamonds(north) cN = clubs(north) nS  =  nP<N ? sN>N and sN>hN : sN>N and sN>hN and sN>=dN and sN>=cN nH  = (nP<N ? hN>N           : hN>N           and hN>=dN and hN>=cN) and not (nS) nD = dN>N           and dN>=cN and not (nS or nH) nC = cN>N           and cN>N   and not (nS or nH or nD) nN = not (nS or nH or nD or nC) sRC = clubs(south)>N sRD = diamonds(south)>N sRH = hearts(south)>N sRS = spades(south)>N sRN = shape(south,any N+any N+any N) CD = oC and nD CH = oC and nH CS = oC and nS CN = oC and nN CC = oC and nC DH = oD and nH DS = oD and nS DN = oD and nN DD = oD and not (DH or DS or DN) HS = oH and nS HH = oH and hN>N and not HS HN = oH and not (HS or HH) CDH = CD and sRH CDS = CD and sRS and not (CDH) CDN = CD and sRN and not (CDH or CDS) CDC = CD and c>N and not (CDH or CDS or CDN) CDD = CD and d>N and not (CDH or CDS or CDN or CDC) CHS = CH and sRS CHN = CH and sRN and not (CHS) CHC = CH and c>N and not (CHS or CHN) CHD = CH and sRD and not (CHS or CHN or CHC) CHH = CH and sRH and not (CHS or CHN or CHC or CHD) CSN = CS and sRN CSC = CS and c>N and not (CSN) CSD = CS and sRD and not (CSN or CSC) CSH = CS and sRH and not (CSN or CSC or CSD) CSS = CS and sRS and not (CSN or CSC or CSD or CSH) CNC = CN and c>N CND = CN and sRD and not (CNC) CNH = CN and sRH and not (CNC or CND) CNS = CN and sRS and not (CNC or CND or CNH) CNN = CN and sRN and not (CNC or CND or CNH or CNS) CCD = CC and sRD CCH = CC and sRH and not (CCD) CCS = CC and sRS and not (CCD or CCH) CCN = CC and sRN and not (CCD or CCH or CCS) CCC = CC and c>N and not (CCD or CCH or CCS or CCN) DHS = DH and sRS DHN = DH and sRN and not (DHS) DHC = DH and sRC and not (DHS or DHN) DHD = DH and d>N and not (DHS or DHC or DHN) DHH = DH and sRH and not (DHS or DHC or DHN or DHD) DSN = DS and sRN DSC = DS and sRC and not (DSN) DSD = DS and d>N and not (DSN or DSC) DSH = DS and sRH and not (DSN or DSC or DSD) DSS = DS and sRS and not (DSN or DSC or DSD or DSH) DNC = DN and sRC DND = DN and d>N and not (DNC) DNH = DN and sRH and not (DNC or DND) DNS = DN and sRS and not (DNC or DND or DNH) DNN = DN and sRN and not (DNC or DND or DNH or DNS) HSN = HS and sRN HSC = HS and sRC and not (HSN) HSD = HS and sRD and not (HSN or HSC) HSH = HS and h>N and not (HSN or HSC or HSD) HSS = HS and sRS and not (HSN or HSC or HSD or HSH) HNC = HN and sRC HND = HN and sRD and not (HNC) HNH = HN and h>N and not (HNC or HND) HNS = HN and sRS and not (HNC or HND or HNH) HNN = HN and sRN and not (HNC or HND or HNH or HNS) cdn = CDN chn = CHN and hearts(north)<N csn = CSN and spades(north)<N dhn = DHN and hearts(north)<N dsn = DSN and spades(north)<N hsn = HSN and spades(north)<N xyNT = cdn or chn or csn or dhn or dsn or hsn gfNT = gameForceNC and shape(south, any N+any N+any N+any N) sFit = (spades(south)+spades(north))>N hFit = (hearts(south)+hearts(north))>N noMfit = not (sFit or hFit) northBal = shape(north,Nxx+Nxx+Nxx+Nxx+Nxx+Nxx-any Nxxx-any Nxxx) northNoNM = shape(north,Nxx+Nxx+Nxx+Nxx-any Nxxx-any Nxxx) ntN = xyNT    and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N and northBal ntN = oneNT   and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N and northNoNM ntN = xyNT    and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N and northBal ntN = twoNT   and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N and northNoNM ntN = gfNT    and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N and northNoNM ntN = threeNT and hcp(south)>=N and hcp(south)<=N and hcp(north)>=N  and northNoNM ntN = gfNT    and hcp(south)>=N                    and hcp(north)>=N  and northNoNM anyNT = ntN or ntN or ntN or ntN or ntN or ntN or ntN cN = hascard(west,NC) cN = hascard(east,ND) cN = hascard(west,NC) cN = hascard(east,ND) keepN = cN and cN          // this is used later w/cN & cN expressions keepN = cN or cN           // this is used later w/cN & cN expressions keepN = keepN and cN keepN = keepN and keepN keepN = keepN and not cN keepN = cN and keepN keepN = cN and not keepN keepN = cN and not cN keepN = cN keepN = keepN or cN keepN = cN or (cN and keepN) keepN = keepN or keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keepN = not keepN keep   = N keepN  = N levN = ntN   and keep levN = ntN   and keepN levN = ntN   and keepN levN = ntN   and keepN levN = ntN   and keepN levN = ntN   and keep levN = ntN   and keep tp = hcp(south)+hcp(north) grandSlam = tp>N smallSlam = tp>N and not grandSlam slamTry   = not (grandSlam or smallSlam) levst = slamTry   and keep levss = smallSlam and keep levgs = grandSlam and keep levelTheDeal = (levN or levN or levN or levN or levN or levN or levN) and (levst or levss or levgs) anyNT and noMfit and levelTheDeal action average \"bench\" hcp(north)",
+      "produced_at_verify": 5,
+      "hit_rate": 0.00025,
+      "seconds_per_deal_r1": 3.06e-06,
+      "deals": 650000,
+      "cluster_size": 1,
+      "cluster_members": [
+        "Gerber_By_Responder"
+      ]
+    },
+    {
+      "name": "_shuffle_baseline",
+      "file": "_shuffle_baseline.dlr",
+      "source": "synthetic",
+      "synthetic": true,
+      "notes": [
+        "generation baseline: RNG and shuffle, minimal evaluation"
+      ],
+      "imports": [],
+      "signature": "",
+      "cluster_size": 1,
+      "cluster_members": [],
+      "produced_at_verify": 98,
+      "hit_rate": 0.00098,
+      "seconds_per_deal_r1": 6e-07,
+      "deals": 3300000
+    }
+  ],
+  "rejected": [
+    {
+      "file": "1N_5M_and_6m.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "1m-1N.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "3N_over_LHO_3x.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "After_Partner_Takeout_Double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "BART.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Balancing.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Basic_Openers_Rebid.dlr",
+      "reason": "dealerv2_4: exit 255 on Basic_Openers_Rebid.dlr: =minOpenerorinvOpener#Responder:6-9,aminimalone-levelresponsesoOPENER'Srebidcarries"
+    },
+    {
+      "file": "Bergen_Thrump_X_after_Preempt.dlr",
+      "reason": "statements follow the action block"
+    },
+    {
+      "file": "Bust_Over_Strong_2C.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "DOPI_ROPI.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Double_by_Advancer.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Double_double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Equal_Level_Conversion.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Exclusion_After_Sta_Jac.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Fit_Jumps_after_1M_Double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Fit_Showing_Jumps.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Forcing_Pass.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "GIB_1N-P-2C-BID.dlr",
+      "reason": "dealer.exe: exit 255 on GIB_1N-P-2C-BID.dlr: line 239: redefined variable"
+    },
+    {
+      "file": "Game_Overcalls.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Gerber.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Gerber_By_Opener.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Grand_Slam_Invite.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Impossible_2S.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Jump_Cuebid_Strong.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Jump_Cuebid_Weak.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Last_Train_GT2.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Last_Train_Game_Try.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Lebensohl.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Lebensohl_vs_Opps_W2_Dir.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Maximal_After_Overcall.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Maximal_Double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "McCabe_after_WJO.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Michaels_Cuebid.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Minor_Suit_Transfer.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Non_Leaping_Michaels_After_3-Bid.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Ogust.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Opp_Redoubles.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Play_Top_Tricks.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Play_Top_Tricks_NT.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Preempt_X_XX.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Rabbis_Rule.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Responsive_Double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Responsive_Double_after_Overcall.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Reverse_Flannery.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Rule_of_16-17.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Rule_of_16-18.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Six_Key_RKC.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Snapdragon_Double.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Soloway_Jump_Shift_Type-3.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Spear.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "TEST.dlr",
+      "reason": "dealer3: exit 1 on TEST.dlr: Error: names are used but never defined: west2C, west2D, west2H, west2S, west2N."
+    },
+    {
+      "file": "Trap_Pass.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Trap_Pass_Opener.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Two-Way_Game_Try.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Two_Way_Finesse.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "W2_X_XX.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "We_Overcall_1N_then_Gerber.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "We_Overcall_NT_then_Smolen.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "We_X_Opps_Preempt.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "We_X_Opps_Weak_2.dlr",
+      "reason": "no matches in 20000 deals"
+    },
+    {
+      "file": "Weak_Jump_Shift.dlr",
+      "reason": "no matches in 20000 deals"
+    }
+  ]
+}
