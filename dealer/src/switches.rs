@@ -574,10 +574,10 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         short: "-M",
         long: "",
         group: "Not implemented",
-        what: "Double-dummy solver mode",
+        what: "Double-dummy solver mode — nothing to implement",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Same,
-        note: Some("dealer3 has `tricks()` but no mode switch."),
+        note: Some("It prints nothing. DealerV2_4's own docs describe it as \"1 Single result mode; 2 all 20 strain-compass combinations\" (`docs/Handstat_layout.txt`), so it chooses how the DDS library is called, not what comes out — and DealerV2_4 switches to mode 2 by itself whenever `par` or `trix` needs it. dealer3 has no such choice to offer: results are remembered per (deal, denomination, declarer) and shared across threads, so asking once costs one search, asking twenty costs twenty, and asking again costs nothing."),
     },
     SwitchRow {
         short: "-Z",

@@ -143,9 +143,14 @@ pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8
 /// S, NT, which is dealer's own strain numbering too.
 pub fn table(deal: &Deal) -> bridge_solver::DdTricks {
     let mut tricks = [[0u8; 5]; 4];
-    for (seat, row) in Position::ALL.iter().zip(tricks.iter_mut()) {
-        for (denomination, cell) in Denomination::ALL.iter().zip(row.iter_mut()) {
-            *cell = self::tricks(deal, *denomination, *seat);
+    // Denomination outermost, so the four declarers share one pair of solver
+    // caches — `DealAnalysis` keeps them per denomination and throws them away
+    // when the denomination changes. Seat-outermost asks for a different
+    // denomination on every call and so rebuilds the caches twenty times
+    // instead of five, which costs about a third of the run.
+    for denomination in Denomination::ALL {
+        for (seat, row) in Position::ALL.iter().zip(tricks.iter_mut()) {
+            row[denomination as usize] = self::tricks(deal, denomination, *seat);
         }
     }
     bridge_solver::DdTricks { tricks }

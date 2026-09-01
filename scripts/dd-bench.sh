@@ -51,6 +51,16 @@ EOF
 cat "$WORK/base.dlr" > "$WORK/none.dlr"
 echo 'action average "North HCP" hcp(north)' >> "$WORK/none.dlr"
 
+# Stage 4: the whole 20-entry table, through `trix(deal)`. This is the stage
+# that catches a table solved in the wrong order. `DealAnalysis` keeps the
+# solver's caches per denomination and drops them when the denomination
+# changes, so a table filled seat-outermost rebuilds them twenty times instead
+# of five and takes about twice as long -- which is exactly what the first cut
+# of `dealer_dds::table` did. The budget is set just above the correct order,
+# so the wrong one fails rather than merely being slower.
+cat "$WORK/base.dlr" > "$WORK/table.dlr"
+echo 'printrpt(trix(deal))' >> "$WORK/table.dlr"
+
 fail=0
 
 run_stage() {
@@ -80,5 +90,6 @@ run_stage "no-dd baseline"       "$WORK/none.dlr"   1000  10
 run_stage "1 solve  x 1  deal"   "$WORK/one.dlr"       1  10
 run_stage "1 solve  x 100 deals" "$WORK/one.dlr"     100  30
 run_stage "2 solves x 1000 deals (the real workload)" "$WORK/two.dlr" 1000 300
+run_stage "20 solves x 40 deals (the whole table)"    "$WORK/table.dlr"  40  10
 
 exit "$fail"
