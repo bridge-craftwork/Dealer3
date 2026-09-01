@@ -37,7 +37,10 @@ dealer_statement = {
 
 // Standalone action statements (can appear without "action" keyword)
 average_stmt = { &kw_average ~ ^"average" ~ string_literal? ~ expr }
-frequency_stmt = { &kw_frequency ~ ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
+// A second expression and range makes it two-dimensional: the original's
+// `FREQUENCY optstring '(' expr ',' number ',' number ',' expr ',' number ','
+// number ')'` (defs.y:430), which prints a cross-tabulation with marginals.
+frequency_stmt = { &kw_frequency ~ ^"frequency" ~ frequency_args }
 // The parentheses matter: `~` binds tighter than `|`, so without them the
 // guard would cover only the first alternative and `printewFoo` would still
 // be swallowed while `printallQ` was fixed.
@@ -113,7 +116,13 @@ side = @{ ^"ns" | ^"ew" }
 action_component = { average_spec | frequency_spec | printrpt_spec | printes_spec | printhands_spec | action_type }
 average_spec = { ^"average" ~ string_literal? ~ expr }
 // frequency "label" (expr, min, max) - parentheses with commas
-frequency_spec = { ^"frequency" ~ string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal ~ ")" }
+frequency_spec = { ^"frequency" ~ frequency_args }
+
+// Shared by the statement and the action form, so the two cannot drift.
+frequency_args = _{
+    string_literal? ~ "(" ~ expr ~ "," ~ literal ~ "," ~ literal
+    ~ ("," ~ expr ~ "," ~ literal ~ "," ~ literal)? ~ ")"
+}
 
 printes_spec = { ^"printes" ~ "(" ~ es_term ~ ("," ~ es_term)* ~ ")" }
 printrpt_spec = { ^"printrpt" ~ "(" ~ csv_term ~ ("," ~ csv_term)* ~ ")" }

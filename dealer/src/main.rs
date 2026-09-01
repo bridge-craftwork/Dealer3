@@ -405,6 +405,47 @@ impl From<VulnerabilityArg> for Vulnerability {
     }
 }
 
+/// The two-dimensional `frequency` cross-tabulation.
+///
+/// Byte-for-byte the original's layout (`dealer.c`, `case ACT_FREQUENCY2D` in
+/// the printing switch): eight spaces and `Low` to open the header, then each
+/// column value in six columns, then `   High    Sum`. Rows are four characters
+/// of label — `Low `, `High`, or the value right-aligned — then a six-column
+/// cell each and the row's own sum. A `Sum ` row closes it with the column sums
+/// and the grand total, and a blank line follows.
+fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
+    let mut header = String::from("        Low");
+    for value in grid.min2..=grid.max2 {
+        header.push_str(&format!(" {:6}", value));
+    }
+    header.push_str("   High    Sum");
+    println!("{}", header);
+
+    let row_sums = grid.row_sums();
+    for (index, row) in grid.counts.iter().enumerate() {
+        let mut line = if index == 0 {
+            "Low ".to_string()
+        } else if index == grid.counts.len() - 1 {
+            "High".to_string()
+        } else {
+            format!("{:4}", grid.min1 + index as i32 - 1)
+        };
+        for count in row {
+            line.push_str(&format!(" {:6}", count));
+        }
+        line.push_str(&format!(" {:6}", row_sums[index]));
+        println!("{}", line);
+    }
+
+    let mut sums = String::from("Sum ");
+    for count in grid.column_sums() {
+        sums.push_str(&format!(" {:6}", count));
+    }
+    sums.push_str(&format!(" {:6}", row_sums.iter().sum::<usize>()));
+    println!("{}", sums);
+    println!();
+}
+
 /// Escape a string for JSON. Labels come from the script, so they can hold
 /// quotes, backslashes and control characters.
 fn json_string(s: &str) -> String {
@@ -2022,6 +2063,13 @@ fn main() {
                     // dealer.exe format: "Frequency <label>:" - preserve label exactly
                     Some(label) => println!("Frequency {}:", label),
                     None => println!("Frequency :"),
+                }
+
+                // The two-dimensional form is a table of its own, not a list
+                // of bins, so it takes over the whole statement's output.
+                if let Some(grid) = &frequency.grid {
+                    print_frequency_2d(grid);
+                    continue;
                 }
 
                 // Print frequency table (format matches dealer.exe: "%5d\t%8ld")

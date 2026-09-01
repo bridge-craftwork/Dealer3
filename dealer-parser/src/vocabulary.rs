@@ -931,14 +931,19 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
     },
     StatementDoc {
         keyword: Some("frequency"),
-        form: "frequency [\"label\"] (<expression>, <low>, <high>)",
+        form: "frequency [\"label\"] (<expression>, <low>, <high>[, <expression>, <low>, <high>])",
         summary: "Report a histogram of the expression over the deals that matched, counting \
-                  from low to high inclusive.",
+                  from low to high inclusive. A second expression and range makes it a \
+                  two-dimensional table instead.",
         example: "frequency \"north hcp\" (hcp(north), 10, 20)",
         note: Some(
-            "Values outside the range are still counted, as the Low and High rows. The \
-             original dealer also takes a second expression and range for a two-dimensional \
-             table; dealer3 does not.",
+            "Values outside a range are still counted, as the Low and High rows.\n\nWith a \
+             second expression the report becomes a cross-tabulation: the first expression \
+             down the rows, the second across the columns, a Low and a High on each axis, and \
+             marginal sums along the right and the bottom. `frequency \"hcp vs spades\" \
+             (hcp(north), 8, 12, spades(north), 3, 5)` is the original's own form, and the \
+             table dealer3 prints is byte-for-byte the one dealer.exe prints for the same \
+             deals.",
         ),
     },
     StatementDoc {
