@@ -58,3 +58,6 @@ bench/.staging/
 bench/.verify/
 bench/.dds/
 scripts/__pycache__/
+
+# Generated at build time by web/scripts/emit-reference.mjs
+web/public/reference.txt

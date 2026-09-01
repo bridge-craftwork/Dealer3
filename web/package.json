@@ -12,7 +12,9 @@
     "build:all": "npm run wasm && vite build",
     "build:threaded": "npm run wasm:threaded && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "reference": "node scripts/emit-reference.mjs",
+    "prebuild": "npm run reference"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
