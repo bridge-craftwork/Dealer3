@@ -752,7 +752,8 @@ fn run_pass(
     let point_counts = dealer_eval::extract_point_counts(&program)
         .map_err(|e| format!("Point count error: {}", e))?;
     let point_counts = point_counts.as_ref();
-    let mut accumulator = RunAccumulator::new(&program, MeasureStop::standard())?;
+    let mut accumulator =
+        RunAccumulator::new(&program, MeasureStop::standard(), opts.vulnerability)?;
     if let Some(plan) = opts.round_robin {
         accumulator = accumulator.with_round_robin(plan.clone());
     }
@@ -777,10 +778,15 @@ fn run_pass(
     // What is left after `check_program` is genuinely per-deal — a strain
     // computed at run time that lands outside 0 to 4, say. That is carried back
     // rather than discarded, and stops the run where it happens.
+    // The context is built here rather than through
+    // `dealer_eval::eval_with_context_and_counts` so that the run's
+    // vulnerability reaches it. `par()` in a condition needs it, and the
+    // convenience helper cannot supply one.
     let test = |deal: &Deal| match constraint {
         Some(expr) => {
-            dealer_eval::eval_with_context_and_counts(expr, &variables, deal, point_counts)
-                .map(|value| value != 0)
+            let ctx = dealer_eval::EvalContext::with_counts(deal, &variables, point_counts)
+                .with_vulnerability(opts.vulnerability);
+            dealer_eval::eval(expr, &ctx).map(|value| value != 0)
         }
         None => Ok(true),
     };
