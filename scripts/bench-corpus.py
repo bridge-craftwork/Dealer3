@@ -209,6 +209,7 @@ def main():
     # same way so its deal count is comparable to the rest.
     baseline_entry, baseline_path = _make_baseline(dealer3, args.target_seconds)
     chosen.append((baseline_entry, baseline_path))
+    chosen.append(_make_solver_entry())
     print(f"\nGeneration baseline: {baseline_entry['seconds_per_deal_r1']*1e9:.1f} "
           f"ns/deal on dealer3 -R1 ({baseline_entry['deals']:,} deals)")
 
@@ -273,6 +274,35 @@ def _make_baseline(dealer3, target_seconds):
     return entry, path
 
 
+def _make_solver_entry():
+    """Write the solver-agreement entry. Verify-only, and not calibrated.
+
+    Nothing to calibrate: it is never timed. Its `deals` is a nominal figure so
+    the shape of a corpus entry stays uniform.
+    """
+    path = bl.CORPUS_DIR / f"{bl.SOLVER_NAME}.dlr"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(bl.SOLVER_SCRIPT)
+    return {
+        "name": bl.SOLVER_NAME,
+        "file": path.name,
+        "source": "synthetic",
+        "synthetic": True,
+        "verify_only": True,
+        "targets": list(bl.SOLVER_TARGETS),
+        "verify_produce": 50,
+        "notes": ["double-dummy agreement between dealer3 and DealerV2_4"],
+        "imports": [],
+        "signature": "",
+        "cluster_size": 1,
+        "cluster_members": [],
+        "produced_at_verify": 0,
+        "hit_rate": 0.0,
+        "seconds_per_deal_r1": 0.0,
+        "deals": 100_000,
+    }, path
+
+
 def _refresh_baseline(dealer3, args):
     """Update only the baseline in an existing corpus.
 
@@ -287,8 +317,10 @@ def _refresh_baseline(dealer3, args):
     index = json.loads(bl.CORPUS_INDEX.read_text())
     target_seconds = index.get("target_seconds", args.target_seconds)
     entry, _ = _make_baseline(dealer3, target_seconds)
-    index["scripts"] = [e for e in index["scripts"] if e["name"] != bl.BASELINE_NAME]
-    index["scripts"].append(entry)
+    solver, _ = _make_solver_entry()
+    index["scripts"] = [e for e in index["scripts"]
+                        if e["name"] not in (bl.BASELINE_NAME, bl.SOLVER_NAME)]
+    index["scripts"].extend([entry, solver])
     index["corpus_id"] = bl.corpus_fingerprint(index["scripts"])
     bl.CORPUS_INDEX.write_text(json.dumps(index, indent=2) + "\n")
     print(f"Generation baseline: {entry['seconds_per_deal_r1']*1e9:.1f} ns/deal "

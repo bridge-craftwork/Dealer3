@@ -21,7 +21,16 @@
 #      benchmark either way, which calls no double-dummy functions.
 #   3. -mtune=corei7 is x86-only, and -fopenmp needs libomp. Both are dropped;
 #      DealerV2_4 contains no OpenMP pragmas or API calls at all, so the flag
-#      was vestigial. (Which also confirms it is single-threaded.)
+#      is vestigial.
+#
+#      That is *not* the same as DealerV2_4 being single-threaded. Its own
+#      deal-and-filter loop is single-threaded, but its double-dummy solving is
+#      not: -R sets nThreads, which is handed to the DDS library through
+#      SetResources(maxMemoryMB, maxThreads), and table mode (-M 2) silently
+#      defaults it if you did not ask. So the benchmark corpus -- which calls
+#      no solver function -- measures it single-threaded, while anything using
+#      dds() or par() does not. Which is why DDS is built here with a real
+#      threading backend rather than none.
 #   4. <malloc.h> and getrandom() are glibc-isms. Both get a shim in
 #      macos-build/include/. getrandom() is reached only when no -s seed is
 #      given, which the benchmark never does.

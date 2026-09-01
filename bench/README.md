@@ -57,6 +57,14 @@ Either can be absent; `bench-reference.py` says so and measures the rest.
 | `dealer.exe` | 32-bit x86, on an ARM64 Windows VM, **under emulation** | What running dealer.exe actually costs you today |
 | `dealer-c` | The same C source, built natively for arm64 — and it deals **identically** to dealer.exe | The honest speed of the original implementation |
 | `dealerv2_4` | DealerV2_4, built natively for arm64 | The honest speed of the modern C fork |
+
+DealerV2_4's deal-and-filter loop is single-threaded, and the corpus calls no
+solver function, so the table above measures it single-threaded throughout. Its
+double-dummy solving is a different matter: `-R` sets DDS worker threads and
+table mode (`-M 2`) defaults them if unset. Any comparison involving `dds()` or
+`par()` has to match `-M`, `-R` and `-L` deliberately -- and `-L` with a `.zrd`
+library means no solving at all, because the file already contains the
+twenty results. See the note on the solver-agreement entry below.
 | `dealer3` | This project, native, `-R 1` and threaded | — |
 
 `dealer-c` deals the same boards as `dealer.exe`, verified byte-for-byte over

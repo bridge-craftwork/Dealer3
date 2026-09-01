@@ -1,0 +1,590 @@
+{
+  "tool": "bench-reference",
+  "windows_vm": {
+    "architecture": "ARM64",
+    "identifier": "ARMv8 (64-bit) Family 8 Model 0 Revision   0,",
+    "cpus": "4",
+    "note": "dealer.exe is PE32/i386; on an ARM64 VM it runs emulated"
+  },
+  "corpus_id": "7d7033566ed1",
+  "corpus_revision": "v0.4.0-196-g529a79a",
+  "repeats": 3,
+  "scale": 1.0,
+  "targets": {
+    "dealer.exe": "Windows VM via SSH; wall-clocked with SSH overhead calibrated out, because dealer.exe reports Time needed 0.000 there",
+    "dealer-c": "original C dealer, built natively -- the emulation-free reference for dealer.exe's lineage",
+    "dealerv2_4": "DealerV2_4"
+  },
+  "scripts": {
+    "Scrambling_2NT": {
+      "deals": 2900000,
+      "dealer.exe": {
+        "seconds_best": 12.572647416964173,
+        "seconds_median": 12.616555499844253,
+        "seconds_all": [
+          12.572647416964173,
+          12.616555499844253,
+          12.645852167159319
+        ],
+        "spread_pct": 0.5822540612756787,
+        "deals": 2900000,
+        "deals_per_sec": 230659.45491218127,
+        "produced": 252,
+        "wall_best": 12.89785929210484,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 1.053,
+        "seconds_median": 1.06,
+        "seconds_all": [
+          1.053,
+          1.06,
+          1.06
+        ],
+        "spread_pct": 0.6647673314340092,
+        "deals": 2900000,
+        "deals_per_sec": 2754036.087369421,
+        "produced": 252,
+        "wall_best": 1.055842166300863,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 2.199,
+        "seconds_median": 2.209,
+        "seconds_all": [
+          2.199,
+          2.209,
+          2.222
+        ],
+        "spread_pct": 1.0459299681673548,
+        "deals": 2900000,
+        "deals_per_sec": 1318781.264211005,
+        "produced": 240,
+        "wall_best": 2.2041440829634666,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "GIB_1N_Basic": {
+      "deals": 2800000,
+      "dealer.exe": {
+        "seconds_best": 12.393759957980365,
+        "seconds_median": 12.421690125018358,
+        "seconds_all": [
+          12.393759957980365,
+          12.421690125018358,
+          12.527360667008907
+        ],
+        "spread_pct": 1.077967537547121,
+        "deals": 2800000,
+        "deals_per_sec": 225920.14122373532,
+        "produced": 68356,
+        "wall_best": 12.718971833121032,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.998,
+        "seconds_median": 1.004,
+        "seconds_all": [
+          0.998,
+          1.004,
+          1.02
+        ],
+        "spread_pct": 2.2044088176352723,
+        "deals": 2800000,
+        "deals_per_sec": 2805611.2224448896,
+        "produced": 68356,
+        "wall_best": 1.0003463746979833,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 2.143,
+        "seconds_median": 2.143,
+        "seconds_all": [
+          2.143,
+          2.143,
+          2.152
+        ],
+        "spread_pct": 0.4199720018665582,
+        "deals": 2800000,
+        "deals_per_sec": 1306579.561362576,
+        "produced": 68265,
+        "wall_best": 2.1464203340001404,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Slam_After_Major_Fit": {
+      "deals": 2700000,
+      "dealer.exe": {
+        "seconds_best": 12.080058665946126,
+        "seconds_median": 12.104941749945283,
+        "seconds_all": [
+          12.080058665946126,
+          12.104941749945283,
+          12.313357333187014
+        ],
+        "spread_pct": 1.9312709788286082,
+        "deals": 2700000,
+        "deals_per_sec": 223508.84831473063,
+        "produced": 4560,
+        "wall_best": 12.405270541086793,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.969,
+        "seconds_median": 0.97,
+        "seconds_all": [
+          0.969,
+          0.97,
+          0.982
+        ],
+        "spread_pct": 1.341589267285863,
+        "deals": 2700000,
+        "deals_per_sec": 2786377.7089783284,
+        "produced": 4560,
+        "wall_best": 0.9715395420789719,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 2.062,
+        "seconds_median": 2.064,
+        "seconds_all": [
+          2.062,
+          2.064,
+          2.098
+        ],
+        "spread_pct": 1.745877788554803,
+        "deals": 2700000,
+        "deals_per_sec": 1309408.341416101,
+        "produced": 4615,
+        "wall_best": 2.067043417133391,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "After_Partner_Overcalls": {
+      "deals": 1900000,
+      "dealer.exe": {
+        "seconds_best": 9.277775832917541,
+        "seconds_median": 9.323103083763272,
+        "seconds_all": [
+          9.277775832917541,
+          9.323103083763272,
+          9.365764582529664
+        ],
+        "spread_pct": 0.9483819311514162,
+        "deals": 1900000,
+        "deals_per_sec": 204790.46209101126,
+        "produced": 337,
+        "wall_best": 9.602987708058208,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.913,
+        "seconds_median": 0.916,
+        "seconds_all": [
+          0.913,
+          0.916,
+          0.928
+        ],
+        "spread_pct": 1.6429353778751383,
+        "deals": 1900000,
+        "deals_per_sec": 2081051.47864184,
+        "produced": 337,
+        "wall_best": 0.9157390831969678,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.652,
+        "seconds_median": 1.656,
+        "seconds_all": [
+          1.652,
+          1.656,
+          1.683
+        ],
+        "spread_pct": 1.8765133171912918,
+        "deals": 1900000,
+        "deals_per_sec": 1150121.0653753027,
+        "produced": 363,
+        "wall_best": 1.6554972501471639,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Major_Suit_Fit": {
+      "deals": 1800000,
+      "dealer.exe": {
+        "seconds_best": 9.304163165856153,
+        "seconds_median": 9.345461915712804,
+        "seconds_all": [
+          9.304163165856153,
+          9.345461915712804,
+          9.452611208893359
+        ],
+        "spread_pct": 1.5955012867999936,
+        "deals": 1800000,
+        "deals_per_sec": 193461.78349553558,
+        "produced": 5373,
+        "wall_best": 9.62937504099682,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 1.037,
+        "seconds_median": 1.062,
+        "seconds_all": [
+          1.037,
+          1.062,
+          1.066
+        ],
+        "spread_pct": 2.796528447444565,
+        "deals": 1800000,
+        "deals_per_sec": 1735776.2777242046,
+        "produced": 5373,
+        "wall_best": 1.040252042002976,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.711,
+        "seconds_median": 1.711,
+        "seconds_all": [
+          1.711,
+          1.711,
+          1.728
+        ],
+        "spread_pct": 0.9935710111046115,
+        "deals": 1800000,
+        "deals_per_sec": 1052016.3646990063,
+        "produced": 5476,
+        "wall_best": 1.714590541087091,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Drury": {
+      "deals": 1500000,
+      "dealer.exe": {
+        "seconds_best": 7.181887790560722,
+        "seconds_median": 7.227778458036482,
+        "seconds_all": [
+          7.181887790560722,
+          7.227778458036482,
+          7.281813833862543
+        ],
+        "spread_pct": 1.3913618009063753,
+        "deals": 1500000,
+        "deals_per_sec": 208858.73516033983,
+        "produced": 163,
+        "wall_best": 7.507099665701389,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.674,
+        "seconds_median": 0.674,
+        "seconds_all": [
+          0.674,
+          0.674,
+          0.687
+        ],
+        "spread_pct": 1.9287833827893193,
+        "deals": 1500000,
+        "deals_per_sec": 2225519.2878338275,
+        "produced": 163,
+        "wall_best": 0.6773857502266765,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.267,
+        "seconds_median": 1.269,
+        "seconds_all": [
+          1.267,
+          1.269,
+          1.27
+        ],
+        "spread_pct": 0.2367797947908535,
+        "deals": 1500000,
+        "deals_per_sec": 1183898.9739542226,
+        "produced": 134,
+        "wall_best": 1.2699155420996249,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Basic_Takeout_Double": {
+      "deals": 1100000,
+      "dealer.exe": {
+        "seconds_best": 6.497418249491602,
+        "seconds_median": 6.559055166784674,
+        "seconds_all": [
+          6.497418249491602,
+          6.559055166784674,
+          6.615740874782205
+        ],
+        "spread_pct": 1.8210713970870003,
+        "deals": 1100000,
+        "deals_per_sec": 169298.01311252677,
+        "produced": 6159,
+        "wall_best": 6.822630124632269,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.922,
+        "seconds_median": 0.924,
+        "seconds_all": [
+          0.922,
+          0.924,
+          0.945
+        ],
+        "spread_pct": 2.494577006507582,
+        "deals": 1100000,
+        "deals_per_sec": 1193058.568329718,
+        "produced": 6159,
+        "wall_best": 0.925167000386864,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.258,
+        "seconds_median": 1.26,
+        "seconds_all": [
+          1.258,
+          1.26,
+          1.292
+        ],
+        "spread_pct": 2.702702702702705,
+        "deals": 1100000,
+        "deals_per_sec": 874403.8155802862,
+        "produced": 6026,
+        "wall_best": 1.261028750333935,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "GIB_1C-P-Resp": {
+      "deals": 1000000,
+      "dealer.exe": {
+        "seconds_best": 5.703944208100438,
+        "seconds_median": 5.758786624763161,
+        "seconds_all": [
+          5.703944208100438,
+          5.758786624763161,
+          5.759113207925111
+        ],
+        "spread_pct": 0.967207914592237,
+        "deals": 1000000,
+        "deals_per_sec": 175317.2828338421,
+        "produced": 6090,
+        "wall_best": 6.029156083241105,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.77,
+        "seconds_median": 0.77,
+        "seconds_all": [
+          0.77,
+          0.77,
+          0.784
+        ],
+        "spread_pct": 1.81818181818182,
+        "deals": 1000000,
+        "deals_per_sec": 1298701.2987012987,
+        "produced": 6090,
+        "wall_best": 0.7726980000734329,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.099,
+        "seconds_median": 1.1,
+        "seconds_all": [
+          1.099,
+          1.1,
+          1.111
+        ],
+        "spread_pct": 1.0919017288444048,
+        "deals": 1000000,
+        "deals_per_sec": 909918.1073703367,
+        "produced": 6084,
+        "wall_best": 1.102797499857843,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Splinters_By_Opener": {
+      "deals": 830000,
+      "dealer.exe": {
+        "seconds_best": 8.524669624865055,
+        "seconds_median": 8.53882316686213,
+        "seconds_all": [
+          8.524669624865055,
+          8.53882316686213,
+          8.553122165612876
+        ],
+        "spread_pct": 0.333767078372515,
+        "deals": 830000,
+        "deals_per_sec": 97364.4770442513,
+        "produced": 134,
+        "wall_best": 8.849881500005722,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 1.956,
+        "seconds_median": 1.957,
+        "seconds_all": [
+          1.956,
+          1.957,
+          1.962
+        ],
+        "spread_pct": 0.306748466257669,
+        "deals": 830000,
+        "deals_per_sec": 424335.37832310837,
+        "produced": 134,
+        "wall_best": 1.9586732499301434,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.937,
+        "seconds_median": 1.958,
+        "seconds_all": [
+          1.937,
+          1.958,
+          1.991
+        ],
+        "spread_pct": 2.787816210635005,
+        "deals": 830000,
+        "deals_per_sec": 428497.67681982444,
+        "produced": 153,
+        "wall_best": 1.9405825841240585,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "Gerber_By_Responder": {
+      "deals": 650000,
+      "dealer.exe": {
+        "seconds_best": 6.636124874930829,
+        "seconds_median": 6.777178625110537,
+        "seconds_all": [
+          6.636124874930829,
+          6.777178625110537,
+          6.82399370893836
+        ],
+        "spread_pct": 2.8310020915555727,
+        "deals": 650000,
+        "deals_per_sec": 97948.72945436779,
+        "produced": 104,
+        "wall_best": 6.961336750071496,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 1.962,
+        "seconds_median": 1.974,
+        "seconds_all": [
+          1.962,
+          1.974,
+          1.976
+        ],
+        "spread_pct": 0.71355759429154,
+        "deals": 650000,
+        "deals_per_sec": 331294.59734964324,
+        "produced": 104,
+        "wall_best": 1.9669607090763748,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 1.686,
+        "seconds_median": 1.689,
+        "seconds_all": [
+          1.686,
+          1.689,
+          1.702
+        ],
+        "spread_pct": 0.9489916963226581,
+        "deals": 650000,
+        "deals_per_sec": 385527.8766310795,
+        "produced": 108,
+        "wall_best": 1.68927516695112,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    },
+    "_shuffle_baseline": {
+      "deals": 3700000,
+      "dealer.exe": {
+        "seconds_best": 5.493093125056475,
+        "seconds_median": 5.618589125107974,
+        "seconds_all": [
+          5.493093125056475,
+          5.618589125107974,
+          5.641643374692649
+        ],
+        "spread_pct": 2.7043096895366396,
+        "deals": 3700000,
+        "deals_per_sec": 673573.1428114028,
+        "produced": 3763,
+        "wall_best": 5.818305000197142,
+        "timing": "wall",
+        "overhead_subtracted": 0.32521187514066696
+      },
+      "dealer-c": {
+        "seconds_best": 0.65,
+        "seconds_median": 0.654,
+        "seconds_all": [
+          0.65,
+          0.654,
+          0.661
+        ],
+        "spread_pct": 1.6923076923076936,
+        "deals": 3700000,
+        "deals_per_sec": 5692307.692307692,
+        "produced": 3763,
+        "wall_best": 0.6530356672592461,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      },
+      "dealerv2_4": {
+        "seconds_best": 0.996,
+        "seconds_median": 0.997,
+        "seconds_all": [
+          0.996,
+          0.997,
+          1.007
+        ],
+        "spread_pct": 1.1044176706827207,
+        "deals": 3700000,
+        "deals_per_sec": 3714859.437751004,
+        "produced": 3782,
+        "wall_best": 0.9995920830406249,
+        "timing": "self",
+        "overhead_subtracted": 0.0
+      }
+    }
+  },
+  "partial": false,
+  "written": "2026-09-01 08:54:40",
+  "machine": {
+    "model": "Mac16,11",
+    "cpu": "Apple M4 Pro",
+    "logical_cpus": "12",
+    "performance_cpus": "8",
+    "efficiency_cpus": "4"
+  }
+}

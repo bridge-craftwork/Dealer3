@@ -94,6 +94,40 @@ hcp(north) >= 24
 action average "bench" hcp(north)
 """
 
+# A synthetic entry that checks dealer3 and DealerV2_4 agree about
+# double-dummy results, over identical deals.
+#
+# dealer.exe and dealer-c have no solver at all -- they answer `dds` with a
+# syntax error -- so this entry names the targets it applies to and is skipped
+# elsewhere. It is verify-only: its cost is dominated by solving the deals it
+# produces rather than by filtering the ones it generates, and the two programs
+# do not produce the same *number* of deals from a fixed -g, so it would not be
+# a comparable throughput measurement.
+#
+# Every token here has to parse in both. DealerV2_4's lexer is case-sensitive
+# and disagrees with itself about case: compasses are lowercase (`north`) but
+# sides are uppercase (`NS`). dealer3 accepts that spelling too, so `par(NS)`
+# and `dds(north, ...)` is the combination that runs on both unchanged.
+#
+# `par` is the strongest check available: it is derived from all twenty
+# double-dummy results, so agreeing on it means agreeing on the whole table,
+# not on one search that happened to match.
+SOLVER_NAME = "_solver_agreement"
+SOLVER_TARGETS = ["dealer3", "dealerv2_4"]
+SOLVER_SCRIPT = """# Synthetic. Not from Practice-Bidding-Scenarios.
+#
+# Checks that dealer3 and DealerV2_4 return the same double-dummy results for
+# the same cards. dealer.exe and dealer-c have no solver and are excluded.
+#
+# Spellings are the intersection of the two languages: `north` lowercase,
+# `NS` uppercase. See SOLVER_NAME in scripts/benchlib.py.
+condition hcp(north) + hcp(south) >= 26
+action
+    average "dds north notrump" dds(north, notrump),
+    average "dds south spades" dds(south, spades),
+    average "par NS" par(NS)
+"""
+
 # The action every corpus script gets, replacing whatever it had. Cheap, runs
 # only on produced deals, and prints one line regardless of hit rate -- so the
 # measurement is condition-evaluation throughput and not output I/O.

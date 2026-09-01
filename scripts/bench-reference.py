@@ -63,6 +63,10 @@ def main():
     args = ap.parse_args()
 
     corpus = bl.load_corpus()
+    # Verify-only entries are for bench-verify.py. They are not timed: their
+    # cost is dominated by solving produced deals, and the programs do not
+    # produce the same number from a fixed -g, so the figure would not compare.
+    corpus = [e for e in corpus if not e.get("verify_only")]
     index = json.loads(bl.CORPUS_INDEX.read_text())
     if args.scripts:
         wanted = {s.strip() for s in args.scripts.split(",")}

@@ -131,8 +131,16 @@ def main():
         staged.write_text(ref_script)
 
         print(f"{entry['name']}")
+        # An entry may name the targets it applies to: the solver-agreement
+        # script uses words dealer.exe and dealer-c do not have, and would
+        # otherwise be reported as a failure rather than as inapplicable.
+        allowed = entry.get("targets")
         for target in live:
-            verdict = check(target, dealer3, staged, args, cs, work, entry["name"])
+            if allowed and target.name not in allowed:
+                print(f"    {target.name:<12} n/a (script needs a double-dummy solver)")
+                continue
+            verdict = check(target, dealer3, staged, args, cs, work, entry["name"],
+                            produce=entry.get("verify_produce"))
             status = verdict["status"]
             print(f"    {target.name:<12} {status}")
             if verdict.get("detail") and (args.verbose or status.startswith("MISMATCH")):
@@ -151,13 +159,19 @@ def main():
     return 0
 
 
-def check(target, dealer3, staged, args, cs, work, name):
-    """Run one reference, replay its deals through dealer3, compare."""
+def check(target, dealer3, staged, args, cs, work, name, produce=None):
+    """Run one reference, replay its deals through dealer3, compare.
+
+    `produce` overrides the run-wide count for entries that are expensive per
+    deal -- a script calling the solver spends milliseconds on each produced
+    deal rather than microseconds.
+    """
+    produce = produce or args.produce
     try:
         argv = list(target.command)
         if target.verbose_flag:
             argv.append(target.verbose_flag)
-        argv += ["-p", str(args.produce), "-s", str(args.seed), str(staged)]
+        argv += ["-p", str(produce), "-s", str(args.seed), str(staged)]
         ref = subprocess.run(argv, capture_output=True, text=True,
                              timeout=args.ssh_timeout + 60)
     except subprocess.TimeoutExpired:
@@ -176,7 +190,7 @@ def check(target, dealer3, staged, args, cs, work, name):
 
     try:
         rep = subprocess.run(
-            list(dealer3.command) + ["-p", str(max(n_deals, args.produce)),
+            list(dealer3.command) + ["-p", str(max(n_deals, produce)),
                                      "--input-deals", str(pbn), str(staged)],
             capture_output=True, text=True, timeout=300)
     except subprocess.TimeoutExpired:
