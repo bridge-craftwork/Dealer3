@@ -652,17 +652,18 @@ fn build_frequency(pairs: pest::iterators::Pairs<Rule>) -> Result<FrequencySpec,
 
     // The grammar allows exactly three or six of these: one expression and two
     // bounds, or two of each.
-    let two_dimensional =
-        match parts.len() {
-            3 => false,
-            6 => true,
-            n => return Err(ParseError {
+    let two_dimensional = match parts.len() {
+        3 => false,
+        6 => true,
+        n => {
+            return Err(ParseError {
                 message: format!(
                     "frequency takes an expression and two bounds, or two of each, not {} parts",
                     n
                 ),
-            }),
-        };
+            })
+        }
+    };
 
     let bound = |pair: &pest::iterators::Pair<Rule>, what: &str| -> Result<i32, ParseError> {
         literal_value(pair.as_str()).map_err(|_| ParseError {
