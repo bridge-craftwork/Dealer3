@@ -126,7 +126,9 @@ def main():
           f"{machine.get('performance_cpus', '?')}P + {machine.get('efficiency_cpus', '?')}E)")
     print(f"{len(corpus)} scripts, {args.repeats} repeats, fastest run wins\n")
 
-    results = {"tool": "bench-dealer3", "revision": rev, "repeats": args.repeats,
+    results = {"tool": "bench-dealer3", "revision": rev,
+               "corpus_id": json.loads(bl.CORPUS_INDEX.read_text()).get("corpus_id"),
+               "repeats": args.repeats,
                "scale": args.scale, "scripts": {}}
 
     for entry in corpus:

@@ -108,7 +108,7 @@ def main():
         sys.exit(f"error: corpus at {bl.CORPUS_DIR} is not under $WINDOWS_GITHUB_HOME "
                  f"({gh}), so the VM cannot read it")
 
-    print(f"Corpus {index.get('built_with', '?')}: {len(corpus)} scripts, "
+    print(f"Corpus {index.get('corpus_id', '?')}: {len(corpus)} scripts, "
           f"{args.repeats} repeats, fastest run wins")
     print(f"Targets: {', '.join(t.name for t in live)}\n")
 
@@ -133,6 +133,7 @@ def main():
         print()
 
     results = {"tool": "bench-reference", "windows_vm": vm,
+               "corpus_id": index.get("corpus_id"),
                "corpus_revision": index.get("built_with"),
                "repeats": args.repeats, "scale": args.scale,
                "targets": {t.name: t.note for t in live}, "scripts": {}}
@@ -157,7 +158,7 @@ def main():
         results["scripts"][entry["name"]] = record
         print()
 
-    rev = index.get("built_with", "unknown")
+    rev = index.get("corpus_id") or index.get("built_with", "unknown")
     # As in bench-dealer3.py: a subset run must not overwrite the full record.
     partial = bool(args.scripts or args.quick or args.only)
     results["partial"] = partial

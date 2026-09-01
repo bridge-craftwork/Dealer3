@@ -64,11 +64,14 @@ def main():
     ref = json.loads(ref_path.read_text()) if ref_path else None
 
     if ref:
-        corpus_rev = json.loads(bl.CORPUS_INDEX.read_text()).get("built_with")
-        if ref.get("corpus_revision") != corpus_rev:
-            print(f"warning: reference numbers were taken against corpus "
-                  f"{ref.get('corpus_revision')}, but the corpus is now {corpus_rev}.")
-            print("         Re-run scripts/bench-reference.py before trusting the ratios.\n")
+        corpus_id = json.loads(bl.CORPUS_INDEX.read_text()).get("corpus_id")
+        for label, payload in (("reference", ref), ("dealer3", d3)):
+            got = payload.get("corpus_id")
+            if got and corpus_id and got != corpus_id:
+                print(f"warning: the {label} numbers were measured against corpus "
+                      f"{got}, but the corpus is now {corpus_id}.")
+                print("         Deal counts are calibrated per script, so those rows")
+                print("         describe different amounts of work. Re-measure.\n")
 
     print(f"dealer3 results : {d3_path.name}  (rev {d3.get('revision')})")
     print(f"reference       : {ref_path.name if ref_path else 'none -- run bench-reference.py'}")

@@ -1,5 +1,5 @@
 {
-  "built_with": "v0.4.0-196-gd638789",
+  "built_with": "v0.4.0-196-g529a79a",
   "source": "/Users/rick/Development/GitHub/Practice-Bidding-Scenarios/dlr",
   "target_seconds": 2.0,
   "verified_against": [
@@ -243,8 +243,8 @@
       "cluster_members": [],
       "produced_at_verify": 98,
       "hit_rate": 0.00098,
-      "seconds_per_deal_r1": 6e-07,
-      "deals": 3300000
+      "seconds_per_deal_r1": 5.3e-07,
+      "deals": 3700000
     }
   ],
   "rejected": [
@@ -492,5 +492,7 @@
       "file": "Weak_Jump_Shift.dlr",
       "reason": "no matches in 20000 deals"
     }
-  ]
+  ],
+  "corpus_id": "7d7033566ed1",
+  "built_with_note": "informational only -- the revision current when the corpus was built. Results are keyed to corpus_id, which depends on the corpus content rather than on git state."
 }

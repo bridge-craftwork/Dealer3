@@ -49,6 +49,7 @@ originals.
 generate the number of deals asked for. A short run means something overrode
 the limit and the timing describes a different amount of work.
 """
+import hashlib
 import json
 import os
 import re
@@ -519,6 +520,29 @@ def load_corpus():
     for e in entries:
         e["path"] = CORPUS_DIR / e["file"]
     return entries
+
+
+def corpus_fingerprint(entries):
+    """A short hash of what the corpus actually is.
+
+    Results are keyed to this rather than to a git revision. A revision is the
+    wrong identity for two reasons: it changes when anything in the repo
+    changes, so reference numbers would look stale after an unrelated commit;
+    and it cannot be written into the corpus before the commit that contains
+    the corpus exists, which is a regress with no fixed point.
+
+    A content hash has neither problem. It is stable across unrelated commits
+    and changes exactly when the scripts or their calibrated deal counts do --
+    which is precisely when a measurement stops being comparable.
+    """
+    h = hashlib.sha256()
+    for e in sorted(entries, key=lambda e: e["name"]):
+        h.update(e["name"].encode())
+        h.update(str(e["deals"]).encode())
+        path = CORPUS_DIR / e["file"]
+        if path.exists():
+            h.update(path.read_bytes())
+    return h.hexdigest()[:12]
 
 
 def representative(corpus):

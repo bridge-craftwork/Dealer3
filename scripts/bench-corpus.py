@@ -218,6 +218,7 @@ def main():
 
     index = {
         "built_with": bl.git_describe(),
+        "corpus_id": None,          # filled in below, once the files are written
         "source": str(source),
         "target_seconds": args.target_seconds,
         "verified_against": [t.name for t in verifiers],
@@ -228,6 +229,7 @@ def main():
         "scripts": [e for e, _ in chosen],
         "rejected": [{"file": f, "reason": r} for f, r in rejected],
     }
+    index["corpus_id"] = bl.corpus_fingerprint(index["scripts"])
     bl.CORPUS_INDEX.parent.mkdir(parents=True, exist_ok=True)
     bl.CORPUS_INDEX.write_text(json.dumps(index, indent=2) + "\n")
 
@@ -287,6 +289,7 @@ def _refresh_baseline(dealer3, args):
     entry, _ = _make_baseline(dealer3, target_seconds)
     index["scripts"] = [e for e in index["scripts"] if e["name"] != bl.BASELINE_NAME]
     index["scripts"].append(entry)
+    index["corpus_id"] = bl.corpus_fingerprint(index["scripts"])
     bl.CORPUS_INDEX.write_text(json.dumps(index, indent=2) + "\n")
     print(f"Generation baseline: {entry['seconds_per_deal_r1']*1e9:.1f} ns/deal "
           f"on dealer3 -R1 ({entry['deals']:,} deals)")
