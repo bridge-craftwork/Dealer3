@@ -13,7 +13,12 @@
 #   scripts/generate-corpus.py   build a committed regression corpus
 #                                (see docs/REGRESSION_TESTING.md)
 #
-# Kept for reference, and in case it is reworked to compare via '--input-deals'.
+# Superseded by scripts/compare-stats.py, which is the '--input-deals' rework
+# this comment used to ask for: it has dealer.exe emit the deals it produced,
+# feeds them back to dealer3, and diffs the statistics. Both programs then see
+# identical cards, so every number is comparable.
+#
+# Kept for reference only.
 # Set COMPARE_DEALER_FORCE=1 to run it anyway; the deal diff will not be useful.
 #
 # Usage:
