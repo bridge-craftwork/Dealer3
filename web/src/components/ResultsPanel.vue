@@ -203,8 +203,13 @@
                     <template v-if="count">{{ count }}</template>
                     <span v-else class="sr-only">0</span>
                   </td>
-                  <td class="heat-sum" :class="{ 'is-zero': !gridRowSum(row) }">
-                    <template v-if="gridRowSum(row)">{{ gridRowSum(row) }}</template>
+                  <td
+                    class="heat-sum"
+                    :class="{ 'is-zero': !gridRowSum(row) }"
+                  >
+                    <template v-if="gridRowSum(row) || isOutlierBucket(r, f.grid.counts.length)">
+                      {{ gridRowSum(row) }}
+                    </template>
                     <span v-else class="sr-only">0</span>
                   </td>
                 </tr>
@@ -218,7 +223,9 @@
                     class="heat-sum"
                     :class="{ 'is-zero': !sum }"
                   >
-                    <template v-if="sum">{{ sum }}</template>
+                    <template v-if="sum || isOutlierBucket(c, gridColumnSums(f.grid).length)">
+                      {{ sum }}
+                    </template>
                     <span v-else class="sr-only">0</span>
                   </td>
                   <td class="heat-sum heat-total">{{ gridTotal(f.grid) }}</td>
@@ -316,6 +323,7 @@ import {
   columnSums as heatColumnSums,
   total as heatTotal,
   cellStyle as heatCellStyle,
+  isOutlierBucket,
 } from '@/lib/heatmap.js'
 
 const props = defineProps({
@@ -736,10 +744,14 @@ const formatValue = formatAverage
 .heat .heat-sum {
   background: transparent;
   color: var(--fg-muted);
-  border-left: 1px solid var(--line);
+  /* Set apart by space, not by a rule. `border-spacing` puts a gap between
+     every cell, so a per-cell border cannot join up into a line — it comes out
+     as a column of dashes. Whitespace separates cleanly and stays quiet. */
+  padding-left: 16px;
 }
-.heat tfoot .heat-sum { border-left: none; border-top: 1px solid var(--line); }
-.heat tfoot .heat-total { border-left: 1px solid var(--line); color: var(--fg); }
+.heat tfoot td,
+.heat tfoot th { padding-top: 10px; }
+.heat tfoot .heat-total { color: var(--fg); font-weight: 600; }
 
 .sr-only {
   position: absolute;

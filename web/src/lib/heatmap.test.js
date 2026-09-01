@@ -93,3 +93,43 @@ describe('the cell shading', () => {
     expect(cellStyle(29, 29).color).toBe('#ffffff')
   })
 })
+
+// Contrast is computable, so it is computed rather than eyeballed. This is the
+// check that keeps a future tweak to the ramp from quietly producing a cell
+// whose count cannot be read on it.
+function luminance(hex) {
+  const h = hex.replace('#', '')
+  const channels = [0, 2, 4]
+    .map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+    .map((c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+}
+
+function contrast(a, b) {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('every step is readable with the ink it takes', () => {
+  // `--fg` in the app's tokens. The style returns the token name, so the test
+  // has to know the value behind it.
+  const DARK_INK = '#1b1d20'
+
+  it.each(HEAT_STEPS)('%s clears 4.5:1', (step) => {
+    const ink = HEAT_STEPS.indexOf(step) >= 3 ? '#ffffff' : DARK_INK
+    expect(contrast(step, ink)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('picks the ink with the better contrast at every step', () => {
+    for (const step of HEAT_STEPS) {
+      const chosen = HEAT_STEPS.indexOf(step) >= 3 ? '#ffffff' : DARK_INK
+      const other = chosen === '#ffffff' ? DARK_INK : '#ffffff'
+      expect(contrast(step, chosen)).toBeGreaterThan(contrast(step, other))
+    }
+  })
+
+  it('omits the step where neither ink is comfortable', () => {
+    // #3987e5: dark 4.64:1, white 3.64:1 — the reason it is not in the ramp.
+    expect(HEAT_STEPS).not.toContain('#3987e5')
+  })
+})

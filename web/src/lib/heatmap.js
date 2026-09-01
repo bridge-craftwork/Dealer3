@@ -6,20 +6,26 @@
 // without a DOM, which is how the rest of this app is arranged.
 
 /// One hue, light to dark, which is what a sequential scale is for — magnitude,
-/// not identity. Steps 100 to 700 of the blue ramp.
+/// not identity. Steps of the blue ramp.
+///
+/// Step 400 (`#3987e5`) is deliberately absent. It is the one step where
+/// neither ink is comfortable: dark ink clears 4.5:1 by a hair (4.64) and white
+/// does not clear it at all (3.64). A cell there looks heavy in black and would
+/// be measurably worse in white, so the answer is to skip the step rather than
+/// to argue about its ink. Every remaining step clears 5.3:1 with the ink it
+/// takes, which `heatmap.test.js` checks by computing the ratios.
 export const HEAT_STEPS = [
   '#cde2fb',
   '#9ec5f4',
   '#6da7ec',
-  '#3987e5',
   '#256abf',
   '#184f95',
   '#0d366b',
 ]
 
-/// Below this step, dark ink clears 4.5:1 on the fill; from it, white does.
-/// The counts are the point of the grid, so they stay readable either way.
-const INK_FLIP = 4
+/// Below this step, dark ink is the readable one; from it, white is. The
+/// counts are the point of the grid, so they stay readable either way.
+const INK_FLIP = 3
 
 function axisLabels(min, max) {
   const labels = ['Low']
@@ -53,6 +59,17 @@ export function columnSums(grid) {
 
 export function total(grid) {
   return grid.counts.reduce((sum, row) => sum + rowSum(row), 0)
+}
+
+/// Is this the Low or the High bucket — the ends of an axis, which hold what
+/// fell outside the script's range?
+///
+/// Their margins keep an explicit zero where an in-range margin is blanked. A
+/// blank there would be ambiguous, and the question it answers is one a reader
+/// actually has: a zero says the range caught everything, where nothing at all
+/// could equally mean the bucket does not apply.
+export function isOutlierBucket(index, length) {
+  return index === 0 || index === length - 1
 }
 
 /// The fill and ink for one cell.
