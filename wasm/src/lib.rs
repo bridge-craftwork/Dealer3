@@ -127,6 +127,28 @@ struct FrequencyResult {
     above: usize,
     /// Every observation, including `below` and `above`.
     total: usize,
+    /// The two-dimensional form's cross-tabulation, when the script gave a
+    /// second expression and range. `None` for an ordinary `frequency`.
+    ///
+    /// Carried even though the page does not draw it yet: without it a
+    /// two-dimensional statement would come back looking like a one-dimensional
+    /// one — the first expression's marginal, correct but silently short of
+    /// what was asked for.
+    grid: Option<FrequencyGridResult>,
+}
+
+/// A two-dimensional `frequency` as a grid, with both axes' ranges.
+///
+/// Rows are the first expression, columns the second. Both axes run
+/// low-outliers, each value in the range, then high-outliers, so a row is
+/// `max2 - min2 + 3` long — the same shape the CLI prints.
+#[derive(Serialize)]
+struct FrequencyGridResult {
+    min1: i32,
+    max1: i32,
+    min2: i32,
+    max2: i32,
+    counts: Vec<Vec<usize>>,
 }
 
 /// What nature offered against what the levelled run delivered, per hand type.
@@ -681,6 +703,13 @@ pub fn generate(
                 below: f.below,
                 above: f.above,
                 total: f.total,
+                grid: f.grid.as_ref().map(|g| FrequencyGridResult {
+                    min1: g.min1,
+                    max1: g.max1,
+                    min2: g.min2,
+                    max2: g.max2,
+                    counts: g.counts.clone(),
+                }),
             })
             .collect(),
         printes: page.printed,

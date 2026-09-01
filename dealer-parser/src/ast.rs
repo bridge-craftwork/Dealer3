@@ -132,6 +132,12 @@ pub struct FrequencySpec {
     pub expr: Expr,
     /// Optional range: (min, max) - if None, auto-detect from data
     pub range: Option<(i32, i32)>,
+    /// A second expression and its range, for the two-dimensional form.
+    ///
+    /// `None` is the ordinary one-dimensional `frequency`. When present the
+    /// statement prints a cross-tabulation of the two, with a row and column
+    /// for values outside each range and marginal sums, as the original does.
+    pub second: Option<(Expr, (i32, i32))>,
 }
 
 /// Vulnerability types

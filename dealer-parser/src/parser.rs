@@ -336,45 +336,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                 averages.push(AverageSpec { label, expr });
                             }
                             Rule::frequency_spec => {
-                                let mut parts = comp_inner.into_inner();
-                                let first = parts.next().unwrap();
-
-                                // Check if first element is a string literal (label) or expression
-                                let (label, expr_pair) = if first.as_rule() == Rule::string_literal
-                                {
-                                    // Has label - strip quotes
-                                    let label_str = first.as_str();
-                                    let label = label_str[1..label_str.len() - 1].to_string();
-                                    (Some(label), parts.next().unwrap())
-                                } else {
-                                    // No label - first element is the expression
-                                    (None, first)
-                                };
-
-                                let expr = build_ast(expr_pair)?;
-
-                                // Check for optional range (min max)
-                                let range = if let Some(min_pair) = parts.next() {
-                                    let min = min_pair.as_str().parse::<i32>().map_err(|_| {
-                                        ParseError {
-                                            message: format!(
-                                                "Invalid frequency range min: {}",
-                                                min_pair.as_str()
-                                            ),
-                                        }
-                                    })?;
-                                    let max =
-                                        parts.next().unwrap().as_str().parse::<i32>().map_err(
-                                            |_| ParseError {
-                                                message: "Invalid frequency range max".to_string(),
-                                            },
-                                        )?;
-                                    Some((min, max))
-                                } else {
-                                    None
-                                };
-
-                                frequencies.push(FrequencySpec { label, expr, range });
+                                frequencies.push(build_frequency(comp_inner.into_inner())?);
                             }
                             Rule::printes_spec => {
                                 printes.push(build_es_terms(comp_inner)?);
@@ -511,16 +473,15 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             let first = parts.next().unwrap();
 
             let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
-                // Has label - strip quotes
                 let label_str = first.as_str();
                 let label = label_str[1..label_str.len() - 1].to_string();
                 (Some(label), parts.next().unwrap())
             } else {
-                // No label - first element is the expression
                 (None, first)
             };
 
             let expr = build_ast(expr_pair)?;
+
             Ok(Statement::Action {
                 averages: vec![AverageSpec { label, expr }],
                 frequencies: Vec::new(),
@@ -531,47 +492,12 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })
         }
         Rule::frequency_stmt => {
-            // Standalone frequency statement: frequency "label"? (expr, min, max)
-            let mut parts = inner.into_inner();
-            let first = parts.next().unwrap();
-
-            let (label, expr_pair) = if first.as_rule() == Rule::string_literal {
-                // Has label - strip quotes
-                let label_str = first.as_str();
-                let label = label_str[1..label_str.len() - 1].to_string();
-                (Some(label), parts.next().unwrap())
-            } else {
-                // No label - first element is the expression
-                (None, first)
-            };
-
-            let expr = build_ast(expr_pair)?;
-
-            // Parse range (min, max)
-            let min = parts
-                .next()
-                .unwrap()
-                .as_str()
-                .parse::<i32>()
-                .map_err(|_| ParseError {
-                    message: "Invalid frequency range min".to_string(),
-                })?;
-            let max = parts
-                .next()
-                .unwrap()
-                .as_str()
-                .parse::<i32>()
-                .map_err(|_| ParseError {
-                    message: "Invalid frequency range max".to_string(),
-                })?;
+            // Standalone frequency statement, in either dimension.
+            let frequency = build_frequency(inner.into_inner())?;
 
             Ok(Statement::Action {
                 averages: Vec::new(),
-                frequencies: vec![FrequencySpec {
-                    label,
-                    expr,
-                    range: Some((min, max)),
-                }],
+                frequencies: vec![frequency],
                 format: None,
                 printes: Vec::new(),
                 print_hands: Vec::new(),
@@ -703,6 +629,70 @@ fn literal_value(text: &str) -> Result<i32, ParseError> {
     };
 
     Ok(sign * (whole * 100 + hundredths))
+}
+
+/// One `frequency`, in either spelling and either dimension.
+///
+/// The statement and the `action` component share `frequency_args` in the
+/// grammar, and share this in the parser, so a change to one reaches both.
+/// Shape: an optional label, then an expression and its two bounds, then
+/// optionally a second expression and its two bounds.
+fn build_frequency(pairs: pest::iterators::Pairs<Rule>) -> Result<FrequencySpec, ParseError> {
+    let mut parts: Vec<_> = pairs.collect();
+
+    // An optional label, then the rest.
+    let label = match parts.first() {
+        Some(p) if p.as_rule() == Rule::string_literal => {
+            let text = parts.remove(0);
+            let text = text.as_str();
+            Some(text[1..text.len() - 1].to_string())
+        }
+        _ => None,
+    };
+
+    // The grammar allows exactly three or six of these: one expression and two
+    // bounds, or two of each.
+    let two_dimensional = match parts.len() {
+        3 => false,
+        6 => true,
+        n => {
+            return Err(ParseError {
+                message: format!(
+                    "frequency takes an expression and two bounds, or two of each, not {} parts",
+                    n
+                ),
+            })
+        }
+    };
+
+    let bound = |pair: &pest::iterators::Pair<Rule>, what: &str| -> Result<i32, ParseError> {
+        literal_value(pair.as_str()).map_err(|_| ParseError {
+            message: format!("Invalid frequency range {}: {}", what, pair.as_str()),
+        })
+    };
+
+    let expr = build_ast(parts[0].clone())?;
+    let range = Some((bound(&parts[1], "min")?, bound(&parts[2], "max")?));
+
+    let second = if two_dimensional {
+        let expr2 = build_ast(parts[3].clone())?;
+        Some((
+            expr2,
+            (
+                bound(&parts[4], "second min")?,
+                bound(&parts[5], "second max")?,
+            ),
+        ))
+    } else {
+        None
+    };
+
+    Ok(FrequencySpec {
+        label,
+        expr,
+        range,
+        second,
+    })
 }
 
 /// A compass word as a `Position`, in any of the language's spellings.

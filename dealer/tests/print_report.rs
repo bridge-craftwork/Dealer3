@@ -8,6 +8,21 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+/// The same, over deals read from a file rather than dealt.
+fn run_with_deals(script: &str, deals_path: &str) -> String {
+    let mut path = std::env::temp_dir();
+    path.push(format!("dealer3-freq2d-script-{}.dlr", std::process::id()));
+    std::fs::write(&path, script).expect("temp script");
+    let out = Command::new(env!("CARGO_BIN_EXE_dealer"))
+        .args(["-q", "-p", "300", "--input-deals", deals_path])
+        .arg(&path)
+        .stdin(Stdio::null())
+        .output()
+        .expect("dealer should run");
+    let _ = std::fs::remove_file(&path);
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
 fn run(script: &str, args: &[&str]) -> String {
     let mut child = Command::new(env!("CARGO_BIN_EXE_dealer"))
         .args(args)
@@ -229,4 +244,86 @@ fn par_without_a_vulnerability_assumes_neither_side() {
         &["-q", "-p", "5", "-s", "1", "--vulnerable", "None"],
     );
     assert_eq!(unset, none);
+}
+
+/// The two-dimensional `frequency`, the original's
+/// `FREQUENCY optstring '(' expr ',' number ',' number ',' expr ',' number ','
+/// number ')'`. Checked against a table captured from the reference binary,
+/// run over deals the reference itself produced — the two do not deal alike, so
+/// the only exact comparison is over shared deals.
+const REFERENCE_FREQUENCY_2D: &str = "\
+Frequency hcp vs spades:
+        Low      3      4      5   High    Sum
+Low      25     27     23     11      5     91
+   8      6     11      4      1      2     24
+   9     11      9      5      0      2     27
+  10      9      9      4      3      2     27
+  11     12      9      9      3      2     35
+  12      5      3      5      2      2     17
+High     29     11     24     13      2     79
+Sum      97     79     74     33     17    300
+";
+
+#[test]
+fn a_two_dimensional_frequency_is_internally_consistent() {
+    let out = run(
+        "condition 1\naction frequency \"x\" (hcp(north), 8, 12, spades(north), 3, 5)\n",
+        &["-q", "-p", "200", "-s", "1"],
+    );
+    let rows: Vec<&str> = out.lines().filter(|l| !l.trim().is_empty()).collect();
+
+    // Header, seven first-expression buckets (Low, 8..12, High), then Sum.
+    assert_eq!(rows.len(), 10, "got: {out}");
+    assert_eq!(rows[1], "        Low      3      4      5   High    Sum");
+    assert!(rows[2].starts_with("Low "));
+    assert!(rows[8].starts_with("High"));
+    assert!(rows[9].starts_with("Sum "));
+
+    let numbers = |line: &str| -> Vec<usize> {
+        line[4..]
+            .split_whitespace()
+            .map(|n| n.parse().expect("a count"))
+            .collect()
+    };
+
+    // Every row's last number is its own sum, and the totals agree both ways.
+    let mut column_totals = [0usize; 5];
+    let mut grand = 0usize;
+    for row in &rows[2..9] {
+        let values = numbers(row);
+        assert_eq!(values.len(), 6, "five buckets and a sum: {row}");
+        assert_eq!(
+            values[5],
+            values[..5].iter().sum::<usize>(),
+            "row sum disagrees: {row}"
+        );
+        for (total, value) in column_totals.iter_mut().zip(&values) {
+            *total += value;
+        }
+        grand += values[5];
+    }
+
+    let sums = numbers(rows[9]);
+    assert_eq!(sums[..5], column_totals[..], "column sums disagree");
+    assert_eq!(sums[5], grand, "the grand total disagrees");
+    assert_eq!(grand, 200, "every produced deal is counted exactly once");
+}
+
+#[test]
+fn a_two_dimensional_frequency_matches_the_reference_table() {
+    // The deals are dealer.exe's own, replayed through `--input-deals`, so the
+    // numbers are comparable and not merely the layout.
+    let deals = include_str!("data/freq2d_reference_deals.pbn");
+    let mut path = std::env::temp_dir();
+    path.push(format!("dealer3-freq2d-{}.pbn", std::process::id()));
+    std::fs::write(&path, deals).expect("temp deals");
+
+    let out = run_with_deals(
+        "condition 1\naction frequency \"hcp vs spades\" (hcp(north), 8, 12, spades(north), 3, 5)\n",
+        path.to_str().expect("path"),
+    );
+    let _ = std::fs::remove_file(&path);
+
+    let table: String = out.lines().take(10).map(|l| format!("{l}\n")).collect();
+    assert_eq!(table, REFERENCE_FREQUENCY_2D);
 }

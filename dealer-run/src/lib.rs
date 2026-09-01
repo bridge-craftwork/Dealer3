@@ -204,6 +204,51 @@ pub struct FrequencyStat {
     pub above: usize,
     /// Every observation, `below` and `above` included.
     pub total: usize,
+    /// The two-dimensional form's grid, when the statement had a second
+    /// expression. `None` for an ordinary `frequency`.
+    pub grid: Option<FrequencyGrid>,
+}
+
+/// A two-dimensional `frequency`, as a cross-tabulation ready to print.
+///
+/// Both axes run low-outliers, then each value in the range, then
+/// high-outliers — so a row or column count is `max - min + 3`, which is the
+/// original's `high - low + 3`. `counts` is row-major over the first
+/// expression.
+#[derive(Debug, Clone)]
+pub struct FrequencyGrid {
+    pub min1: i32,
+    pub max1: i32,
+    pub min2: i32,
+    pub max2: i32,
+    pub counts: Vec<Vec<usize>>,
+}
+
+impl FrequencyGrid {
+    /// The bucket a value falls in: 0 below the range, `max - min + 2` above
+    /// it, and its offset plus one within. The original's arithmetic.
+    fn bucket(value: i32, min: i32, max: i32) -> usize {
+        if value > max {
+            (max - min + 2) as usize
+        } else if value < min {
+            0
+        } else {
+            (value - min + 1) as usize
+        }
+    }
+
+    /// Row sums, one per first-expression bucket.
+    pub fn row_sums(&self) -> Vec<usize> {
+        self.counts.iter().map(|row| row.iter().sum()).collect()
+    }
+
+    /// Column sums, one per second-expression bucket.
+    pub fn column_sums(&self) -> Vec<usize> {
+        let width = self.counts.first().map_or(0, |row| row.len());
+        (0..width)
+            .map(|column| self.counts.iter().map(|row| row[column]).sum())
+            .collect()
+    }
 }
 
 /// Everything a run gathered, once it is over.
@@ -229,6 +274,12 @@ struct Histogram<'a> {
     expr: &'a Expr,
     counts: BTreeMap<i32, usize>,
     range: Option<(i32, i32)>,
+    /// The second expression and its range, for the two-dimensional form, with
+    /// the grid it fills. Counted straight into buckets rather than kept as
+    /// raw pairs: the ranges are declared up front, so there is nothing to
+    /// decide at the end.
+    second: Option<(&'a Expr, (i32, i32))>,
+    grid: Vec<Vec<usize>>,
 }
 
 /// The body of a generate loop: classify a produced deal and count it.
@@ -302,11 +353,24 @@ impl<'a> RunAccumulator<'a> {
                     });
                 }
                 for f in freq_specs {
+                    let second = f.second.as_ref().map(|(expr, range)| (expr, *range));
+                    // Sized from the declared ranges, so every cell exists
+                    // before the first deal and nothing grows mid-run.
+                    let grid = match (f.range, second) {
+                        (Some((min1, max1)), Some((_, (min2, max2)))) => {
+                            let width = (max2 - min2 + 3).max(0) as usize;
+                            let height = (max1 - min1 + 3).max(0) as usize;
+                            vec![vec![0usize; width]; height]
+                        }
+                        _ => Vec::new(),
+                    };
                     frequencies.push(Histogram {
                         label: f.label.clone(),
                         expr: &f.expr,
                         counts: BTreeMap::new(),
                         range: f.range,
+                        second,
+                        grid,
                     });
                 }
             }
@@ -450,6 +514,22 @@ impl<'a> RunAccumulator<'a> {
                 message: e.to_string(),
             })?;
             *frequency.counts.entry(value).or_insert(0) += 1;
+
+            // The two-dimensional form counts into the grid as well, so the
+            // one-dimensional numbers stay available beside it.
+            if let (Some((expr2, (min2, max2))), Some((min1, max1))) =
+                (frequency.second, frequency.range)
+            {
+                let value2 = eval(expr2, &ctx).map_err(|e| RunError::Eval {
+                    what: "Frequency evaluation error".to_string(),
+                    message: e.to_string(),
+                })?;
+                let row = FrequencyGrid::bucket(value, min1, max1);
+                let column = FrequencyGrid::bucket(value2, min2, max2);
+                if let Some(cell) = frequency.grid.get_mut(row).and_then(|r| r.get_mut(column)) {
+                    *cell += 1;
+                }
+            }
         }
         Ok(())
     }
@@ -616,6 +696,15 @@ impl<'a> RunAccumulator<'a> {
                         .map(|(_, v)| v)
                         .sum(),
                     total,
+                    grid: f.second.and_then(|(_, (min2, max2))| {
+                        f.range.map(|(min1, max1)| FrequencyGrid {
+                            min1,
+                            max1,
+                            min2,
+                            max2,
+                            counts: f.grid,
+                        })
+                    }),
                 }
             })
             .collect();

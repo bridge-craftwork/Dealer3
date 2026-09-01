@@ -166,14 +166,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "Two-dimensional `frequency`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
-        note: Some("The original takes a second expression and range and prints marginals."),
-    },
-    WorkItem {
         what: "The length-bias form of `predeal`, `spades(north) == 5` — which the original ignores",
         done_when: None,
         issue: None,

@@ -163,7 +163,7 @@ Tightest binding first. Operators sharing a level are applied left to right.
 | `printes(<expression> \| "string" \| \n, ...)` | Print a line of your own for each matching deal, from expressions and literal text. | `printes("N=", hcp(north), \n)` |
 | `print(<compass>, ...)` | Lay out one seat's hands at the end of the run, four boards to a page. | `print(north)` |
 | `average ["label"] <expression>` | Report the mean of the expression over the deals that matched. | `average "north hcp" hcp(north)` |
-| `frequency ["label"] (<expression>, <low>, <high>)` | Report a histogram of the expression over the deals that matched, counting from low to high inclusive. | `frequency "north hcp" (hcp(north), 10, 20)` |
+| `frequency ["label"] (<expression>, <low>, <high>[, <expression>, <low>, <high>])` | Report a histogram of the expression over the deals that matched, counting from low to high inclusive. A second expression and range makes it a two-dimensional table instead. | `frequency "north hcp" (hcp(north), 10, 20)` |
 | `pointcount <value> <value> ...` | Re-scale the high card points. Values run from the ace downwards, and ranks not reached score nothing. | `pointcount 6 4 2 1` |
 | `altcount <count> <value> <value> ...` | Re-scale one of the other counts, the same way `pointcount` re-scales the high card points. | `altcount 2 1 1 1` |
 | `dealer <compass>` | Records who dealt. Affects the output only, never which deals are produced. | `dealer south` |
@@ -214,7 +214,6 @@ tracked by a generated table, so this section is maintained by hand.
 
 | Difference | Status |
 |---|---|
-| `frequency` has no two-dimensional form | Documented, no issue |
 | `predeal` has no length-bias form (`spades(north) == 5`) | Documented, no issue |
 | `rnd()` is broken on locally built dealer binaries | Not ours: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it calls. A build without `STD_RAND` returns values far outside the bound (Windows: `rnd(10)` averages 322,000) or negative ones (macOS: 43% below zero). BBO's build is correct, and dealer3 agrees with it. |
 | `rnd()` does not disturb the deal sequence | Deliberate. The original shares one generator between `rnd()` and the shuffle, so calling it changes which deals come out. dealer3 gives `rnd()` a stream of its own, seeded from the deal, so output does not depend on how many threads are running. `--rnd-seed` shifts it. |

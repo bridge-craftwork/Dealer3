@@ -328,6 +328,12 @@ The two programs no longer deal the same boards, so nothing is gained by
 diffing their output. What still compares cleanly is what a script *means*:
 
 ```bash
+# Compare the two over the same deals: dealer.exe emits what it produced,
+# dealer3 replays it, and the statistics are diffed. This is the strongest
+# check there is — averages, frequencies in either dimension and the deal
+# layouts all compare exactly, because both are looking at identical cards.
+scripts/compare-stats.py -p 200 -s 1 test.dlr
+
 # Have dealer.exe produce the deals a script matches, then check dealer3
 # accepts every one of them. Anything less than 100% is a real difference.
 scripts/test-filter.py -p 20 -s 1 test.dlr

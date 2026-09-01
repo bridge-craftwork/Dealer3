@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Two-dimensional `frequency`.** A second expression and range turns the
+  histogram into a cross-tabulation: the first expression down the rows, the
+  second across the columns, a Low and a High on each axis, and marginal sums
+  along the right and the bottom.
+
+  ```
+  frequency "hcp vs spades" (hcp(north), 8, 12, spades(north), 3, 5)
+  ```
+
+  - This was the **only remaining gap against dealer.exe** in the language.
+    Its grammar has had the form since `defs.y:430`, and a script using it was
+    a parse error here.
+  - The table is byte-for-byte the original's, checked rather than eyeballed:
+    the reference binary's own 300 deals are replayed through `--input-deals`
+    and the two tables diffed. The fixture is committed, so the check is a test
+    rather than a one-off.
+  - The one-dimensional counts are still gathered alongside, so nothing that
+    read `bins`, `below` or `above` changes. The WebAssembly result carries the
+    grid too — the browser does not draw it yet, but a two-dimensional
+    statement must not come back silently looking one-dimensional.
+  - `frequency`'s statement and `action` forms now share one grammar rule and
+    one builder, so the two spellings cannot drift.
 - **Decimal literals, DealerV2_4's dotnums: `6.25`, `3.0`, `.5`.** Sugar for a
   hundred times themselves — `6.25` is 625 — computed exactly as
   `dealflex.l:416` does. Accepted anywhere a number is, including the count
