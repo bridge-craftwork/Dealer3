@@ -73,7 +73,9 @@ def main():
                 print("         Deal counts are calibrated per script, so those rows")
                 print("         describe different amounts of work. Re-measure.\n")
 
-    print(f"dealer3 results : {d3_path.name}  (rev {d3.get('revision')})")
+    print(f"dealer3 results : {d3_path.name}")
+    print(f"                  source {d3.get('source_id', '?')}, "
+          f"repo {d3.get('revision', '?')}")
     print(f"reference       : {ref_path.name if ref_path else 'none -- run bench-reference.py'}")
     m = d3.get("machine", {})
     print(f"machine         : {m.get('cpu') or m.get('model')}  "
@@ -249,6 +251,12 @@ def _delta(old, new, old_name):
     usually a corpus change rather than a result.
     """
     print(f"\nChange against {old_name}")
+    if old.get("source_id") and new.get("source_id"):
+        if old["source_id"] == new["source_id"]:
+            print(f"  NOTE: both sides have source {old['source_id']} -- the code did "
+                  "not change, so this is run-to-run noise.")
+        else:
+            print(f"  source {old['source_id']} -> {new['source_id']}")
     print(f"{'script':<28} {'before':>10} {'after':>10} {'change':>10}")
     print("-" * 62)
 

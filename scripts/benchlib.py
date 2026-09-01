@@ -556,6 +556,36 @@ def load_corpus():
     return entries
 
 
+def source_fingerprint():
+    """A short hash of the Rust source that produces the dealer3 binary.
+
+    `git describe` is the wrong key for a dealer3 measurement. It reports the
+    state of the whole repository, so editing this harness marks a result
+    "-dirty" even though the binary is byte-identical, and two results taken
+    from the same code can end up labelled differently. What a performance
+    number is about is the code that ran.
+
+    Hashes every crate's Rust sources and manifests. `wasm/` is excluded: it is
+    its own workspace and is not part of the CLI binary.
+
+    Limitation worth knowing: the sibling crates patched in through
+    .cargo/config.toml (bridge-types, bridge-solver, bridge-encodings) live
+    outside this repository and are not covered. A change there moves the
+    numbers without moving this hash.
+    """
+    h = hashlib.sha256()
+    files = sorted(
+        [p for p in REPO.glob("*/src/**/*.rs") if "wasm/" not in str(p.relative_to(REPO))]
+        + [p for p in REPO.glob("*/Cargo.toml") if "wasm/" not in str(p.relative_to(REPO))]
+        + [REPO / "Cargo.toml"]
+    )
+    for path in files:
+        if path.exists():
+            h.update(str(path.relative_to(REPO)).encode())
+            h.update(path.read_bytes())
+    return h.hexdigest()[:12]
+
+
 def corpus_fingerprint(entries):
     """A short hash of what the corpus actually is.
 

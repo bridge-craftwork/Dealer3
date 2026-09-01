@@ -128,9 +128,11 @@ def main():
     print(f"dealer3 {rev} on {machine.get('cpu') or machine.get('model') or 'unknown'} "
           f"({machine.get('logical_cpus', '?')} logical, "
           f"{machine.get('performance_cpus', '?')}P + {machine.get('efficiency_cpus', '?')}E)")
-    print(f"{len(corpus)} scripts, {args.repeats} repeats, fastest run wins\n")
+    print(f"source {bl.source_fingerprint()}, {len(corpus)} scripts, "
+          f"{args.repeats} repeats, fastest run wins\n")
 
     results = {"tool": "bench-dealer3", "revision": rev,
+               "source_id": bl.source_fingerprint(),
                "corpus_id": json.loads(bl.CORPUS_INDEX.read_text()).get("corpus_id"),
                "repeats": args.repeats,
                "scale": args.scale, "scripts": {}}
@@ -190,7 +192,9 @@ def main():
         out = Path(args.output)
     else:
         suffix = "-partial" if partial else ""
-        out = bl.RESULTS_DIR / f"dealer3-{rev}{suffix}.json"
+        # Named for the source that produced the binary, not the repo state --
+        # see benchlib.source_fingerprint(). Mirrors reference-<corpus_id>.json.
+        out = bl.RESULTS_DIR / f"dealer3-{results['source_id']}{suffix}.json"
     results["partial"] = partial
     if partial:
         results["partial_reason"] = {
