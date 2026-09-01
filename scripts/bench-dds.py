@@ -79,6 +79,7 @@ Options:
 """
 import argparse
 import re
+import resource
 import subprocess
 import sys
 import time
@@ -167,17 +168,15 @@ def main():
 
     results = {}
     for name, argv_for in (
-        ("dealerv2_4", lambda script: v2.command + ["-M", "2", "-R", str(threads),
-                                                    "-g", str(args.generate),
-                                                    "-p", str(bl.NO_PRODUCE_LIMIT),
-                                                    "-s", str(args.seed), str(script)]),
+        ("dealerv2_4", lambda script, t=None: v2.command
+            + ["-M", "2", "-R", str(t or threads), "-g", str(args.generate),
+               "-p", str(bl.NO_PRODUCE_LIMIT), "-s", str(args.seed), str(script)]),
         # dealer3 is handed the deals V2_4 already matched, so it re-applies the
         # same condition to deals that all satisfy it. Anything it rejects is a
         # semantic disagreement, and _verdict says so.
-        ("dealer3", lambda script: dealer3.command + ["-v", "-R", str(threads),
-                                                      "-p", str(bl.NO_PRODUCE_LIMIT),
-                                                      "--input-deals", str(pbn),
-                                                      str(script)]),
+        ("dealer3", lambda script, t=None: dealer3.command
+            + ["-v", "-R", str(t or threads), "-p", str(bl.NO_PRODUCE_LIMIT),
+               "--input-deals", str(pbn), str(script)]),
     ):
         print(f"{name}")
         with_dd = _timed(argv_for(dd), args.repeats, name, "with solver")
@@ -187,15 +186,23 @@ def main():
             sys.exit(f"error: {name} produced {solved} deals with the solver and "
                      f"{without['produced']} without -- the condition is not stable")
         dd_seconds = with_dd["seconds"] - without["seconds"]
+        dd_cpu = with_dd["cpu"] - without["cpu"]
         results[name] = {
             "with": with_dd, "without": without, "solved": solved,
-            "dd_seconds": dd_seconds,
+            "dd_seconds": dd_seconds, "dd_cpu": dd_cpu,
+            "parallelism": dd_cpu / dd_seconds if dd_seconds > 0 else float("nan"),
             "ns_per_solve": dd_seconds / solved * 1e9 if solved else float("nan"),
+            "cpu_per_solve": dd_cpu / solved * 1e9 if solved else float("nan"),
         }
         print(f"    with solver  {with_dd['seconds']:8.3f}s")
         print(f"    no solver    {without['seconds']:8.3f}s")
         print(f"    solving      {dd_seconds:8.3f}s over {solved:,} deals"
-              f"  ->  {results[name]['ns_per_solve']/1e6:.2f} ms per solved deal\n")
+              f"  ->  {results[name]['ns_per_solve']/1e6:.2f} ms per solved deal")
+        par = results[name]["parallelism"]
+        note = "single-threaded" if par < 1.2 else f"{par:.1f} cores busy"
+        print(f"    cpu          {dd_cpu:8.3f}s"
+              f"  ->  {results[name]['cpu_per_solve']/1e6:.1f} ms cpu per solve"
+              f"  ({note})\n")
 
     _verdict(results, args, threads)
 
@@ -209,12 +216,23 @@ def main():
 
 
 def _timed(argv, repeats, name, label):
-    """Best of `repeats`, returning self-reported seconds and the produced count."""
-    best, produced, stats = None, None, None
+    """Best of `repeats`: wall seconds, CPU seconds, and the produced count.
+
+    CPU comes from getrusage(RUSAGE_CHILDREN), differenced across the call.
+    Measuring it is the whole point: a thread count on the command line says
+    what was *asked for*, not what was used, and the two programs disagree about
+    what the switch even means. CPU divided by wall says how many cores actually
+    worked, and needs no assumption at all.
+    """
+    best, produced, stats, best_cpu = None, None, None, None
     for _ in range(repeats):
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
         started = time.monotonic()
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=7200)
         wall = time.monotonic() - started
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
+        cpu = ((after.ru_utime - before.ru_utime)
+               + (after.ru_stime - before.ru_stime))
         if proc.returncode != 0:
             sys.exit(f"error: {name} ({label}) exit {proc.returncode}: "
                      f"{bl._first_real_line(proc.stdout + proc.stderr)}")
@@ -227,8 +245,8 @@ def _timed(argv, repeats, name, label):
         p = bl.PRODUCED_RE.search(text)
         produced = int(p.group(1)) if p else 0
         if best is None or seconds < best:
-            best, stats = seconds, _statistics(text)
-    return {"seconds": best, "produced": produced, "stats": stats}
+            best, stats, best_cpu = seconds, _statistics(text), cpu
+    return {"seconds": best, "cpu": best_cpu, "produced": produced, "stats": stats}
 
 
 def _statistics(text):
@@ -243,6 +261,19 @@ def _statistics(text):
         if m and "Time needed" not in line:
             out[m.group(1).strip()] = float(m.group(2))
     return out
+
+
+def _x(dealer3, other):
+    """dealer3's cost against another program's, in words.
+
+    Takes the two costs rather than a ratio, because a bare ratio invites
+    getting the direction backwards -- which is exactly what happened here
+    once. Costs, so larger is worse.
+    """
+    if other <= 0:
+        return "not comparable"
+    ratio = dealer3 / other
+    return f"{ratio:.2f}x slower" if ratio >= 1 else f"{1/ratio:.2f}x faster"
 
 
 def _verdict(results, args, threads):
@@ -273,20 +304,49 @@ def _verdict(results, args, threads):
               "same cards to the same answers.")
 
     print()
-    print(f"{'':<12} {'solving':>10} {'per solve':>12} {'solves/sec':>12}")
-    print("-" * 64)
+    print(f"{'':<12} {'wall/solve':>11} {'cpu/solve':>11} {'cores busy':>11}"
+          f" {'solves/s':>9}")
+    print("-" * 68)
     for name, r in (("DealerV2_4", a), ("dealer3", b)):
         rate = r["solved"] / r["dd_seconds"] if r["dd_seconds"] > 0 else float("nan")
-        print(f"{name:<12} {r['dd_seconds']:>9.3f}s {r['ns_per_solve']/1e6:>11.2f}ms"
-              f" {rate:>12.1f}")
-    print("-" * 64)
+        print(f"{name:<12} {r['ns_per_solve']/1e6:>10.1f}ms"
+              f" {r['cpu_per_solve']/1e6:>10.1f}ms {r['parallelism']:>10.1f}x"
+              f" {rate:>9.1f}")
+    print("-" * 68)
+
+    # Cores busy is CPU divided by wall, measured rather than asked for. It is
+    # the only honest way to compare here: --threads is passed to both, but
+    # DealerV2_4 hands it to DDS while dealer3's -R threads deal generation,
+    # which a solver-bound run barely does. And DealerV2_4 cannot be made
+    # single-threaded in table mode at all -- setup_dds_mode() overrides
+    # anything below 2 up to TblModeThreads, which is 9 -- so asking it for one
+    # thread and believing the answer is how the first version of this script
+    # got the comparison wrong.
+    solo = [n for n, r in (("DealerV2_4", a), ("dealer3", b))
+            if r["parallelism"] < 1.2]
+    if solo and len(solo) < 2:
+        print(f"{' and '.join(solo)} solved single-threaded while the other did not.")
+        print("Read cpu/solve for the solvers themselves and wall/solve for what a")
+        print("user waits; the difference between the two columns is parallelism,")
+        print("not solver quality.")
+        print()
+
     if a["ns_per_solve"] > 0 and b["ns_per_solve"] > 0:
-        ratio = a["ns_per_solve"] / b["ns_per_solve"]
-        verdict = (f"{ratio:.2f}x faster" if ratio >= 1 else f"{1/ratio:.2f}x slower")
-        print(f"dealer3's solver is {verdict} than DealerV2_4's, at {threads} threads.")
+        print(f"Wall clock:  dealer3 is "
+              f"{_x(b['ns_per_solve'], a['ns_per_solve'])} than DealerV2_4.")
+        print(f"Per core:    dealer3 is "
+              f"{_x(b['cpu_per_solve'], a['cpu_per_solve'])} than DealerV2_4.")
+        wall = b["ns_per_solve"] / a["ns_per_solve"]
+        cpu = b["cpu_per_solve"] / a["cpu_per_solve"] if a["cpu_per_solve"] else 0
+        if wall > 1 and cpu > 0:
+            print(f"\nOf the {wall:.2f}x wall-clock gap, about {wall/cpu:.2f}x is "
+                  f"parallelism DealerV2_4\nuses and dealer3 does not, and about "
+                  f"{cpu:.2f}x is the cost of one solve on one core.")
+            print("Those multiply rather than add.")
+
     print("\nSolving time is the with-solver run minus the no-solver run, per")
-    print("program, so deal acquisition and filtering cancel out. Both are")
-    print("threaded: DealerV2_4's table mode will not run below two threads.")
+    print("program, so deal acquisition and filtering cancel out. DealerV2_4's")
+    print("table mode will not run below two threads, so --threads is at least 2.")
 
 
 if __name__ == "__main__":
