@@ -41,7 +41,12 @@ frequency_stmt = { &kw_frequency ~ ^"frequency" ~ string_literal? ~ "(" ~ expr ~
 // The parentheses matter: `~` binds tighter than `|`, so without them the
 // guard would cover only the first alternative and `printewFoo` would still
 // be swallowed while `printallQ` was fixed.
-print_stmt = { &kw_print ~ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline") }
+print_stmt = { &kw_print ~ (printside_spec | simple_action) }
+
+// `printside(ns)` and `printside(ew)`, DealerV2_4's one action for both
+// partnerships. `printns` and `printew` are the same thing already named, and
+// DealerV2_4 routes all three through it.
+printside_spec = { ^"printside" ~ "(" ~ side ~ ")" }
 
 // Action block keywords
 condition_stmt = { &kw_condition ~ ^"condition" ~ expr }
@@ -84,13 +89,23 @@ pointcount_stmt = { &kw_pointcount ~ ^"pointcount" ~ literal+ }
 altcount_stmt = { &kw_altcount ~ ^"altcount" ~ literal ~ literal+ }
 
 // CSV terms for csvrpt
+//
+// `trix` comes first: it is a call, so `expr` would otherwise try to read it as
+// a function and fail on a name the language does not have.
 csv_term = {
+    trix_spec |
     ^"deal" |
     side |
     compass |
     string_literal |
     expr
 }
+
+// `trix(north)` or `trix(deal)`: tricks in all five strains, as columns rather
+// than one value, which is why it is a report term and not a function. Five
+// numbers for a compass, twenty for the deal, in the seat order the report
+// already uses for `deal`.
+trix_spec = { ^"trix" ~ "(" ~ (^"deal" | compass) ~ ")" }
 
 side = @{ ^"ns" | ^"ew" }
 
@@ -111,8 +126,13 @@ printhands_spec = { ^"print" ~ "(" ~ compass ~ ("," ~ compass)* ~ ")" }
 es_term = { string_literal | newline | expr }
 newline = @{ "\\n" }
 
-action_type = @{
-    ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
+action_type = { printside_spec | simple_action }
+
+// Longest first, as everywhere: `printns` ahead of nothing it prefixes, but
+// `printoneline` must precede no shorter spelling of itself.
+simple_action = @{
+    ^"printall" | ^"printew" | ^"printns" | ^"printpbn" | ^"printcompact"
+    | ^"printoneline"
 }
 
 // Dealer position (compass)
@@ -167,7 +187,8 @@ multiplicative = { unary ~ (mul_op ~ unary)* }
 unary = { "-" ~ unary | not_op ~ unary | primary }
 
 primary = _{
-    score_call     // Before function_call: score's own argument spellings
+    par_call       // Before function_call: `ns` and `ew` are not expressions
+    | score_call     // Before function_call: score's own argument spellings
     | function_call  // Must be first to parse function(args)
     | paren_expr
     | shape_pattern
@@ -197,6 +218,13 @@ function_call = { function_name ~ "(" ~ expr ~ ("," ~ expr)* ~ ")" }
 // not 2" before a card is dealt. Pinning the rule to three instead made
 // `score(nv, x3N)` fall through to `function_call`, where the two words are
 // nothing but undefined names — loud, but about the wrong thing.
+// `par(ns)`, `par(ew)`, and — as `dds_parscore` in DealerV2_4 allows — a
+// compass for the side that seat is on. `ns` and `ew` are not expressions
+// anywhere else, so par needs its own rule to reach them, the same way `score`
+// does for its contract words.
+par_call = { par_name ~ "(" ~ (side | expr) ~ ")" }
+par_name = @{ "par" ~ !(ASCII_ALPHANUMERIC | "_") }
+
 score_call = { score_name ~ "(" ~ score_arg ~ ("," ~ score_arg)* ~ ")" }
 score_name = @{ "score" ~ !(ASCII_ALPHANUMERIC | "_") }
 score_arg = _{ contract_token | vuln_token | expr }
@@ -234,7 +262,7 @@ function_name = @{
     "controls" | "control"
     | "hascard" | "hcps" | "hcp"
     | "losers" | "loser"
-    | "shape" | "quality" | "cccc" | "score"
+    | "shape" | "quality" | "cccc" | "score" | "par"
     | "tens" | "ten"
     | "jacks" | "jack"
     | "queens" | "queen"
@@ -344,7 +372,7 @@ kw_altcount   = @{ ^"altcount"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_average    = @{ ^"average"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_frequency  = @{ ^"frequency"  ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_printes    = @{ ^"printes"    ~ !(ASCII_ALPHANUMERIC | "_") }
-kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline" | ^"print") ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_print      = @{ (^"printall" | ^"printew" | ^"printns" | ^"printside" | ^"printpbn" | ^"printcompact" | ^"printoneline" | ^"print") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // Words that introduce a statement. Kept out of bare-identifier position: a
 // malformed statement otherwise backtracks into `expr` and parses as bare

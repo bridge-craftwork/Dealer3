@@ -29,6 +29,7 @@ fn deal(threads: usize, count: usize) -> (f64, usize) {
     let report = dealer_run::run(
         JACOBY,
         RunOptions {
+            vulnerability: dealer_core::Vulnerability::None,
             seed: 1,
             produce: usize::MAX,
             max_generate: count,

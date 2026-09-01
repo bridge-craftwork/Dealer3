@@ -93,18 +93,27 @@ fn functions_match_grammar() {
 
 #[test]
 fn actions_match_grammar() {
-    // `action_type` and the standalone `print_stmt` must list the same actions.
-    let from_action = literals(&rule_body("action_type"));
-    let from_print = literals(&rule_body("print_stmt"));
-    assert_eq!(
-        from_action, from_print,
-        "action_type and print_stmt list different actions"
-    );
-    compare(
-        "ACTIONS",
-        from_action,
-        as_set(dealer_parser::vocabulary::ACTIONS),
-    );
+    // `action_type` and the standalone `print_stmt` used to list the actions
+    // separately, and this test existed because the two lists could drift.
+    // They now both defer to `simple_action` and `printside_spec`, so the
+    // drift is impossible by construction — but only while they really do
+    // defer, which is what is checked first.
+    for rule in ["action_type", "print_stmt"] {
+        let body = rule_body(rule);
+        for referenced in ["simple_action", "printside_spec"] {
+            assert!(
+                body.contains(referenced),
+                "{} no longer goes through {}, so the two spellings of an \
+                 action can drift apart again",
+                rule,
+                referenced
+            );
+        }
+    }
+
+    let mut named = literals(&rule_body("simple_action"));
+    named.extend(literals(&rule_body("printside_spec")));
+    compare("ACTIONS", named, as_set(dealer_parser::vocabulary::ACTIONS));
 }
 
 #[test]

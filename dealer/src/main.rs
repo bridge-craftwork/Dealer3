@@ -17,8 +17,8 @@ use dealer_level::{
 };
 use dealer_parser::{ActionType, CsvTerm, Statement, VulnerabilityType};
 use dealer_pbn::{
-    format_oneline, format_printall, format_printcompact, format_printew, format_printpbn,
-    PbnBoard, Vulnerability,
+    format_oneline, format_printall, format_printcompact, format_printew, format_printns,
+    format_printpbn, PbnBoard, Vulnerability,
 };
 use dealer_run::{Phase, Produced, RunHost, RunOptions};
 use std::fs::OpenOptions;
@@ -297,6 +297,7 @@ struct Args {
 enum OutputFormat {
     PrintAll,
     PrintEW,
+    PrintNS,
     PrintPBN,
     PrintCompact,
     PrintOneLine,
@@ -309,11 +310,12 @@ impl std::str::FromStr for OutputFormat {
         match s.to_lowercase().as_str() {
             "printall" | "all" => Ok(OutputFormat::PrintAll),
             "printew" | "ew" => Ok(OutputFormat::PrintEW),
+            "printns" | "ns" => Ok(OutputFormat::PrintNS),
             "printpbn" | "pbn" => Ok(OutputFormat::PrintPBN),
             "printcompact" | "compact" => Ok(OutputFormat::PrintCompact),
             "printoneline" | "oneline" => Ok(OutputFormat::PrintOneLine),
             _ => Err(format!(
-                "Invalid format '{}'. Valid options: printall, printew, printpbn, printcompact, printoneline",
+                "Invalid format '{}'. Valid options: printall, printew, printns, printpbn, printcompact, printoneline",
                 s
             )),
         }
@@ -362,6 +364,17 @@ enum VulnerabilityArg {
     NS,
     EW,
     All,
+}
+
+impl From<VulnerabilityArg> for dealer_core::Vulnerability {
+    fn from(arg: VulnerabilityArg) -> Self {
+        match arg {
+            VulnerabilityArg::None => dealer_core::Vulnerability::None,
+            VulnerabilityArg::NS => dealer_core::Vulnerability::NorthSouth,
+            VulnerabilityArg::EW => dealer_core::Vulnerability::EastWest,
+            VulnerabilityArg::All => dealer_core::Vulnerability::Both,
+        }
+    }
 }
 
 impl std::str::FromStr for VulnerabilityArg {
@@ -495,6 +508,7 @@ fn render_board(
     match format {
         OutputFormat::PrintAll => format_printall(deal, board_number),
         OutputFormat::PrintEW => format_printew(deal),
+        OutputFormat::PrintNS => format_printns(deal),
         OutputFormat::PrintPBN => format_printpbn(
             deal,
             &PbnBoard {
@@ -1180,6 +1194,7 @@ fn main() {
                         format_from_input = Some(match action_type {
                             ActionType::PrintAll => OutputFormat::PrintAll,
                             ActionType::PrintEW => OutputFormat::PrintEW,
+                            ActionType::PrintNS => OutputFormat::PrintNS,
                             ActionType::PrintPBN => OutputFormat::PrintPBN,
                             ActionType::PrintCompact => OutputFormat::PrintCompact,
                             ActionType::PrintOneLine => OutputFormat::PrintOneLine,
@@ -1691,6 +1706,11 @@ fn main() {
             &untrimmed,
             RunOptions {
                 seed,
+                // What `par()` is told. A script that names no vulnerability
+                // gets none, rather than the rotation `printpbn` applies: par
+                // is a property of the cards and the vulnerability the run was
+                // given, not of where a board sits in a set.
+                vulnerability: vulnerability.map(Into::into).unwrap_or_default(),
                 // Nothing to deal from the levelling when only the file was
                 // asked for: `--write-leveled` on its own works the keeps out
                 // and stops there.

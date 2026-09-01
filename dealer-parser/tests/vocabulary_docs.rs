@@ -258,8 +258,10 @@ fn statement_examples_parse() {
 #[test]
 fn action_examples_parse() {
     for doc in ACTION_DOCS {
-        if let Err(e) = parses(&format!("action {}\ncondition 1\n", doc.name)) {
-            panic!("`action {}` does not parse\n{}", doc.name, e);
+        // `printside` needs its side; every other action is its own whole form.
+        let form = doc.form.unwrap_or(doc.name);
+        if let Err(e) = parses(&format!("action {}\ncondition 1\n", form)) {
+            panic!("`action {}` does not parse\n{}", form, e);
         }
     }
 }

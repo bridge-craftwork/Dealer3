@@ -28,7 +28,7 @@ pub const FUNCTIONS: &[&str] = &[
     "top3", "top4", "top5", "c13", // Indexed point counts
     "pt0", "pt1", "pt2", "pt3", "pt4", "pt5", "pt6", "pt7", "pt8", "pt9",
     // Double-dummy and scoring
-    "tricks", "trick", "dds", "score", "imps", "imp", "rnd",
+    "tricks", "trick", "dds", "score", "imps", "imp", "par", "rnd",
 ];
 
 /// Statement keywords that introduce a directive.
@@ -56,6 +56,8 @@ pub const STATEMENT_KEYWORDS: &[&str] = &[
 pub const ACTIONS: &[&str] = &[
     "printall",
     "printew",
+    "printns",
+    "printside",
     "printpbn",
     "printcompact",
     "printoneline",
@@ -636,6 +638,27 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         note: None,
     },
     FunctionDoc {
+        name: "par",
+        group: "Double-dummy and scoring",
+        signature: "par(side)",
+        summary: "The par score to that side: what the deal is worth with both sides bidding \
+                  and defending perfectly. `side` is `ns` or `ew`, or a compass for the side \
+                  that seat is on.",
+        example: "par(ns) >= 400",
+        alias_of: None,
+        note: Some(
+            "Worked out from all twenty double-dummy results, which cost the same searches \
+             `tricks()` does and are remembered per deal — so `par()` beside a `tricks()` \
+             condition is close to free.\n\nThe two sides are opposites: `par(ew)` is \
+             `-par(ns)`, and a passed-out deal is zero. Vulnerability is the run's own — \
+             `--vulnerable`, or the `vulnerable` statement — and neither side is vulnerable \
+             when a script names none. It is deliberately not the rotation `printpbn` applies \
+             to an unnamed vulnerability: par is a property of the cards and the vulnerability \
+             the run was given, not of where a board sits in a set. DealerV2_4 instead has a \
+             `-P` switch of its own for this.",
+        ),
+    },
+    FunctionDoc {
         name: "rnd",
         group: "Double-dummy and scoring",
         signature: "rnd(bound)",
@@ -998,16 +1021,24 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
         form: "csvrpt(<term>, <term>, ...)",
         summary: "Writes one comma-separated row per matching deal. A term is an expression, a \
                   quoted string, a compass for that hand, `ns` or `ew` for a partnership's two \
-                  hands, or the word `deal` for all four.",
+                  hands, the word `deal` for all four, or `trix(...)` for double-dummy tricks.",
         example: "csvrpt(deal, hcp(north), \"north\")",
-        note: Some("Command-line only: the browser app has nowhere to write a file."),
+        note: Some(
+            "Command-line only: the browser app has nowhere to write a file.\n\n`trix(compass)` \
+             adds five columns — the tricks that seat takes in clubs, diamonds, hearts, spades \
+             and notrump — and `trix(deal)` adds twenty, four seats in the order `deal` uses. \
+             It is a term rather than a function because it is more than one number. The \
+             solving is the same work `tricks()` does and is remembered per deal, so naming \
+             both costs one search each, not two.",
+        ),
     },
     StatementDoc {
         keyword: Some("printrpt"),
         form: "printrpt(<term>, <term>, ...)",
         summary: "Writes one comma-separated row per matching deal to the screen. The terms are \
                   `csvrpt`'s: an expression, a quoted string, a compass for that hand, `ns` or \
-                  `ew` for a partnership's two hands, or the word `deal` for all four.",
+                  `ew` for a partnership's two hands, the word `deal` for all four, or \
+                  `trix(...)`.",
         example: "printrpt(\"deal \", deal, hcp(south))",
         note: Some(
             "DealerV2_4's screen counterpart of `csvrpt`, and the same row — so the two share \
@@ -1040,6 +1071,11 @@ pub struct ActionDoc {
     pub name: &'static str,
     pub summary: &'static str,
     pub note: Option<&'static str>,
+    /// How the action is written, when the name alone is not a whole action.
+    ///
+    /// `None` means the name is the form, which is true of all but
+    /// `printside`, whose side has to be given.
+    pub form: Option<&'static str>,
 }
 
 /// Every action in [`ACTIONS`], described.
@@ -1049,26 +1085,50 @@ pub const ACTION_DOCS: &[ActionDoc] = &[
         summary: "All four hands, laid out around the compass. This is what happens with no \
                   action given.",
         note: None,
+        form: None,
     },
     ActionDoc {
         name: "printew",
         summary: "East and West only, West on the left.",
-        note: None,
+        note: Some("The same action as `printside(ew)`."),
+        form: None,
+    },
+    ActionDoc {
+        name: "printns",
+        summary: "North and South only, South on the left.",
+        note: Some(
+            "The counterpart of `printew`, and the same action as `printside(ns)`. South \
+             sits left for the reason West does in `printew`: the pair reads as one auction, \
+             and the hand that speaks first goes on the left. From DealerV2_4.",
+        ),
+        form: None,
+    },
+    ActionDoc {
+        name: "printside",
+        summary: "One partnership's two hands: `printside(ns)` or `printside(ew)`.",
+        note: Some(
+            "DealerV2_4's one action for both partnerships. `printside(ns)` and `printns` \
+             are the same thing, as are `printside(ew)` and `printew`.",
+        ),
+        form: Some("printside(ns)"),
     },
     ActionDoc {
         name: "printpbn",
         summary: "PBN, the record format other bridge programs read.",
         note: None,
+        form: None,
     },
     ActionDoc {
         name: "printcompact",
         summary: "Four lines per deal.",
         note: None,
+        form: None,
     },
     ActionDoc {
         name: "printoneline",
         summary: "One line per deal.",
         note: None,
+        form: None,
     },
 ];
 

@@ -8,6 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`par(side)`: the par score, what the deal is worth with both sides bidding
+  and defending perfectly.** `ns` or `ew`, or a compass for the side that seat
+  is on, as DealerV2_4's `dds_parscore` accepts. `par(ew)` is `-par(ns)`, and a
+  passed-out deal is zero.
+  - Worked out from all twenty double-dummy results through the same memo
+    `tricks()` uses, so `par()` beside a `tricks()` condition is close to free.
+  - **Vulnerability now reaches the evaluator.** `EvalContext` carries a
+    `dealer_core::Vulnerability`, set from `--vulnerable` or the `vulnerable`
+    statement by both front ends, so `par(ns)` means what a reader expects. It
+    is deliberately not `printpbn`'s rotation for an unnamed vulnerability: par
+    is a property of the cards and the vulnerability the run was given, not of
+    where a board sits in a set. A script that names none gets neither side
+    vulnerable. DealerV2_4 instead has a `-P` switch of its own for this.
+  - The value is carried whole rather than as the two flags `par()` needs, so a
+    script asking *what* the vulnerability is can be answered from the same
+    place later.
+- **`printns` and `printside(side)`.** DealerV2_4 routes `printew`, `printns`
+  and `printside` through one printer; dealer3 had only `printew`. `printns`
+  and `printside(ns)` are the same action, as are `printew` and
+  `printside(ew)`. South sits on the left as West does, for DealerV2_4's own
+  reason: the pair reads as one auction and the hand that speaks first goes
+  left.
+- **`trix(compass)` and `trix(deal)` in `csvrpt` and `printrpt`.** Five columns
+  for a seat — clubs, diamonds, hearts, spades, notrump — or twenty for the
+  deal, in the seat order `deal` already uses. A report term rather than a
+  function, because it is more than one number.
+  - The solving is the work `tricks()` already does and is remembered the same
+    way, so a script naming both pays for one search per (deal, denomination,
+    seat), not two. `dealer_dds::table` fills all twenty cells through that
+    same memo.
 - **`score()` now takes dealer.exe's own spellings.** The contract is a word —
   `x3N`, `x4H`, `x7Sxx` — and the vulnerability is `nv` or `vul`, exactly as
   `scan.l:47-48` and `scan.l:101` define them. `z` may replace the leading `x`,

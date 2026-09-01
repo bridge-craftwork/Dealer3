@@ -498,6 +498,14 @@ pub fn generate(
             seed,
             produce,
             max_generate,
+            // What `par()` is told: the `vulnerable` statement if the script
+            // has one, and neither side otherwise. Same rule as the terminal.
+            vulnerability: match output.vulnerability {
+                Some(Vulnerability::NS) => dealer_core::Vulnerability::NorthSouth,
+                Some(Vulnerability::EW) => dealer_core::Vulnerability::EastWest,
+                Some(Vulnerability::All) => dealer_core::Vulnerability::Both,
+                Some(Vulnerability::None) | None => dealer_core::Vulnerability::None,
+            },
             deals: Deals::Shuffled {
                 predeal,
                 swap: dealer_core::SwapMode::None,
