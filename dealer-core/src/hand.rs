@@ -30,11 +30,21 @@ const FILLER: Card = Card {
 };
 
 impl PartialEq for Hand {
-    /// The cards a hand holds, not the slots it does not. Derived equality would
-    /// compare the filler too, which is the same value everywhere today and so
-    /// would agree — but only by accident, and not if the filler ever changes.
+    /// The cards a hand holds, as a set: same cards means equal, whatever order
+    /// they arrived in.
+    ///
+    /// This used to compare the slices, which made equality depend on order.
+    /// That was survivable only because every dealt hand was sorted on the way
+    /// out of `deck_to_deal`, canonicalizing it. Dealing no longer sorts — the
+    /// sort cost two thirds of generation and nothing needed it — so comparing
+    /// sequences would now call two hands holding identical cards unequal,
+    /// depending on how the shuffle happened to lay them out.
+    ///
+    /// A 52-bit mask is the honest comparison and is cheaper than the slice
+    /// compare it replaces. `len` is checked too so that a malformed hand
+    /// holding a duplicate cannot collapse into an equal-looking one.
     fn eq(&self, other: &Self) -> bool {
-        self.cards() == other.cards()
+        self.len == other.len && self.card_mask() == other.card_mask()
     }
 }
 
@@ -71,6 +81,13 @@ impl Hand {
         );
         self.cards[self.len as usize] = card;
         self.len += 1;
+    }
+
+    /// The hand as a 52-bit set, one bit per card. Order-independent.
+    fn card_mask(&self) -> u64 {
+        self.cards()
+            .iter()
+            .fold(0u64, |mask, card| mask | 1u64 << card.to_index())
     }
 
     /// Get all cards in the hand
