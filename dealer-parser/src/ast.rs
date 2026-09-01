@@ -101,6 +101,14 @@ pub enum CsvTerm {
     Side(Side),
     /// All four hands (DEAL keyword)
     Deal,
+    /// `trix(compass)` or `trix(deal)`: double-dummy tricks in all five
+    /// strains, one column each, for every seat listed.
+    ///
+    /// A term rather than a function because it is more than one number: five
+    /// per seat, in the strain order the rest of the language uses (0=C to
+    /// 4=NT). `trix(deal)` lists all four seats in the report's usual N, E, S,
+    /// W order.
+    Trix(Vec<Position>),
 }
 
 /// Side enumeration for CSV output
@@ -152,6 +160,13 @@ impl VulnerabilityType {
 pub enum ActionType {
     PrintAll,
     PrintEW,
+    /// North and South only, the counterpart of `PrintEW`.
+    ///
+    /// `printns` and `printside(ns)` are the same action. DealerV2_4 routes
+    /// `printew`, `printns` and `printside(side)` through one printer; dealer3
+    /// keeps two variants because nothing else needs a payload, and the two
+    /// spellings of each simply resolve here.
+    PrintNS,
     PrintPBN,
     PrintCompact,
     PrintOneLine,
@@ -162,6 +177,7 @@ impl ActionType {
         match s.to_lowercase().as_str() {
             "printall" => Some(ActionType::PrintAll),
             "printew" => Some(ActionType::PrintEW),
+            "printns" => Some(ActionType::PrintNS),
             "printpbn" => Some(ActionType::PrintPBN),
             "printcompact" => Some(ActionType::PrintCompact),
             "printoneline" => Some(ActionType::PrintOneLine),

@@ -169,8 +169,8 @@ Tightest binding first. Operators sharing a level are applied left to right.
 | `title "<text>"` | Names the run, filling the `[Event]` tag of PBN output. `-T` wins when both are given. | `title "Weak two openings"` |
 | `seed <number>` | Fixes the random seed, so the run reproduces. `-s` wins when both are given. | `seed 42` |
 | `predeal <compass> <holding>, <holding>, ... [<compass> <holding>, ...]` | Places cards in a hand before shuffling; the rest of the deal is dealt around them. A holding is a suit letter followed by its ranks, using T for the ten. One statement may name several seats: the holdings of a seat are separated by commas and the seats are not. | `predeal north SAKQ,HT98 south SJ32` |
-| `csvrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal. A term is an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, or the word `deal` for all four. | `csvrpt(deal, hcp(north), "north")` |
-| `printrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal to the screen. The terms are `csvrpt`'s: an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, or the word `deal` for all four. | `printrpt("deal ", deal, hcp(south))` |
+| `csvrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal. A term is an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, the word `deal` for all four, or `trix(...)` for double-dummy tricks. | `csvrpt(deal, hcp(north), "north")` |
+| `printrpt(<term>, <term>, ...)` | Writes one comma-separated row per matching deal to the screen. The terms are `csvrpt`'s: an expression, a quoted string, a compass for that hand, `ns` or `ew` for a partnership's two hands, the word `deal` for all four, or `trix(...)`. | `printrpt("deal ", deal, hcp(south))` |
 | `<name> = <expression>` | Names an expression so a long condition can be written in pieces. The name stands for the expression and is worked out afresh for every deal. | `fit = spades(north) + spades(south)` |
 | `<expression>` | An expression on its own is the condition, so the `condition` keyword can be left off. | `hcp(north) >= 20` |
 
@@ -180,6 +180,8 @@ Tightest binding first. Operators sharing a level are applied left to right.
 |---|---|
 | `printall` | All four hands, laid out around the compass. This is what happens with no action given. |
 | `printew` | East and West only, West on the left. |
+| `printns` | North and South only, South on the left. |
+| `printside` | One partnership's two hands: `printside(ns)` or `printside(ew)`. |
 | `printpbn` | PBN, the record format other bridge programs read. |
 | `printcompact` | Four lines per deal. |
 | `printoneline` | One line per deal. |

@@ -467,6 +467,20 @@ fn report_row(
                     format_hand_pbn(deal.hand(b))
                 ));
             }
+            // Five columns a seat, in strain order C, D, H, S, NT. Pushed as
+            // one part holding its own commas, so it lands in the row as
+            // separate columns without the join needing to know.
+            CsvTerm::Trix(seats) => {
+                for seat in seats {
+                    let columns: Vec<String> = dealer_dds::Denomination::ALL
+                        .iter()
+                        .map(|denomination| {
+                            dealer_dds::tricks(deal, *denomination, *seat).to_string()
+                        })
+                        .collect();
+                    parts.push(columns.join(","));
+                }
+            }
             CsvTerm::Deal => parts.push(format!(
                 "{} {} {} {}",
                 format_hand_pbn(deal.hand(Position::North)),

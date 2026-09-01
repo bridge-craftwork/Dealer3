@@ -17,8 +17,8 @@ use dealer_level::{
 };
 use dealer_parser::{ActionType, CsvTerm, Statement, VulnerabilityType};
 use dealer_pbn::{
-    format_oneline, format_printall, format_printcompact, format_printew, format_printpbn,
-    PbnBoard, Vulnerability,
+    format_oneline, format_printall, format_printcompact, format_printew, format_printns,
+    format_printpbn, PbnBoard, Vulnerability,
 };
 use dealer_run::{Phase, Produced, RunHost, RunOptions};
 use std::fs::OpenOptions;
@@ -297,6 +297,7 @@ struct Args {
 enum OutputFormat {
     PrintAll,
     PrintEW,
+    PrintNS,
     PrintPBN,
     PrintCompact,
     PrintOneLine,
@@ -309,11 +310,12 @@ impl std::str::FromStr for OutputFormat {
         match s.to_lowercase().as_str() {
             "printall" | "all" => Ok(OutputFormat::PrintAll),
             "printew" | "ew" => Ok(OutputFormat::PrintEW),
+            "printns" | "ns" => Ok(OutputFormat::PrintNS),
             "printpbn" | "pbn" => Ok(OutputFormat::PrintPBN),
             "printcompact" | "compact" => Ok(OutputFormat::PrintCompact),
             "printoneline" | "oneline" => Ok(OutputFormat::PrintOneLine),
             _ => Err(format!(
-                "Invalid format '{}'. Valid options: printall, printew, printpbn, printcompact, printoneline",
+                "Invalid format '{}'. Valid options: printall, printew, printns, printpbn, printcompact, printoneline",
                 s
             )),
         }
@@ -495,6 +497,7 @@ fn render_board(
     match format {
         OutputFormat::PrintAll => format_printall(deal, board_number),
         OutputFormat::PrintEW => format_printew(deal),
+        OutputFormat::PrintNS => format_printns(deal),
         OutputFormat::PrintPBN => format_printpbn(
             deal,
             &PbnBoard {
@@ -1180,6 +1183,7 @@ fn main() {
                         format_from_input = Some(match action_type {
                             ActionType::PrintAll => OutputFormat::PrintAll,
                             ActionType::PrintEW => OutputFormat::PrintEW,
+                            ActionType::PrintNS => OutputFormat::PrintNS,
                             ActionType::PrintPBN => OutputFormat::PrintPBN,
                             ActionType::PrintCompact => OutputFormat::PrintCompact,
                             ActionType::PrintOneLine => OutputFormat::PrintOneLine,

@@ -112,22 +112,6 @@ pub const REMAINING: &[WorkItem] = &[
     // DealerV2_4's own words, from reading its lexer and yacc rather than a
     // summary of them, and measured against its 61-script Regression suite.
     WorkItem {
-        what: "`printns` and `printside(side)`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some("dealer3 has `printew`; DealerV2_4 routes all three through one action."),
-    },
-    WorkItem {
-        what: "`trix(compass)` and `trix(deal)`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some("Tricks in all five strains as CSV columns. The solving is already done."),
-    },
-    WorkItem {
         what: "`par(side)`: the par contract",
         done_when: None,
         issue: None,

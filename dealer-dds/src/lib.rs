@@ -14,7 +14,7 @@
 
 mod memo;
 
-pub use memo::tricks;
+pub use memo::{par_score_ns, table, tricks};
 
 use dealer_core::{Deal, Position, Suit};
 

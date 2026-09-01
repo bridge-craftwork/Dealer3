@@ -8,6 +8,7 @@ license = "Unlicense"
 dealer-core = { path = "../dealer-core" }
 dealer-parser = { path = "../dealer-parser" }
 dealer-eval = { path = "../dealer-eval" }
+dealer-dds = { path = "../dealer-dds" }
 dealer-level = { path = "../dealer-level" }
 dealer-pbn = { path = "../dealer-pbn" }
 

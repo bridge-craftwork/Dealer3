@@ -163,6 +163,16 @@ fn build_csv_terms(inner: Pair<Rule>) -> Result<Vec<CsvTerm>, ParseError> {
                 CsvTerm::Deal
             } else if let Some(term_inner) = term_pair.into_inner().next() {
                 match term_inner.as_rule() {
+                    Rule::trix_spec => {
+                        let target = term_inner.into_inner().next();
+                        let seats = match target {
+                            // `trix(deal)`: the keyword is consumed by the rule
+                            // itself, so there is no inner pair to look at.
+                            None => Position::ALL.to_vec(),
+                            Some(compass) => vec![compass_position(compass.as_str())?],
+                        };
+                        CsvTerm::Trix(seats)
+                    }
                     Rule::expr => CsvTerm::Expression(build_ast(term_inner)?),
                     Rule::string_literal => {
                         let s = term_inner.as_str();
@@ -377,14 +387,7 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
                                 }
                             }
                             Rule::action_type => {
-                                let action_type = ActionType::parse(comp_inner.as_str())
-                                    .ok_or_else(|| ParseError {
-                                        message: format!(
-                                            "Invalid action type: {}",
-                                            comp_inner.as_str()
-                                        ),
-                                    })?;
-                                format = Some(action_type);
+                                format = Some(action_type_from(comp_inner)?);
                             }
                             _ => {
                                 return Err(ParseError {
@@ -573,10 +576,8 @@ fn build_statement(pair: Pair<Rule>) -> Result<Statement, ParseError> {
             })
         }
         Rule::print_stmt => {
-            // Standalone print statement: printpbn, printall, etc.
-            let action_type = ActionType::parse(inner.as_str()).ok_or_else(|| ParseError {
-                message: format!("Invalid print statement: {}", inner.as_str()),
-            })?;
+            // Standalone print statement: printpbn, printall, printside(ns), etc.
+            let action_type = action_type_from(inner)?;
             Ok(Statement::Action {
                 averages: Vec::new(),
                 frequencies: Vec::new(),
@@ -663,6 +664,54 @@ fn contract_code(token: &str) -> Result<i32, ParseError> {
     let doubled = chars.filter(|c| *c == 'x').count() as i32;
 
     Ok(40 * doubled + level * 5 + strain)
+}
+
+/// A compass word as a `Position`, in any of the language's spellings.
+fn compass_position(text: &str) -> Result<Position, ParseError> {
+    match text.to_lowercase().as_str() {
+        "north" | "n" => Ok(Position::North),
+        "south" | "s" => Ok(Position::South),
+        "east" | "e" => Ok(Position::East),
+        "west" | "w" => Ok(Position::West),
+        other => Err(ParseError {
+            message: format!("Invalid compass: {}", other),
+        }),
+    }
+}
+
+/// The action a `print...` word names, in either of its spellings.
+///
+/// `printside(ns)` and `printns` are one action, as are `printside(ew)` and
+/// `printew`, so both forms resolve to the same `ActionType` here rather than
+/// being carried separately through the rest of the program.
+fn action_type_from(pair: pest::iterators::Pair<Rule>) -> Result<ActionType, ParseError> {
+    let text = pair.as_str();
+    let inner = match pair.as_rule() {
+        Rule::action_type | Rule::print_stmt => {
+            pair.into_inner().next().ok_or_else(|| ParseError {
+                message: format!("Empty action: {}", text),
+            })?
+        }
+        _ => pair,
+    };
+
+    match inner.as_rule() {
+        Rule::printside_spec => {
+            let side = inner.into_inner().next().ok_or_else(|| ParseError {
+                message: "printside needs a side".to_string(),
+            })?;
+            match side.as_str().to_lowercase().as_str() {
+                "ns" => Ok(ActionType::PrintNS),
+                "ew" => Ok(ActionType::PrintEW),
+                other => Err(ParseError {
+                    message: format!("Unknown side: {}", other),
+                }),
+            }
+        }
+        _ => ActionType::parse(inner.as_str()).ok_or_else(|| ParseError {
+            message: format!("Invalid action type: {}", inner.as_str()),
+        }),
+    }
 }
 
 /// Parse a single card from a string like "AS", "KH", "2C" (rank+suit format for hascard)

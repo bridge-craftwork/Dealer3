@@ -41,7 +41,12 @@ frequency_stmt = { &kw_frequency ~ ^"frequency" ~ string_literal? ~ "(" ~ expr ~
 // The parentheses matter: `~` binds tighter than `|`, so without them the
 // guard would cover only the first alternative and `printewFoo` would still
 // be swallowed while `printallQ` was fixed.
-print_stmt = { &kw_print ~ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline") }
+print_stmt = { &kw_print ~ (printside_spec | simple_action) }
+
+// `printside(ns)` and `printside(ew)`, DealerV2_4's one action for both
+// partnerships. `printns` and `printew` are the same thing already named, and
+// DealerV2_4 routes all three through it.
+printside_spec = { ^"printside" ~ "(" ~ side ~ ")" }
 
 // Action block keywords
 condition_stmt = { &kw_condition ~ ^"condition" ~ expr }
@@ -84,13 +89,23 @@ pointcount_stmt = { &kw_pointcount ~ ^"pointcount" ~ literal+ }
 altcount_stmt = { &kw_altcount ~ ^"altcount" ~ literal ~ literal+ }
 
 // CSV terms for csvrpt
+//
+// `trix` comes first: it is a call, so `expr` would otherwise try to read it as
+// a function and fail on a name the language does not have.
 csv_term = {
+    trix_spec |
     ^"deal" |
     side |
     compass |
     string_literal |
     expr
 }
+
+// `trix(north)` or `trix(deal)`: tricks in all five strains, as columns rather
+// than one value, which is why it is a report term and not a function. Five
+// numbers for a compass, twenty for the deal, in the seat order the report
+// already uses for `deal`.
+trix_spec = { ^"trix" ~ "(" ~ (^"deal" | compass) ~ ")" }
 
 side = @{ ^"ns" | ^"ew" }
 
@@ -111,8 +126,13 @@ printhands_spec = { ^"print" ~ "(" ~ compass ~ ("," ~ compass)* ~ ")" }
 es_term = { string_literal | newline | expr }
 newline = @{ "\\n" }
 
-action_type = @{
-    ^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline"
+action_type = { printside_spec | simple_action }
+
+// Longest first, as everywhere: `printns` ahead of nothing it prefixes, but
+// `printoneline` must precede no shorter spelling of itself.
+simple_action = @{
+    ^"printall" | ^"printew" | ^"printns" | ^"printpbn" | ^"printcompact"
+    | ^"printoneline"
 }
 
 // Dealer position (compass)
@@ -344,7 +364,7 @@ kw_altcount   = @{ ^"altcount"   ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_average    = @{ ^"average"    ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_frequency  = @{ ^"frequency"  ~ !(ASCII_ALPHANUMERIC | "_") }
 kw_printes    = @{ ^"printes"    ~ !(ASCII_ALPHANUMERIC | "_") }
-kw_print      = @{ (^"printall" | ^"printew" | ^"printpbn" | ^"printcompact" | ^"printoneline" | ^"print") ~ !(ASCII_ALPHANUMERIC | "_") }
+kw_print      = @{ (^"printall" | ^"printew" | ^"printns" | ^"printside" | ^"printpbn" | ^"printcompact" | ^"printoneline" | ^"print") ~ !(ASCII_ALPHANUMERIC | "_") }
 
 // Words that introduce a statement. Kept out of bare-identifier position: a
 // malformed statement otherwise backtracks into `expr` and parses as bare

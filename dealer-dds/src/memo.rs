@@ -132,6 +132,33 @@ pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8
     })
 }
 
+/// The whole 20-entry double-dummy table for a deal.
+///
+/// Every cell goes through [`tricks`], so a table costs only the searches that
+/// have not already been done — a script whose condition asked about one
+/// denomination pays for nineteen more, not twenty — and the answers are shared
+/// with every later caller the same way.
+///
+/// Laid out as `bridge_solver` wants it: seats N, E, S, W and strains C, D, H,
+/// S, NT, which is dealer's own strain numbering too.
+pub fn table(deal: &Deal) -> bridge_solver::DdTricks {
+    let mut tricks = [[0u8; 5]; 4];
+    for (seat, row) in Position::ALL.iter().zip(tricks.iter_mut()) {
+        for (denomination, cell) in Denomination::ALL.iter().zip(row.iter_mut()) {
+            *cell = self::tricks(deal, *denomination, *seat);
+        }
+    }
+    bridge_solver::DdTricks { tricks }
+}
+
+/// The par score, to North-South, at the given vulnerability.
+///
+/// Negative means East-West are the ones who benefit. A passed-out deal — par
+/// zero — is zero, which is what the original returns too.
+pub fn par_score_ns(deal: &Deal, vul_ns: bool, vul_ew: bool) -> i32 {
+    bridge_solver::par(&table(deal), vul_ns, vul_ew).score_ns
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

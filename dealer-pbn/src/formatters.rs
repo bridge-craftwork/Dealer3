@@ -84,11 +84,32 @@ pub fn format_printall(deal: &Deal, board_number: usize) -> String {
 /// Q J 6               9 8 7 4 3 2
 /// ```
 pub fn format_printew(deal: &Deal) -> String {
+    format_pair(deal, [Position::West, Position::East])
+}
+
+/// North and South only, laid out exactly as `format_printew` lays out E/W.
+///
+/// South goes on the left, as West does — DealerV2_4's `printside` says
+/// "with S/W on the left", and it is the same reasoning either way: the two
+/// hands read as one auction, and the hand that speaks first sits left.
+///
+/// Example output:
+/// ```text
+/// K T 6               9 8
+/// A Q T 5             9 6 4 2
+/// A 6 4               7
+/// Q J 6               9 8 7 4 3 2
+/// ```
+pub fn format_printns(deal: &Deal) -> String {
+    format_pair(deal, [Position::South, Position::North])
+}
+
+/// The layout both of those use: four suit rows, two hands to a row.
+fn format_pair(deal: &Deal, positions: [Position; 2]) -> String {
     let mut result = String::new();
 
     // Print each suit row (spades, hearts, diamonds, clubs)
     let suits = [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs];
-    let positions = [Position::West, Position::East];
 
     for &suit in &suits {
         let mut cards_count = 10;
