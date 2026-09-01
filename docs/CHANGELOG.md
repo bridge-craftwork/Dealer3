@@ -168,6 +168,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **An `action` naming only statistics printed deals, and measured 25x fewer of
+  them.** Both from one rule dealer3 did not have: an `action` list *replaces*
+  the default action, and `printall` is the default, so a list holding only
+  `average` and `frequency` prints nothing — and produces every deal it
+  generates rather than the first forty, because statistics want the whole
+  sample. `dealer.c:1656` settles both in one line, keyed on the `will_print`
+  that every printing action in `defs.y` increments.
+  - `generate 1000` with a statistics-only action produced 1000 deals in the
+    original and 40 here, silently, both averages looking plausible. With
+    `generate` left at its 10,000,000 default the gap is far wider.
+  - `-p` and `-f` still win when given: asking for a count or a format is
+    asking for it.
+  - The browser is unaffected — it takes `produce` and the format as explicit
+    settings from the page rather than defaulting from the script.
+  - Found by `scripts/compare-stats.py` on its first real script. (#49)
 - **`trix(deal)` and `par()` were about twice as slow as they needed to be.**
   `dealer_dds::table` filled the twenty cells seat-outermost, asking for a
   different denomination on every call. `DealAnalysis` keeps the solver's

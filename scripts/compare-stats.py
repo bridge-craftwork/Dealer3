@@ -63,28 +63,34 @@ PRINT_ACTIONS = r"printall|printew|printpbn|printcompact|printoneline"
 TRAILER = re.compile(r"^(Generated |Produced |Initial random seed|Time needed)")
 
 
-def with_printpbn(script: str) -> str:
-    """The script, emitting PBN as well as whatever it already reports.
+def with_printpbn(script: str) -> tuple:
+    """The script emitting PBN, and whether that had to be added.
 
-    `printpbn` rather than another format because `--input-deals` reads it
-    back exactly, including the seat each hand belongs to.
+    `printpbn` rather than another format because `--input-deals` reads it back
+    exactly, including the seat each hand belongs to.
+
+    The flag matters for the comparison. A script that already printed is
+    compared including its blank lines, because those are part of the layout
+    and a missing one is a real difference. A script that did not print gets
+    PBN injected, and PBN separates its records with blank lines that only one
+    side will have — so those are dropped rather than reported.
     """
     if re.search(rf"\b({PRINT_ACTIONS})\b", script):
-        # It already prints deals; swap the format for PBN so they can be read
-        # back, leaving any averages and frequencies beside it alone.
-        return re.sub(rf"\b({PRINT_ACTIONS})\b", "printpbn", script, count=1)
+        return re.sub(rf"\b({PRINT_ACTIONS})\b", "printpbn", script, count=1), False
     if re.search(r"^\s*action\b", script, re.MULTILINE):
         return re.sub(r"^(\s*action\b)", r"\1 printpbn,", script, count=1,
-                      flags=re.MULTILINE)
-    return script.rstrip("\n") + "\naction printpbn\n"
+                      flags=re.MULTILINE), True
+    return script.rstrip("\n") + "\naction printpbn\n", True
 
 
-def statistics(text: str) -> list:
+def statistics(text: str, drop_blanks: bool) -> list:
     """The lines worth comparing: not deals, not the run trailer."""
     lines = []
     for line in text.splitlines():
         line = line.rstrip("\r")
         if line.startswith("[") or TRAILER.match(line):
+            continue
+        if drop_blanks and not line.strip():
             continue
         lines.append(line)
     # Trailing blank lines carry no information either way.
@@ -114,7 +120,8 @@ def main() -> int:
     handle, remote_script = tempfile.mkstemp(suffix=".dlr", dir=here)
     try:
         with os.fdopen(handle, "w") as f:
-            f.write(with_printpbn(script))
+            reference_script, injected = with_printpbn(script)
+            f.write(reference_script)
         command = (f'dealer -p {args.produce} -s {args.seed} '
                    f'"{mac_to_windows_path(remote_script)}"')
         code, reference, stderr = run_windows_command(command, timeout=300,
@@ -155,8 +162,8 @@ def main() -> int:
         return 2
     mine = run.stdout
 
-    theirs = statistics(reference)
-    ours = statistics(mine)
+    theirs = statistics(reference, injected)
+    ours = statistics(mine, injected)
 
     boards = reference.count("[Deal ")
     print(f"{boards} deals from dealer.exe, seed {args.seed}")

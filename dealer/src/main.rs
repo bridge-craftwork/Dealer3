@@ -1196,6 +1196,16 @@ fn main() {
             std::process::exit(1);
         }
 
+        // Whether the script named an `action` at all, and whether anything it
+        // named prints deals. The original settles both questions the same way
+        // — `will_print` in `defs.y`, incremented by `printall`, `printew`,
+        // `print(...)`, `printcompact`, `printoneline`, `printpbn` and
+        // `printes(...)`, and nothing else. `average` and `frequency` do not
+        // print, so an action list holding only those means the script is
+        // measuring rather than dealing out hands. See #49.
+        let mut has_action_statement = false;
+        let mut script_prints = false;
+
         // Extract action block directives from the program
         let mut produce_count_from_input: Option<usize> = None;
         let mut generate_count_from_input: Option<usize> = None;
@@ -1229,6 +1239,17 @@ fn main() {
                     print_reports: report_specs,
                     ..
                 } => {
+                    has_action_statement = true;
+                    // A `printrpt` in the list writes a row per deal, so it
+                    // prints as surely as `printall` does — the original has no
+                    // opinion, since the word is DealerV2_4's.
+                    if action_format.is_some()
+                        || !printes_specs.is_empty()
+                        || !print_hands.is_empty()
+                        || !report_specs.is_empty()
+                    {
+                        script_prints = true;
+                    }
                     print_reports.extend(report_specs.iter().cloned());
                     // Extract format if present
                     if let Some(action_type) = action_format {
@@ -1271,9 +1292,11 @@ fn main() {
                     seed_from_input = Some(*value);
                 }
                 Statement::CsvReport(terms) => {
+                    script_prints = true;
                     csv_reports.push(terms.clone());
                 }
                 Statement::PrintReport(terms) => {
+                    script_prints = true;
                     print_reports.push(terms.clone());
                 }
                 _ => {}
@@ -1293,11 +1316,19 @@ fn main() {
             .generate
             .or(generate_count_from_input)
             .unwrap_or(10_000_000);
+        // A script whose `action` names only statistics is measuring, so it
+        // takes every deal it generates rather than the first forty — and
+        // prints none of them. `dealer.c:1656` settles both with one line:
+        // `maxproduce = ((actionlist == &defaultaction) || will_print) ? 40 :
+        // maxgenerate`. Without this a `frequency` study written on BBO
+        // silently sampled forty deals here. See #49.
+        let measuring_only = has_action_statement && !script_prints;
+
         let produce_count = args
             .produce
             .or(produce_count_from_input)
             .unwrap_or_else(|| {
-                if args.generate.is_some() {
+                if args.generate.is_some() || measuring_only {
                     usize::MAX // No produce limit when only -g is specified
                 } else {
                     40 // dealer.exe default for -p
@@ -1315,6 +1346,11 @@ fn main() {
             .format
             .or(format_from_input)
             .unwrap_or(OutputFormat::PrintAll); // Default format (matches dealer.exe)
+
+        // `printall` is the default *action*, so naming an action list without
+        // a printing one replaces it. `-f` on the command line still asks for
+        // deals explicitly and wins.
+        let print_deals = !measuring_only || args.format.is_some();
 
         let dealer_position = args.dealer.or(dealer_from_input);
 
@@ -1610,6 +1646,9 @@ fn main() {
         struct Terminal<'a> {
             args: &'a Args,
             output_format: OutputFormat,
+            /// Whether produced deals are shown at all. False for a script
+            /// whose `action` names only statistics — see #49.
+            print_deals: bool,
             dealer_position: Option<DealerPosition>,
             vulnerability: Option<VulnerabilityArg>,
             title: Option<String>,
@@ -1688,7 +1727,7 @@ fn main() {
                     if self.args.interleave {
                         self.held
                             .push((hand_type.map(str::to_string), deal.deal.clone()));
-                    } else {
+                    } else if self.print_deals {
                         print!(
                             "{}",
                             render_board(
@@ -1725,6 +1764,7 @@ fn main() {
         let mut terminal = Terminal {
             args: &args,
             output_format,
+            print_deals,
             dealer_position,
             vulnerability,
             title: title.clone(),
@@ -1907,6 +1947,9 @@ fn main() {
                 .into_iter()
                 .enumerate()
             {
+                if !print_deals {
+                    continue;
+                }
                 let (hand_type, deal) = &held[index];
                 print!(
                     "{}",
