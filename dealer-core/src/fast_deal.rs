@@ -145,6 +145,23 @@ pub fn generate_deal_from_seed_no_predeal(seed: u64) -> Deal {
 
 /// Convert a shuffled deck array to a Deal.
 #[inline]
+/// Build a `Deal` from a shuffled deck.
+///
+/// The hands come out in deal order, not sorted. Sorting here cost about
+/// 340ns of the roughly 530ns it took to produce a deal -- two thirds of all
+/// generation -- and it was paid on every deal generated, while a run
+/// typically keeps well under 1% of them. Nothing needed it:
+///
+///   - The counting functions (`hcp`, `top4`, `suit_length`, `controls`, and
+///     the rest) are sums and filters, so order cannot reach them.
+///   - The rank-position ones (`losers_in_suit`, `suit_quality`, `cccc`) each
+///     sort their own local copy first.
+///   - Every output formatter -- PBN, printall, printoneline, compact -- sorts
+///     the suit it is about to print.
+///   - `dealer_dds`'s memo key is a bitmask.
+///
+/// Sort a hand explicitly with [`Hand::sort`] or [`Hand::sorted`] where order
+/// is wanted.
 fn deck_to_deal(deck: &[u8; 52]) -> Deal {
     let mut deal = Deal::new();
 
@@ -154,7 +171,6 @@ fn deck_to_deal(deck: &[u8; 52]) -> Deal {
         deal.hand_mut(position).add_card(card);
     }
 
-    deal.sort_all_hands();
     deal
 }
 

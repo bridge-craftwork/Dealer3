@@ -30,11 +30,21 @@ const FILLER: Card = Card {
 };
 
 impl PartialEq for Hand {
-    /// The cards a hand holds, not the slots it does not. Derived equality would
-    /// compare the filler too, which is the same value everywhere today and so
-    /// would agree — but only by accident, and not if the filler ever changes.
+    /// The cards a hand holds, as a set: same cards means equal, whatever order
+    /// they arrived in.
+    ///
+    /// This used to compare the slices, which made equality depend on order.
+    /// That was survivable only because every dealt hand was sorted on the way
+    /// out of `deck_to_deal`, canonicalizing it. Dealing no longer sorts — the
+    /// sort cost two thirds of generation and nothing needed it — so comparing
+    /// sequences would now call two hands holding identical cards unequal,
+    /// depending on how the shuffle happened to lay them out.
+    ///
+    /// A 52-bit mask is the honest comparison and is cheaper than the slice
+    /// compare it replaces. `len` is checked too so that a malformed hand
+    /// holding a duplicate cannot collapse into an equal-looking one.
     fn eq(&self, other: &Self) -> bool {
-        self.cards() == other.cards()
+        self.len == other.len && self.card_mask() == other.card_mask()
     }
 }
 
@@ -71,6 +81,13 @@ impl Hand {
         );
         self.cards[self.len as usize] = card;
         self.len += 1;
+    }
+
+    /// The hand as a 52-bit set, one bit per card. Order-independent.
+    fn card_mask(&self) -> u64 {
+        self.cards()
+            .iter()
+            .fold(0u64, |mask, card| mask | 1u64 << card.to_index())
     }
 
     /// Get all cards in the hand
@@ -245,7 +262,7 @@ impl Hand {
     /// - 3+ cards: Start with 3, subtract 1 for each A/K/Q in top 3 positions
     pub fn losers_in_suit(&self, suit: Suit) -> u8 {
         let mut cards: Vec<Card> = self
-            .cards
+            .cards()
             .iter()
             .filter(|c| c.suit == suit)
             .copied()
@@ -474,7 +491,7 @@ impl Hand {
     /// Returns quality value multiplied by 100 to use integer math
     pub fn suit_quality(&self, suit: Suit) -> i32 {
         let mut cards: Vec<Card> = self
-            .cards
+            .cards()
             .iter()
             .filter(|c| c.suit == suit)
             .copied()
@@ -558,7 +575,7 @@ impl Hand {
         // Evaluate each suit
         for suit in [Suit::Spades, Suit::Hearts, Suit::Diamonds, Suit::Clubs] {
             let mut cards: Vec<Card> = self
-                .cards
+                .cards()
                 .iter()
                 .filter(|c| c.suit == suit)
                 .copied()
@@ -720,5 +737,48 @@ mod tests {
         hand.add_card(Card::new(Suit::Diamonds, Rank::Ace)); // 2
 
         assert_eq!(hand.controls(), 5);
+    }
+
+    #[test]
+    fn a_partial_hand_does_not_count_its_empty_slots() {
+        // `losers_in_suit`, `suit_quality` and `cccc` used to read the whole
+        // thirteen-slot array rather than `cards()`, so on a hand holding fewer
+        // than thirteen cards they counted the filler. The filler is a club
+        // two, which made an empty club suit look like a long weak one — three
+        // losers where there should be none, and a suit quality for a suit the
+        // hand does not hold.
+        //
+        // Every hand the generator produces is full, so this was unreachable
+        // from a run; predeal and hand-built hands are not, which is why it is
+        // worth a test rather than an argument.
+        let mut hand = Hand::new();
+        for rank in [Rank::Ace, Rank::King, Rank::Queen] {
+            hand.add_card(Card::new(Suit::Spades, rank));
+        }
+        assert_eq!(hand.len(), 3);
+
+        assert_eq!(hand.suit_length(Suit::Clubs), 0, "hand holds no clubs");
+        assert_eq!(
+            hand.losers_in_suit(Suit::Clubs),
+            0,
+            "a void has no losers; filler slots must not be counted as cards"
+        );
+        assert_eq!(
+            hand.suit_quality(Suit::Clubs),
+            0,
+            "a suit the hand does not hold has no quality"
+        );
+
+        // AKQ bare is three winners in spades and nothing anywhere else. The
+        // point is that cccc() sees three cards, not three plus ten filler.
+        let filled = hand.cccc();
+        let mut same_hand_via_vec = Hand::from_cards(hand.cards().to_vec());
+        assert_eq!(filled, same_hand_via_vec.cccc());
+        same_hand_via_vec.sort();
+        assert_eq!(
+            filled,
+            same_hand_via_vec.cccc(),
+            "cccc is order-independent"
+        );
     }
 }
