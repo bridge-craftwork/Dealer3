@@ -56,4 +56,5 @@ docs/*.pdf
 # Benchmark scratch (see bench/README.md)
 bench/.staging/
 bench/.verify/
+bench/.dds/
 scripts/__pycache__/
