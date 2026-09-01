@@ -265,8 +265,8 @@ struct Args {
     #[arg(short = 'e', hide = true)]
     exhaust: bool,
 
-    /// DEPRECATED: Upper/lowercase toggle (cosmetic feature not implemented)
-    #[arg(short = 'u', hide = true)]
+    /// Accepted and ignored: honours are always upper case, as in dealer.exe
+    #[arg(short = 'u')]
     uppercase: bool,
 
     /// DEPRECATED: Library mode (conflicting meanings in dealer.exe vs DealerV2_4)
@@ -915,14 +915,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    if args.uppercase {
-        eprintln!("Error: Switch '-u' (upper/lowercase toggle) is not supported in dealer3.");
-        eprintln!();
-        eprintln!("Reason: This is a cosmetic feature with low priority.");
-        eprintln!();
-        eprintln!("Suggestion: Remove the '-u' switch from your command.");
-        eprintln!("            dealer3 uses standard uppercase card symbols (AKQJT).");
-        std::process::exit(1);
+    // `-u` is accepted and does nothing, which is exactly what it does in
+    // dealer.exe: the flag it sets there is read only by the `representation`
+    // macro, and that macro is never invoked, so honours come out upper case
+    // either way. Refusing it would break a command line that works on BBO for
+    // no gain. Said aloud under `-v` so nobody thinks it took effect.
+    if args.uppercase && args.verbose {
+        eprintln!("Note: -u is accepted and ignored; honours are always upper case.");
     }
 
     if args.library {

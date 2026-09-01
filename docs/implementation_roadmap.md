@@ -265,7 +265,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Upper-case the honour cards in output | Low | Low |  | Cosmetic. |
 | 🔵 Unlikely | `par(side)`: the par contract | Low | Low |  | Needs all 20 double-dummy results, which bridge-solver already provides for `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with `-P`, which has a row of its own in the switch table. |
 | 🔵 Unlikely | `printns` and `printside(side)` | Low | Low |  | dealer3 has `printew`; DealerV2_4 routes all three through one action. |
 | 🔵 Unlikely | `trix(compass)` and `trix(deal)` | Low | Low |  | Tricks in all five strains as CSV columns. The solving is already done. |

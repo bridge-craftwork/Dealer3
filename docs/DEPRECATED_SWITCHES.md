@@ -47,27 +47,24 @@ Suggestion: Remove the '-e' switch from your command.
 
 ### 2. `-u` - Upper/Lowercase Toggle
 
-**Status**: ❌ Not Supported
-**Reason**: Cosmetic feature with low priority
+**Status**: ✅ Accepted and ignored — no longer deprecated
 
-**Error Message**:
-```
-Error: Switch '-u' (upper/lowercase toggle) is not supported in dealer3.
+**What it does in dealer.exe**: nothing. `case 'u'` sets `uppercase = 1`, which
+is read only by
 
-Reason: This is a cosmetic feature with low priority.
-
-Suggestion: Remove the '-u' switch from your command.
-            dealer3 uses standard uppercase card symbols (AKQJT).
+```c
+#define representation (uppercase ? ucrep : lcrep );
 ```
 
-**What it did in dealer.exe**:
-- Toggle between uppercase and lowercase for card symbols
-- Affects display only: AKQJT vs akqjt
+and that macro is never invoked anywhere in `dealer.c`. `lcrep` appears exactly
+twice in the file — its own definition and that dead macro — while every output
+path calls `ucrep` directly. Confirmed against the binary: its output is
+byte-identical with and without the switch, so honours are `AKQJT` either way.
 
-**Why not supported**:
-- Purely cosmetic feature
-- Low priority compared to functional features
-- dealer3 uses standard uppercase (AKQJT)
+**Why dealer3 accepts it**: refusing a switch that does nothing would break a
+command line that works on BBO, for no gain. dealer3 prints upper-case honours
+already, so `-u` changes nothing here either — which is the compatible answer.
+`-v` prints a note so nobody believes it took effect.
 - Could be added in future if there's demand
 
 ---
@@ -153,8 +150,8 @@ $ echo "hcp(north) >= 20" | dealer -e -p 1
 Error: Switch '-e' (exhaust mode) is not supported in dealer3.
 ...
 
-$ echo "hcp(north) >= 20" | dealer -u -p 1
-Error: Switch '-u' (upper/lowercase toggle) is not supported in dealer3.
+$ echo "hcp(north) >= 20" | dealer -u -v -p 1
+Note: -u is accepted and ignored; honours are always upper case.
 ...
 
 $ echo "hcp(north) >= 20" | dealer -l -p 1
@@ -176,14 +173,14 @@ Error: Switch '-l' (library mode) is not supported in dealer3.
 
 ### Affected Users
 - Users who tried experimental `-e` flag (likely none)
-- Users who customized card display with `-u` (likely rare)
+- Nobody: `-u` never changed dealer.exe's output either
 - Users who used library.dat with `-l` (advanced users only)
 
 ### Migration Path
 - **Swapping (`-2`, `-3`)**: nothing to do — they work. Only a predeal to a
   seat the swap moves is refused, and the original was silently wrong there.
 - **Exhaust (`-e`)**: Remove switch (feature never worked)
-- **Uppercase (`-u`)**: Remove switch (cosmetic only)
+- **Uppercase (`-u`)**: nothing to do; accepted and ignored, as in dealer.exe
 - **Library (`-l`)**: Remove switch, wait for future library support
 
 ---
@@ -191,7 +188,7 @@ Error: Switch '-l' (library mode) is not supported in dealer3.
 ## Future Considerations
 
 ### Could Be Added Later
-1. **Upper/lowercase toggle (`-u`)**: Low priority, cosmetic feature
+1. ~~**Upper/lowercase toggle (`-u`)**~~: accepted and ignored; it is a no-op in dealer.exe too
 2. **Library input (`--library-input`)**: If there's demand for library.dat support
 3. **DL52 export (`--dl52-output`)**: If there's demand for DealerV2_4 compatibility
 

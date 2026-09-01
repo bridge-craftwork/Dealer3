@@ -94,7 +94,9 @@ private to `dealer-run`; a front end cannot see it, which is the point.
 2. **Parse Once, Evaluate Many**: AST is Clone + Send + Sync for efficient parallel evaluation
 3. **Breaking Change (0.2.0)**: `-v` changed from vulnerability to verbose (matches dealer.exe)
    - Use `--vulnerable` (long form only) for vulnerability
-4. **Deprecated Switches**: Parse and show helpful errors for `-2`, `-3`, `-e`, `-u`, `-l`
+4. **Deprecated Switches**: Parse and show helpful errors for `-e` and `-l`. `-2`
+   and `-3` are implemented (swapping modes); `-u` is accepted and ignored,
+   because it does nothing in dealer.exe either
 
 ## Implemented Features
 
@@ -109,7 +111,9 @@ private to `dealer-run`; a front end cannot see it, which is the point.
 - ✅ `-V` / `--version` - Version info (matches dealer.exe)
 - ✅ `-q` / `--quiet` - Quiet mode (matches dealer.exe)
 - ✅ `-m` / `--progress` - Progress meter every 10K deals (matches dealer.exe)
-- ✅ `-2`, `-3`, `-e`, `-u`, `-l` - Deprecated switches (helpful error messages)
+- ✅ `-e`, `-l` - Deprecated switches (helpful error messages)
+- ✅ `-2`, `-3` - Swapping modes (implemented)
+- ✅ `-u` - Accepted and ignored, as in dealer.exe
 
 ### Filter Language Features
 - ✅ **Functions**: hcp, controls, shape, hearts, spades, diamonds, clubs, losers, suit_quality, cccc
