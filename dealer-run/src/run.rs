@@ -480,6 +480,14 @@ fn report_row(
             // one part holding its own commas, so it lands in the row as
             // separate columns without the join needing to know.
             CsvTerm::Trix(seats) => {
+                // Solved denomination-outermost, for the cache sharing
+                // described on `dealer_dds::table`, then read back per seat in
+                // the order the report wants.
+                for denomination in dealer_dds::Denomination::ALL {
+                    for seat in seats {
+                        dealer_dds::tricks(deal, denomination, *seat);
+                    }
+                }
                 for seat in seats {
                     let columns: Vec<String> = dealer_dds::Denomination::ALL
                         .iter()

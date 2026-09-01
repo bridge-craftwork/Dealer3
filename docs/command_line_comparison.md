@@ -110,7 +110,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `-M` | Double-dummy solver mode | ❌ | — | ✅ | dealer3 has `tricks()` but no mode switch. |
+| `-M` | Double-dummy solver mode — nothing to implement | ❌ | — | ✅ | It prints nothing. DealerV2_4's own docs describe it as "1 Single result mode; 2 all 20 strain-compass combinations" (`docs/Handstat_layout.txt`), so it chooses how the DDS library is called, not what comes out — and DealerV2_4 switches to mode 2 by itself whenever `par` or `trix` needs it. dealer3 has no such choice to offer: results are remembered per (deal, denomination, declarer) and shared across threads, so asking once costs one search, asking twenty costs twenty, and asking again costs nothing. |
 | `-Z` | Export in RP zrd format | ❌ | — | ✅ |  |
 | `-U` | DealerServer path | ❌ | — | ✅ |  |
 | `-O` | OPC evaluation for the opener | ❌ | — | ✅ |  |

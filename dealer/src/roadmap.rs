@@ -223,17 +223,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "Double-dummy solver mode",
-        done_when: Some(DoneWhen::Switch("-M")),
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
-        note: Some(
-            "DealerV2_4's `-M`, which prints a double-dummy table per deal. The solver \
-             behind it is in place; this is the switch and its output format.",
-        ),
-    },
-    WorkItem {
         what: "Exhaust mode",
         done_when: Some(DoneWhen::Switch("-e")),
         issue: None,

@@ -146,6 +146,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **`trix(deal)` and `par()` were about twice as slow as they needed to be.**
+  `dealer_dds::table` filled the twenty cells seat-outermost, asking for a
+  different denomination on every call. `DealAnalysis` keeps the solver's
+  caches per denomination and drops them when the denomination changes, so the
+  caches were rebuilt twenty times instead of five. Filled denomination-
+  outermost now, as `DealAnalysis::table` already did.
+  - Forty deals through `trix(deal)`: 11.7s to 6.2s. Same for `par()`, 11.8s to
+    6.2s. Output byte-identical.
+  - `scripts/dd-bench.sh` gained a stage for the whole table, with a budget the
+    wrong order exceeds — verified by putting the wrong order back and watching
+    it fail.
 - **Unary minus did nothing: `-2` evaluated to `2`, and `-2 == 2` was true.**
   A bare `"-"` inside a non-atomic pest rule produces no pair, so the parser
   saw only the operand and dropped the negation; `not_op` is a named rule,
