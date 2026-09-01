@@ -389,3 +389,76 @@ fn a_score_call_that_counts_right_still_runs() {
         assert_eq!(status, 0, "`{script}` should run: {err}");
     }
 }
+
+#[test]
+fn a_decimal_is_a_hundred_times_itself() {
+    // DealerV2_4's dotnums: `(int)(100. * atof(yytext))`. Sugar for an integer,
+    // not a fraction — nothing downstream tracks a scale.
+    for (written, expected) in [
+        ("6.25", "625"),
+        ("3.0", "300"),
+        (".5", "50"),
+        (".25", "25"),
+        ("6.", "600"),
+        ("0.75", "75"),
+        ("-2.5", "-250"),
+        ("13", "13"),
+    ] {
+        let (out, err, status) = run(
+            &["-q", "-p", "1", "-s", "1"],
+            &format!("condition 1\nprintrpt({written})\n"),
+        );
+        assert_eq!(status, 0, "`{written}` should run: {err}");
+        assert_eq!(out.trim(), expected, "{written}");
+    }
+}
+
+#[test]
+fn a_decimal_count_row_is_the_integer_row_it_denotes() {
+    // The reason decimals exist: weighting a card at 0.75 in a count row.
+    let decimals = run(
+        &["-q", "-p", "1", "-s", "1"],
+        "altcount 8 6.25 4.25 1.5 0.75 .25\ncondition 1\nprintrpt(pt6(north))\n",
+    );
+    let integers = run(
+        &["-q", "-p", "1", "-s", "1"],
+        "altcount 8 625 425 150 75 25\ncondition 1\nprintrpt(pt6(north))\n",
+    );
+    assert_eq!(decimals.0, integers.0, "the two spellings are one row");
+    assert_eq!(decimals.2, 0);
+}
+
+#[test]
+fn more_than_two_digits_before_the_point_is_not_one_number() {
+    // DealerV2_4's limit, and it is load-bearing: its lexer reads `123.45` as
+    // `123` then `.45`, which is a syntax error. Being more permissive here
+    // would accept scripts that fail there.
+    let (_, err, status) = run(
+        &["-q", "-p", "1", "-s", "1"],
+        "condition 1\nprintrpt(123.45)\n",
+    );
+    assert_eq!(status, 1, "123.45 should be refused");
+    assert!(err.contains("Parse error"), "stderr was: {err}");
+}
+
+/// #43. A bare `"-"` in a non-atomic pest rule produces no pair, so the
+/// negation was dropped and `-2` evaluated to 2. Checked against the reference,
+/// which prints -2 and 0 for these.
+#[test]
+fn unary_minus_negates() {
+    for (written, expected) in [
+        ("-2", "-2"),
+        ("-(2)", "-2"),
+        ("-2 == 2", "0"),
+        ("0-2 == -2", "1"),
+        ("5 - -2", "7"),
+        ("-2.5 == 0 - 2.5", "1"),
+    ] {
+        let (out, err, status) = run(
+            &["-q", "-p", "1", "-s", "1"],
+            &format!("condition 1\nprintrpt({written})\n"),
+        );
+        assert_eq!(status, 0, "`{written}` should run: {err}");
+        assert_eq!(out.trim(), expected, "{written}");
+    }
+}

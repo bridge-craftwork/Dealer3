@@ -1049,6 +1049,25 @@ pub const STATEMENT_DOCS: &[StatementDoc] = &[
     },
     StatementDoc {
         keyword: None,
+        form: "6.25, 3.0, .5",
+        summary: "A decimal is sugar for a hundred times itself: `6.25` is 625, `.5` is 50. \
+                  DealerV2_4 calls these dotnums and computes them the same way.",
+        example: "altcount 8 6.25 4.25 1.5 0.75 .25",
+        note: Some(
+            "**Not a fraction.** Nothing tracks a scale, so a plain `6` is still 6 and \
+             `6.25 + 6` is 631. Keeping the units straight is the script's job, and \
+             DealerV2_4's own scripts do it by redefining the counts in the same scale: \
+             after `pointcount 4.5 3.0 1.5 0.75 .25` the `hcp()` of an ace-king is 750, and \
+             only then does `11.00 <= hcp(west)` mean what it looks like. Written against \
+             the ordinary scale it is `1100 <= hcp(west)`, which is never true.\n\nAt most \
+             two digits either side of the point, which is DealerV2_4's limit and not an \
+             arbitrary one: `123.45` is not a number there but `123` followed by `.45`, and \
+             a syntax error. dealer.exe has no decimals at all — its lexer has only \
+             `[0-9]+` — so any script using one is a script that will not run on BBO.",
+        ),
+    },
+    StatementDoc {
+        keyword: None,
         form: "<name> = <expression>",
         summary: "Names an expression so a long condition can be written in pieces. The name \
                   stands for the expression and is worked out afresh for every deal.",

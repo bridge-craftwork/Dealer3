@@ -184,7 +184,12 @@ additive = { multiplicative ~ (add_op ~ multiplicative)* }
 multiplicative = { unary ~ (mul_op ~ unary)* }
 // Unary operators: negation (-) and logical not (!/not)
 // Both have the same (high) precedence, so 100 * not x = 100 * (not x)
-unary = { "-" ~ unary | not_op ~ unary | primary }
+// The minus needs a rule of its own, not a bare `"-"`. A string literal inside
+// a non-atomic rule produces no pair, so `build_ast` saw only the operand and
+// dropped the negation on the floor: `-2` evaluated to 2, and `-2 == 2` was
+// true. `not_op` is a named rule, which is why `not` never had the problem.
+unary = { neg_op ~ unary | not_op ~ unary | primary }
+neg_op = { "-" }
 
 primary = _{
     par_call       // Before function_call: `ns` and `ew` are not expressions
@@ -318,7 +323,27 @@ suit = @{
 }
 
 // Integer literals
-literal = @{ "-"? ~ ASCII_DIGIT+ }
+// Integers, and DealerV2_4's "dotnums" — `6.25`, `3.0`, `.5`.
+//
+// A decimal is **sugar for the integer a hundred times it**, not a fraction:
+// `6.25` is 625, exactly as `dealflex.l:416` computes `(int)(100. * atof())`.
+// There is no fixed-point arithmetic and nothing tracks a scale, so a plain
+// `6` is still 6 and `6.25 + 6` is 631. It is the script's job to keep its
+// units straight, which DealerV2_4's own scripts do by redefining the counts
+// in the same scale — `pointcount 4.5 3.0 1.5 0.75 .25` makes `hcp()` return
+// hundredths, and only then does `11.00 <= hcp(west)` mean what it looks like.
+//
+// The digit limits are DealerV2_4's, and they matter: `[0-9]{1,2}` before the
+// point means `123.45` is not one number there but `123` followed by `.45`,
+// which is a syntax error. Ordered choice puts the decimal forms first, since
+// PEG takes the first match rather than the longest.
+literal = @{
+    "-"? ~ (
+        ASCII_DIGIT{1,2} ~ "." ~ ASCII_DIGIT{0,2}
+        | "." ~ ASCII_DIGIT{1,2}
+        | ASCII_DIGIT+
+    )
+}
 
 // String literals (for average labels)
 string_literal = @{ "\"" ~ (!"\"" ~ ANY)* ~ "\"" }

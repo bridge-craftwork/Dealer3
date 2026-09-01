@@ -123,17 +123,6 @@ pub const REMAINING: &[WorkItem] = &[
         ),
     },
     WorkItem {
-        what: "Decimal literals, `6.25` and `.5`",
-        done_when: None,
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
-        note: Some(
-            "DealerV2_4 reads them as hundredths, which is what lets `altcount` weight a \
-             card at 0.75 and `ltc` count in halves. dealer3's numbers are integers.",
-        ),
-    },
-    WorkItem {
         what: "`bktfreq`: frequency in buckets, one and two dimensional",
         done_when: None,
         issue: None,

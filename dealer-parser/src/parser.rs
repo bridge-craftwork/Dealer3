@@ -74,7 +74,10 @@ pub const MAX_COUNT_VALUES: usize = 13;
 fn read_count_values(pairs: pest::iterators::Pairs<Rule>) -> Result<Vec<i32>, ParseError> {
     pairs
         .map(|p| {
-            p.as_str().parse::<i32>().map_err(|_| ParseError {
+            // Through `literal_value`, so a count row can be written in
+            // hundredths — `altcount 8 6.25 4.25 1.5 0.75 .25`, which is what
+            // decimals exist for.
+            literal_value(p.as_str()).map_err(|_| ParseError {
                 message: format!("Invalid point count value: {}", p.as_str()),
             })
         })
@@ -666,6 +669,42 @@ fn contract_code(token: &str) -> Result<i32, ParseError> {
     Ok(40 * doubled + level * 5 + strain)
 }
 
+/// The number a literal denotes, in the units the script is written in.
+///
+/// A plain integer is itself. A decimal is a hundred times itself — DealerV2_4's
+/// `(int)(100. * atof(yytext))` — so `6.25` is 625 and `.5` is 50. The grammar
+/// has already checked the shape, including that at most two digits follow the
+/// point, so the arithmetic here cannot lose anything.
+fn literal_value(text: &str) -> Result<i32, ParseError> {
+    let (sign, digits) = match text.strip_prefix('-') {
+        Some(rest) => (-1, rest),
+        None => (1, text),
+    };
+
+    let Some((whole, fraction)) = digits.split_once('.') else {
+        return digits
+            .parse::<i32>()
+            .map(|n| sign * n)
+            .map_err(|e| ParseError {
+                message: format!("Invalid integer literal: {}", e),
+            });
+    };
+
+    // "6." is six, and ".5" is five tenths; either side may be empty, never both.
+    let whole: i32 = if whole.is_empty() {
+        0
+    } else {
+        whole.parse().unwrap_or(0)
+    };
+    let hundredths: i32 = match fraction.len() {
+        0 => 0,
+        1 => fraction.parse::<i32>().unwrap_or(0) * 10,
+        _ => fraction.parse::<i32>().unwrap_or(0),
+    };
+
+    Ok(sign * (whole * 100 + hundredths))
+}
+
 /// A compass word as a `Position`, in any of the language's spellings.
 fn compass_position(text: &str) -> Result<Position, ParseError> {
     match text.to_lowercase().as_str() {
@@ -981,7 +1020,7 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
                     let inner = build_ast(pairs.next().unwrap())?;
                     Ok(Expr::unary(UnaryOp::Not, inner))
                 }
-                _ if first.as_str() == "-" => {
+                Rule::neg_op => {
                     let inner = build_ast(pairs.next().unwrap())?;
                     Ok(Expr::unary(UnaryOp::Negate, inner))
                 }
@@ -1086,12 +1125,7 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             Ok(Expr::Literal(4))
         }
 
-        Rule::literal => {
-            let value = pair.as_str().parse::<i32>().map_err(|e| ParseError {
-                message: format!("Invalid integer literal: {}", e),
-            })?;
-            Ok(Expr::Literal(value))
-        }
+        Rule::literal => Ok(Expr::Literal(literal_value(pair.as_str())?)),
 
         Rule::card => {
             let card_str = pair.as_str();
