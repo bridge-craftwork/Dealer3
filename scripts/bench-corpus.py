@@ -80,6 +80,9 @@ def main():
                     help="also verify against dealer.exe and DealerV2_4")
     ap.add_argument("--dealer3", default=None, help="dealer3 binary")
     ap.add_argument("--dealerv2", default=None, help="DealerV2_4 binary")
+    ap.add_argument("--recalibrate", action="store_true",
+                    help="with --baseline-only, re-time the generation baseline "
+                         "instead of reusing its deal count")
     ap.add_argument("--baseline-only", action="store_true",
                     help="regenerate just the synthetic generation baseline in the "
                          "existing corpus, leaving the selection alone")
@@ -290,6 +293,16 @@ def _make_solver_entry():
         "synthetic": True,
         "verify_only": True,
         "targets": list(bl.SOLVER_TARGETS),
+        # DealerV2_4 must be put in table mode explicitly. `par` needs all
+        # twenty results, and V2_4 knows it -- it prints "Using Parscore
+        # requires TableMode. Setting Mode and continuing.." and switches. But
+        # the switch happens after DDS has been given its resources for board
+        # mode, and the library then dies with "Memory::GetPtr: 0 vs. 0" and
+        # exit 1. Passing -M 2 up front avoids the switch entirely.
+        #
+        # It is also the mode that makes the comparison fair: dealer3 fills the
+        # whole table, so -M 1 would have the two solving different amounts.
+        "target_args": {"dealerv2_4": ["-M", "2"]},
         "verify_produce": 50,
         "notes": ["double-dummy agreement between dealer3 and DealerV2_4"],
         "imports": [],
@@ -316,17 +329,30 @@ def _refresh_baseline(dealer3, args):
         sys.exit("error: no corpus to update -- run without --baseline-only first")
     index = json.loads(bl.CORPUS_INDEX.read_text())
     target_seconds = index.get("target_seconds", args.target_seconds)
-    entry, _ = _make_baseline(dealer3, target_seconds)
+    previous = next((e for e in index["scripts"] if e["name"] == bl.BASELINE_NAME), None)
+    if previous and not args.recalibrate:
+        # Reuse the deal count rather than re-timing it. Calibration jitter
+        # would otherwise change the baseline's workload, and with it
+        # corpus_id, every time this is run -- invalidating reference numbers
+        # for no reason. --recalibrate asks for a fresh one deliberately.
+        entry = dict(previous)
+        bl.CORPUS_DIR.mkdir(parents=True, exist_ok=True)
+        (bl.CORPUS_DIR / entry["file"]).write_text(bl.BASELINE_SCRIPT)
+        print(f"Generation baseline: reusing {entry['deals']:,} deals "
+              "(--recalibrate to re-time it)")
+    else:
+        entry, _ = _make_baseline(dealer3, target_seconds)
+        print(f"Generation baseline: {entry['seconds_per_deal_r1']*1e9:.1f} ns/deal "
+              f"on dealer3 -R1 ({entry['deals']:,} deals)")
     solver, _ = _make_solver_entry()
     index["scripts"] = [e for e in index["scripts"]
                         if e["name"] not in (bl.BASELINE_NAME, bl.SOLVER_NAME)]
     index["scripts"].extend([entry, solver])
     index["corpus_id"] = bl.corpus_fingerprint(index["scripts"])
     bl.CORPUS_INDEX.write_text(json.dumps(index, indent=2) + "\n")
-    print(f"Generation baseline: {entry['seconds_per_deal_r1']*1e9:.1f} ns/deal "
-          f"on dealer3 -R1 ({entry['deals']:,} deals)")
+    print(f"corpus_id: {index['corpus_id']}")
     print(f"Updated {bl.CORPUS_INDEX.relative_to(bl.REPO)}; the other "
-          f"{len(index['scripts']) - 1} scripts are unchanged.")
+          f"{len(index['scripts']) - 2} scripts are unchanged.")
     return None
 
 

@@ -140,7 +140,8 @@ def main():
                 print(f"    {target.name:<12} n/a (script needs a double-dummy solver)")
                 continue
             verdict = check(target, dealer3, staged, args, cs, work, entry["name"],
-                            produce=entry.get("verify_produce"))
+                            produce=entry.get("verify_produce"),
+                            extra=entry.get("target_args", {}).get(target.name))
             status = verdict["status"]
             print(f"    {target.name:<12} {status}")
             if verdict.get("detail") and (args.verbose or status.startswith("MISMATCH")):
@@ -159,18 +160,20 @@ def main():
     return 0
 
 
-def check(target, dealer3, staged, args, cs, work, name, produce=None):
+def check(target, dealer3, staged, args, cs, work, name, produce=None, extra=None):
     """Run one reference, replay its deals through dealer3, compare.
 
     `produce` overrides the run-wide count for entries that are expensive per
     deal -- a script calling the solver spends milliseconds on each produced
-    deal rather than microseconds.
+    deal rather than microseconds. `extra` passes switches an entry needs for a
+    particular program, such as putting DealerV2_4 in table mode.
     """
     produce = produce or args.produce
     try:
         argv = list(target.command)
         if target.verbose_flag:
             argv.append(target.verbose_flag)
+        argv += list(extra or [])
         argv += ["-p", str(produce), "-s", str(args.seed), str(staged)]
         ref = subprocess.run(argv, capture_output=True, text=True,
                              timeout=args.ssh_timeout + 60)

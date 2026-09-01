@@ -1,0 +1,12 @@
+# Synthetic. Not from Practice-Bidding-Scenarios.
+#
+# Checks that dealer3 and DealerV2_4 return the same double-dummy results for
+# the same cards. dealer.exe and dealer-c have no solver and are excluded.
+#
+# Spellings are the intersection of the two languages: `north` lowercase,
+# `NS` uppercase. See SOLVER_NAME in scripts/benchlib.py.
+condition hcp(north) + hcp(south) >= 26
+action
+    average "dds north notrump" dds(north, notrump),
+    average "dds south spades" dds(south, spades),
+    average "par NS" par(NS)

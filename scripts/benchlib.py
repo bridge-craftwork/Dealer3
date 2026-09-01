@@ -600,7 +600,12 @@ def corpus_fingerprint(entries):
     which is precisely when a measurement stops being comparable.
     """
     h = hashlib.sha256()
-    for e in sorted(entries, key=lambda e: e["name"]):
+    # Verify-only entries are deliberately excluded. They are never timed, so
+    # adding or changing one cannot make an existing measurement incomparable
+    # -- and if they counted, adding a correctness check would invalidate a set
+    # of reference numbers that took minutes of SSH round trips to produce.
+    for e in sorted((e for e in entries if not e.get("verify_only")),
+                    key=lambda e: e["name"]):
         h.update(e["name"].encode())
         h.update(str(e["deals"]).encode())
         path = CORPUS_DIR / e["file"]
