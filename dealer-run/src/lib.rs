@@ -317,6 +317,15 @@ pub struct RunAccumulator<'a> {
 
     produced: usize,
     stop: MeasureStop,
+
+    /// The run's vulnerability, for `par()` and `score()` in a statistic or a
+    /// hand-type expression.
+    ///
+    /// A required argument of `new` rather than a builder like the rest: it was
+    /// a builder on `EvalContext`, three of the four places that build one
+    /// forgot it, and `par()` silently answered every run as though nobody was
+    /// vulnerable. Making it impossible to leave out is the fix.
+    vulnerability: dealer_core::Vulnerability,
 }
 
 impl<'a> RunAccumulator<'a> {
@@ -325,7 +334,11 @@ impl<'a> RunAccumulator<'a> {
     /// Fails only on a script whose `HandType_X_Share` declarations do not
     /// resolve — refused here rather than after a run, so a mixed-up set of
     /// shares costs nothing.
-    pub fn new(program: &'a Program, stop: MeasureStop) -> Result<Self, String> {
+    pub fn new(
+        program: &'a Program,
+        stop: MeasureStop,
+        vulnerability: dealer_core::Vulnerability,
+    ) -> Result<Self, String> {
         let hand_type_names = dealer_level::hand_types(program);
         let hand_type_labels: Vec<String> = hand_type_names
             .iter()
@@ -399,6 +412,7 @@ impl<'a> RunAccumulator<'a> {
             frequencies,
             produced: 0,
             stop,
+            vulnerability,
         })
     }
 
@@ -499,7 +513,8 @@ impl<'a> RunAccumulator<'a> {
         if self.averages.is_empty() && self.frequencies.is_empty() {
             return Ok(());
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts);
+        let ctx = EvalContext::with_counts(deal, variables, counts)
+            .with_vulnerability(self.vulnerability);
         for average in self.averages.iter_mut() {
             let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
                 what: "Average evaluation error".to_string(),
@@ -543,7 +558,8 @@ impl<'a> RunAccumulator<'a> {
         if self.hand_type_names.is_empty() {
             return Ok(None);
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts);
+        let ctx = EvalContext::with_counts(deal, variables, counts)
+            .with_vulnerability(self.vulnerability);
         pick(&self.hand_type_names, &ctx, deal, "Hand")
     }
 
@@ -559,7 +575,8 @@ impl<'a> RunAccumulator<'a> {
         if self.level_type_names.is_empty() {
             return Ok(hand_type);
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts);
+        let ctx = EvalContext::with_counts(deal, variables, counts)
+            .with_vulnerability(self.vulnerability);
         pick(&self.level_type_names, &ctx, deal, "Level")
     }
 
@@ -764,7 +781,8 @@ mod tests {
         count: usize,
     ) -> (RunAccumulator<'_>, Vec<Matched>) {
         let variables = extract_variables(program);
-        let mut acc = RunAccumulator::new(program, stop).expect("accumulator");
+        let mut acc = RunAccumulator::new(program, stop, dealer_core::Vulnerability::default())
+            .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
         let mut matched = Vec::new();
         for _ in 0..count {
@@ -825,7 +843,12 @@ condition 1
             "HandType_Ten = hcp(north) >= 10\nHandType_Fifteen = hcp(north) >= 15\ncondition 1\n",
         );
         let variables = extract_variables(&program);
-        let mut acc = RunAccumulator::new(&program, MeasureStop::standard()).expect("accumulator");
+        let mut acc = RunAccumulator::new(
+            &program,
+            MeasureStop::standard(),
+            dealer_core::Vulnerability::default(),
+        )
+        .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
 
         let error = loop {
@@ -860,7 +883,12 @@ condition 1
         // long after the other two have passed it.
         let program = parse(LADDER);
         let variables = extract_variables(&program);
-        let mut acc = RunAccumulator::new(&program, MeasureStop::new(20)).expect("accumulator");
+        let mut acc = RunAccumulator::new(
+            &program,
+            MeasureStop::new(20),
+            dealer_core::Vulnerability::default(),
+        )
+        .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
         while !acc.measure_satisfied() {
             let deal = generator.next_deal();
@@ -932,6 +960,76 @@ condition 1
             "one decomposition needs no joint table"
         );
         assert!(matched.iter().all(|m| m.hand_type == m.level_type));
+    }
+
+    /// Each hand holds one whole suit. A degenerate deal, but the double-dummy
+    /// solver gets through it almost instantly, which is what makes this
+    /// affordable as a unit test -- a handful of real deals costs a minute in a
+    /// debug build.
+    fn one_suit_each() -> Deal {
+        use dealer_core::{Card, Position, Rank, Suit};
+        let mut deal = Deal::new();
+        for (position, suit) in [
+            (Position::North, Suit::Spades),
+            (Position::East, Suit::Hearts),
+            (Position::South, Suit::Diamonds),
+            (Position::West, Suit::Clubs),
+        ] {
+            for rank in Rank::ALL {
+                deal.hand_mut(position).add_card(Card::new(suit, rank));
+            }
+        }
+        deal
+    }
+
+    fn par_at(program: &Program, vulnerability: dealer_core::Vulnerability) -> f64 {
+        let variables = extract_variables(program);
+        let mut acc = RunAccumulator::new(program, MeasureStop::standard(), vulnerability)
+            .expect("accumulator");
+        let deal = one_suit_each();
+        acc.observe(&deal, &variables, None).expect("observe");
+        acc.finish().averages[0].value
+    }
+
+    /// `par()` has to be told who is vulnerable, and the accumulator is what
+    /// tells it.
+    ///
+    /// This is the test that was missing. `EvalContext` defaults its
+    /// vulnerability and offers a builder to set one, and three of the four
+    /// places that built a context never called the builder -- so `par()`
+    /// answered every run as though neither side were vulnerable, whatever the
+    /// script or `--vulnerable` said, and nothing noticed. A test that checks a
+    /// single vulnerability cannot catch that; it takes two that disagree.
+    #[test]
+    fn par_is_told_which_side_is_vulnerable() {
+        let program = parse(
+            "\
+condition 1
+action average \"par\" par(NS)
+",
+        );
+
+        let none = par_at(&program, dealer_core::Vulnerability::None);
+        let ns = par_at(&program, dealer_core::Vulnerability::NorthSouth);
+        let both = par_at(&program, dealer_core::Vulnerability::Both);
+
+        // What the numbers are is the par algorithm's business. What matters
+        // here is only that the setting arrives: the same cards cannot be worth
+        // the same to North-South whether or not North-South are vulnerable.
+        //
+        // East-West's vulnerability is deliberately not asserted on this deal.
+        // On one-suit-each North-South simply make their contract and East-West
+        // never come in, so nothing about East-West's vulnerability can reach
+        // the score, and a test demanding that it did would be wrong rather
+        // than strict.
+        assert_ne!(
+            none, ns,
+            "par to NS did not change when NS became vulnerable ({none} both times)"
+        );
+        assert_ne!(
+            none, both,
+            "par to NS did not change when both sides became vulnerable ({none} both times)"
+        );
     }
 
     #[test]
