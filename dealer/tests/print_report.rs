@@ -168,3 +168,65 @@ fn trix_of_the_deal_is_four_seats_of_five() {
         assert!(tricks <= 13, "{tricks} is not a possible trick count");
     }
 }
+
+/// `par(side)` is the deal's par score, from that side's point of view. The
+/// two sides are opposites, and a compass names the side its seat is on.
+#[test]
+fn par_is_signed_to_the_side_that_asks() {
+    let out = run(
+        "condition hcp(north) >= 15\nprintrpt(par(ns), par(ew), par(north), par(south), par(east))\n",
+        &["-q", "-p", "3", "-s", "1"],
+    );
+    for row in out.lines().filter(|line| !line.trim().is_empty()) {
+        let values: Vec<i32> = row
+            .trim()
+            .split(',')
+            .map(|v| v.trim().parse().expect("par is a score"))
+            .collect();
+        assert_eq!(values.len(), 5);
+        assert_eq!(values[0], -values[1], "par(ew) is -par(ns)");
+        assert_eq!(values[0], values[2], "north is on the NS side");
+        assert_eq!(values[0], values[3], "so is south");
+        assert_eq!(values[1], values[4], "east is on the EW side");
+    }
+}
+
+/// Par depends on who is vulnerable, so the run's own vulnerability has to
+/// reach it — that is the whole reason `EvalContext` carries one.
+#[test]
+fn par_follows_the_runs_vulnerability() {
+    let script = "condition hcp(north) >= 15\nprintrpt(par(ns))\n";
+    let none = run(
+        script,
+        &["-q", "-p", "5", "-s", "1", "--vulnerable", "None"],
+    );
+    let ns = run(script, &["-q", "-p", "5", "-s", "1", "--vulnerable", "NS"]);
+    let all = run(script, &["-q", "-p", "5", "-s", "1", "--vulnerable", "All"]);
+    let ew = run(script, &["-q", "-p", "5", "-s", "1", "--vulnerable", "EW"]);
+
+    // The same deals throughout — only the scoring changes.
+    assert_ne!(none, ns, "NS vulnerable has to change NS's par");
+    assert_eq!(ns, all, "NS is vulnerable in both");
+    assert_eq!(none, ew, "NS is not vulnerable in either");
+
+    // A script's own `vulnerable` statement reaches it the same way.
+    let by_statement = run(
+        "vulnerable All\ncondition hcp(north) >= 15\nprintrpt(par(ns))\n",
+        &["-q", "-p", "5", "-s", "1"],
+    );
+    assert_eq!(by_statement, all, "the statement and the switch agree");
+}
+
+/// A script that names no vulnerability gets none — deliberately not the
+/// rotation `printpbn` applies, which would make par answer differently for
+/// the same cards depending on where the board sat.
+#[test]
+fn par_without_a_vulnerability_assumes_neither_side() {
+    let script = "condition hcp(north) >= 15\nprintrpt(par(ns))\n";
+    let unset = run(script, &["-q", "-p", "5", "-s", "1"]);
+    let none = run(
+        script,
+        &["-q", "-p", "5", "-s", "1", "--vulnerable", "None"],
+    );
+    assert_eq!(unset, none);
+}

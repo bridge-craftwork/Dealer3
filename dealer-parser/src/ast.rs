@@ -400,6 +400,8 @@ pub enum Function {
     Score,
     /// Convert score difference to IMPs
     Imps,
+    /// The par score, to the side named
+    Par,
     /// A random number below the given bound
     ///
     /// The original draws this from the same generator it shuffles with, so
@@ -436,6 +438,7 @@ impl Function {
             "tricks" | "trick" | "dds" => Some(Function::Tricks),
             "score" => Some(Function::Score),
             "imps" | "imp" => Some(Function::Imps),
+            "par" => Some(Function::Par),
             "rnd" => Some(Function::Rnd),
             _ => None,
         }
@@ -471,6 +474,7 @@ impl Function {
             Function::Tricks => "tricks",
             Function::Score => "score",
             Function::Imps => "imps",
+            Function::Par => "par",
             Function::Rnd => "rnd",
         }
     }
@@ -506,6 +510,7 @@ impl Function {
             | Function::Clubs
             | Function::Cccc
             | Function::Imps
+            | Function::Par
             | Function::Rnd => (1, 1),
 
             // A hand and something about it.

@@ -1018,6 +1018,24 @@ fn build_ast(pair: Pair<Rule>) -> Result<Expr, ParseError> {
             })
         }
 
+        Rule::par_call => {
+            // `par_name` then the side. A side word becomes the number the
+            // evaluator reads — 0 for North-South, 1 for East-West — so a
+            // compass or a computed value works in the same slot.
+            let mut args = Vec::new();
+            for arg in pair.into_inner() {
+                match arg.as_rule() {
+                    Rule::par_name => continue,
+                    Rule::side => {
+                        let side = arg.as_str().to_lowercase();
+                        args.push(Expr::Literal(i32::from(side == "ew")));
+                    }
+                    _ => args.push(build_ast(arg)?),
+                }
+            }
+            Ok(Expr::call_multi(Function::Par, args))
+        }
+
         Rule::score_call => {
             // score_name, then the three arguments. The first two may have
             // arrived as tokens, which the rules below have already turned

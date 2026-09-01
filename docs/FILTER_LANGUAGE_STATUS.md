@@ -35,7 +35,7 @@ for the same predealt deal.
 
 <!-- BEGIN GENERATED: functions -->
 
-**25 functions**, under 50 spellings — the extra 25 are alternative names, listed with the function they stand for.
+**26 functions**, under 51 spellings — the extra 25 are alternative names, listed with the function they stand for.
 
 ### Hand evaluation
 
@@ -117,6 +117,8 @@ for the same predealt deal.
 | `score(vulnerable, contract, tricks)` | Declarer's score for a contract played at that vulnerability and making that many tricks. `vulnerable` is the word `nv` or `vul`; `contract` is a word such as `x3N`; `tricks` is 0 to 13. | `score(nv, x3N, 9) == 400` |
 | | A contract is one word: a lowercase `x`, the level, and the strain as an uppercase letter of CDHSN. The `x` is a sigil rather than a meaning — it is what lets the word be told from a number — so doubling is written as a suffix: `x4Hx` is four hearts doubled and `x4Hxx` redoubled. `z` may be used in place of the leading `x`, as in DealerV2_4, and means exactly the same thing. Both the case and the level range are the references' own, so a word that runs here runs on BBO. Either argument may also be written as the number it stands for, which is what a `--param` can supply: 0 or 1 for the vulnerability, and level × 5 + strain for the contract, plus 40 for each level of doubling. Strain numbers match `tricks`: 0 clubs, 1 diamonds, 2 hearts, 3 spades, 4 notrump. So `x3N` is 19, `x4S` is 23, `x4Sx` is 63 and `x4Sxx` is 103. | |
 | `imps(scoredifference)` | Converts a difference between two scores into IMPs, by the standard table. | `imps(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1` |
+| `par(side)` | The par score to that side: what the deal is worth with both sides bidding and defending perfectly. `side` is `ns` or `ew`, or a compass for the side that seat is on. | `par(ns) >= 400` |
+| | Worked out from all twenty double-dummy results, which cost the same searches `tricks()` does and are remembered per deal — so `par()` beside a `tricks()` condition is close to free. The two sides are opposites: `par(ew)` is `-par(ns)`, and a passed-out deal is zero. Vulnerability is the run's own — `--vulnerable`, or the `vulnerable` statement — and neither side is vulnerable when a script names none. It is deliberately not the rotation `printpbn` applies to an unnamed vulnerability: par is a property of the cards and the vulnerability the run was given, not of where a board sits in a set. DealerV2_4 instead has a `-P` switch of its own for this. | |
 | `rnd(bound)` | A random whole number from zero up to, but not including, the bound. | `rnd(10) == 3` |
 | | Every mention draws again, including through a variable: `r = rnd(4)` used twice is two draws, as in the original. Drawn from a stream of its own, seeded from the deal, so the same seed gives the same answers however many threads are running; the original shares the generator it shuffles with, so calling it there changes the deals. `--rnd-seed` shifts the stream. Beware locally built dealer binaries: `rnd` divides by `RAND_MAX`, which describes `rand()` rather than the generator it actually calls, so a build without `STD_RAND` returns values far outside the bound, or negative ones. BBO's own build is correct. | |
 <!-- END GENERATED: functions -->

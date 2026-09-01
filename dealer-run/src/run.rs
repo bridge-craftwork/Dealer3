@@ -117,6 +117,13 @@ pub struct RunOptions {
     /// preprocesses twice — the scenario, then its levelled copy — and a script
     /// half-substituted the second time would not parse.
     pub params: dealer_parser::ScriptParams,
+    /// Which side is vulnerable, for the words that ask — `par()` today.
+    ///
+    /// The run's own setting, not the rotation `printpbn` applies when a script
+    /// names none: a value that changed with a board's position would make
+    /// `par()` answer differently for the same cards, which is not what a
+    /// script asking about par means.
+    pub vulnerability: dealer_core::Vulnerability,
 }
 
 /// What levelling a scenario needs to know.
@@ -349,6 +356,7 @@ pub struct Produced<'a> {
     variables: &'a dealer_eval::Variables<'a>,
     point_counts: Option<&'a dealer_eval::PointCounts>,
     reports: &'a Reports,
+    vulnerability: dealer_core::Vulnerability,
 }
 
 /// What a script asked to be written out per produced deal.
@@ -379,6 +387,7 @@ impl Produced<'_> {
     /// one draws against a `rnd()` in another.
     pub fn context(&self) -> dealer_eval::EvalContext<'_> {
         dealer_eval::EvalContext::with_counts(self.deal, self.variables, self.point_counts)
+            .with_vulnerability(self.vulnerability)
     }
 
     /// What the script's `printes` statements say for this deal.
@@ -700,6 +709,8 @@ struct PassOptions<'a> {
     replay: &'a [Handle],
     /// How far into the stream `replay` accounts for.
     resume: usize,
+    /// Which side is vulnerable, handed to every expression the pass evaluates.
+    vulnerability: dealer_core::Vulnerability,
     /// Whether produced deals go to the host. A characterizing pass's deals
     /// exist to be counted and thrown away.
     emit: bool,
@@ -837,6 +848,7 @@ fn run_pass(
                     variables: &variables,
                     point_counts,
                     reports: &reports,
+                    vulnerability: opts.vulnerability,
                 })
                 .map_err(RunError::Failed)?;
             }
@@ -947,6 +959,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             &mut source,
             host,
             PassOptions {
+                vulnerability: opts.vulnerability,
                 phase: Phase::Dealing,
                 params: &opts.params,
                 threads,
@@ -983,6 +996,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
         &mut source,
         host,
         PassOptions {
+            vulnerability: opts.vulnerability,
             phase: Phase::Characterizing,
             params: &opts.params,
             threads,
@@ -1029,6 +1043,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             &mut source,
             host,
             PassOptions {
+                vulnerability: opts.vulnerability,
                 phase: Phase::AdditionalDealing,
                 params: &opts.params,
                 threads,
@@ -1149,6 +1164,7 @@ condition 1
         RunOptions {
             seed: 20260829,
             produce,
+            vulnerability: dealer_core::Vulnerability::None,
             round_robin: false,
             max_generate: 5_000_000,
             deals: Deals::Shuffled {

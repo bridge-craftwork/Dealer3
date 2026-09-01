@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`par(side)`: the par score, what the deal is worth with both sides bidding
+  and defending perfectly.** `ns` or `ew`, or a compass for the side that seat
+  is on, as DealerV2_4's `dds_parscore` accepts. `par(ew)` is `-par(ns)`, and a
+  passed-out deal is zero.
+  - Worked out from all twenty double-dummy results through the same memo
+    `tricks()` uses, so `par()` beside a `tricks()` condition is close to free.
+  - **Vulnerability now reaches the evaluator.** `EvalContext` carries a
+    `dealer_core::Vulnerability`, set from `--vulnerable` or the `vulnerable`
+    statement by both front ends, so `par(ns)` means what a reader expects. It
+    is deliberately not `printpbn`'s rotation for an unnamed vulnerability: par
+    is a property of the cards and the vulnerability the run was given, not of
+    where a board sits in a set. A script that names none gets neither side
+    vulnerable. DealerV2_4 instead has a `-P` switch of its own for this.
+  - The value is carried whole rather than as the two flags `par()` needs, so a
+    script asking *what* the vulnerability is can be answered from the same
+    place later.
 - **`printns` and `printside(side)`.** DealerV2_4 routes `printew`, `printns`
   and `printside` through one printer; dealer3 had only `printew`. `printns`
   and `printside(ns)` are the same action, as are `printew` and

@@ -112,18 +112,6 @@ pub const REMAINING: &[WorkItem] = &[
     // DealerV2_4's own words, from reading its lexer and yacc rather than a
     // summary of them, and measured against its 61-script Regression suite.
     WorkItem {
-        what: "`par(side)`: the par contract",
-        done_when: None,
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some(
-            "Needs all 20 double-dummy results, which bridge-solver already provides for \
-             `tricks()`, `score()` and `imps()`. DealerV2_4 sets its vulnerability with \
-             `-P`, which has a row of its own in the switch table.",
-        ),
-    },
-    WorkItem {
         what: "`ltc(compass)`, `ltc(compass, suit)`: the modern losing trick count",
         done_when: None,
         issue: None,

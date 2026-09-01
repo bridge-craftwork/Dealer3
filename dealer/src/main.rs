@@ -366,6 +366,17 @@ enum VulnerabilityArg {
     All,
 }
 
+impl From<VulnerabilityArg> for dealer_core::Vulnerability {
+    fn from(arg: VulnerabilityArg) -> Self {
+        match arg {
+            VulnerabilityArg::None => dealer_core::Vulnerability::None,
+            VulnerabilityArg::NS => dealer_core::Vulnerability::NorthSouth,
+            VulnerabilityArg::EW => dealer_core::Vulnerability::EastWest,
+            VulnerabilityArg::All => dealer_core::Vulnerability::Both,
+        }
+    }
+}
+
 impl std::str::FromStr for VulnerabilityArg {
     type Err = String;
 
@@ -1695,6 +1706,11 @@ fn main() {
             &untrimmed,
             RunOptions {
                 seed,
+                // What `par()` is told. A script that names no vulnerability
+                // gets none, rather than the rotation `printpbn` applies: par
+                // is a property of the cards and the vulnerability the run was
+                // given, not of where a board sits in a set.
+                vulnerability: vulnerability.map(Into::into).unwrap_or_default(),
                 // Nothing to deal from the levelling when only the file was
                 // asked for: `--write-leveled` on its own works the keeps out
                 // and stops there.

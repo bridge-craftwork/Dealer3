@@ -338,6 +338,14 @@ pub struct EvalContext<'a> {
     /// either statement — and it means the hardcoded counts run exactly as they
     /// did before. Only a script that redefines something pays for the table.
     counts: Option<&'a PointCounts>,
+    /// Which side is vulnerable, for `par()`.
+    ///
+    /// `Vulnerability::None` unless a run says otherwise, which is what a
+    /// context built for a bare expression has. Carried as the whole value
+    /// rather than the two flags `par()` needs, so a script asking *what* the
+    /// vulnerability is can be answered from here later without moving
+    /// anything.
+    vulnerability: dealer_core::Vulnerability,
 }
 
 /// Can evaluating `expr` reach a call to `rnd()`?
@@ -425,6 +433,7 @@ impl<'a> EvalContext<'a> {
             cache: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts: None,
+            vulnerability: dealer_core::Vulnerability::default(),
         }
     }
 
@@ -436,7 +445,23 @@ impl<'a> EvalContext<'a> {
             cache: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts: None,
+            vulnerability: dealer_core::Vulnerability::default(),
         }
+    }
+
+    /// The same context, told which side is vulnerable.
+    ///
+    /// A builder rather than another constructor: every existing caller wants
+    /// the default, and only a run that has been told a vulnerability has one
+    /// to pass on.
+    pub fn with_vulnerability(mut self, vulnerability: dealer_core::Vulnerability) -> Self {
+        self.vulnerability = vulnerability;
+        self
+    }
+
+    /// Which side is vulnerable.
+    pub fn vulnerability(&self) -> dealer_core::Vulnerability {
+        self.vulnerability
     }
 
     /// The next number below `bound` from this context's `rnd()` stream.
@@ -470,6 +495,7 @@ impl<'a> EvalContext<'a> {
             cache: RefCell::new(FxHashMap::default()),
             rnd: RefCell::new(None),
             counts,
+            vulnerability: dealer_core::Vulnerability::default(),
         }
     }
 }
@@ -1369,6 +1395,32 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
 
             // Convert to IMPs using the standard table
             Ok(score_to_imps(score_diff))
+        }
+
+        Function::Par => {
+            // par(ns) / par(ew), or a compass for the side that seat is on —
+            // `dds_parscore` in DealerV2_4 takes either. The score is worked
+            // out for North-South and negated for East-West, as it is there.
+            let north_south = match &args[0] {
+                Expr::Position(position) => {
+                    matches!(position, Position::North | Position::South)
+                }
+                other => match eval(other, ctx)? {
+                    0 => true,
+                    1 => false,
+                    n => {
+                        return Err(EvalError::InvalidArgument(format!(
+                            "Invalid side: {} (must be ns or ew, or 0 for NS and 1 for EW)",
+                            n
+                        )))
+                    }
+                },
+            };
+
+            let vulnerability = ctx.vulnerability();
+            let score_ns =
+                dealer_dds::par_score_ns(ctx.deal, vulnerability.ns(), vulnerability.ew());
+            Ok(if north_south { score_ns } else { -score_ns })
         }
     }
 }

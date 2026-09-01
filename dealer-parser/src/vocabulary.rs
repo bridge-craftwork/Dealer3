@@ -28,7 +28,7 @@ pub const FUNCTIONS: &[&str] = &[
     "top3", "top4", "top5", "c13", // Indexed point counts
     "pt0", "pt1", "pt2", "pt3", "pt4", "pt5", "pt6", "pt7", "pt8", "pt9",
     // Double-dummy and scoring
-    "tricks", "trick", "dds", "score", "imps", "imp", "rnd",
+    "tricks", "trick", "dds", "score", "imps", "imp", "par", "rnd",
 ];
 
 /// Statement keywords that introduce a directive.
@@ -636,6 +636,27 @@ pub const FUNCTION_DOCS: &[FunctionDoc] = &[
         example: "imps(score(nv, x4S, 10) - score(nv, x3N, 9)) >= 1",
         alias_of: None,
         note: None,
+    },
+    FunctionDoc {
+        name: "par",
+        group: "Double-dummy and scoring",
+        signature: "par(side)",
+        summary: "The par score to that side: what the deal is worth with both sides bidding \
+                  and defending perfectly. `side` is `ns` or `ew`, or a compass for the side \
+                  that seat is on.",
+        example: "par(ns) >= 400",
+        alias_of: None,
+        note: Some(
+            "Worked out from all twenty double-dummy results, which cost the same searches \
+             `tricks()` does and are remembered per deal — so `par()` beside a `tricks()` \
+             condition is close to free.\n\nThe two sides are opposites: `par(ew)` is \
+             `-par(ns)`, and a passed-out deal is zero. Vulnerability is the run's own — \
+             `--vulnerable`, or the `vulnerable` statement — and neither side is vulnerable \
+             when a script names none. It is deliberately not the rotation `printpbn` applies \
+             to an unnamed vulnerability: par is a property of the cards and the vulnerability \
+             the run was given, not of where a board sits in a set. DealerV2_4 instead has a \
+             `-P` switch of its own for this.",
+        ),
     },
     FunctionDoc {
         name: "rnd",
