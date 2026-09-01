@@ -27,7 +27,9 @@
 - ✅ `-T/--title TEXT` - Title metadata for PBN output (DealerV2_4 feature)
 - ✅ `--license` - Display license information
 - ✅ `--credits` - Display credits
-- ✅ `-2`, `-3`, `-e`, `-u`, `-l` - Deprecated switches (helpful errors)
+- ✅ `-e`, `-l` - Deprecated switches (helpful errors)
+- ✅ `-2`, `-3` - Swapping modes (implemented)
+- ✅ `-u` - Accepted and ignored, as in dealer.exe
 
 **Key Achievement**: dealer3 is now **fully compatible** with essential dealer.exe command-line behavior!
 
@@ -194,7 +196,7 @@ dealer --vulnerable none  # Vulnerability (long form only)
 - [x] Add `--vulnerable` long form
 - [x] Implement `-q` quiet mode
 - [x] Implement `-m` progress meter
-- [x] Implement deprecated switch detection (`-2`, `-3`, `-e`, `-u`, `-l`)
+- [x] Implement deprecated switch detection (`-e`, `-l`)
 - [x] Update all documentation
 - [x] Update README with migration guide
 - [x] Add CHANGELOG entry documenting breaking changes

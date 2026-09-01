@@ -243,14 +243,6 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("`--input-deals` already covers the common case in dealer3's own way."),
     },
     WorkItem {
-        what: "Upper-case the honour cards in output",
-        done_when: Some(DoneWhen::Switch("-u")),
-        issue: None,
-        effort: Effort::Low,
-        value: Value::Low,
-        note: Some("Cosmetic."),
-    },
-    WorkItem {
         what: "Export in RP zrd format",
         done_when: Some(DoneWhen::Switch("-Z")),
         issue: None,

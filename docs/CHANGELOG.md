@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which has nothing to walk through.
 
 ### Changed
+- **`-u` is accepted and ignored rather than refused.** It does nothing in
+  dealer.exe either: `case 'u'` sets a flag read only by the `representation`
+  macro in `dealer.c`, and that macro is never invoked — every output path calls
+  `ucrep` directly, so honours are upper case with or without it. The reference
+  binary's output is byte-identical either way; `lcrep` appears exactly twice in
+  the file, its own definition and that dead macro. Refusing a switch that does
+  nothing broke a command line that works on BBO for no gain. `-v` prints a note
+  so nobody thinks it took effect.
+  - The roadmap row "Upper-case the honour cards in output" is deleted. dealer3
+    has always printed `AKQJT`; there was never anything behind it.
 - **Breaking: `score()`'s numeric contract code is now the references' encoding,
   `level * 5 + strain`, plus 40 for each level of doubling.** dealer3 used to
   read `level * 10 + strain` plus 100 or 200, so 3NT was 34 and is now 19, and

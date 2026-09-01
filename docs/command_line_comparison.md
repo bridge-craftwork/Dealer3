@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **38 of the 49 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **39 of the 49 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -53,6 +53,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
+| `-u` | Upper-case the honour cards in output | ✅ | ✅ | — | Accepted and ignored, because it does nothing in dealer.exe either: `-u` sets a flag read only by the `representation` macro in `dealer.c`, and that macro is never invoked — every output path uses `ucrep` directly. Verified; the reference binary's output is byte-identical with and without it. dealer3's honours are upper case too, so the switch is accepted rather than refused and a command line carrying it still runs. `-v` says so. |
 | `--interleave` | Order the output so each hand type appears before any repeats | ✅ | — | — | Needs `HandType_*` variables to classify against. Rare types are spread across the run rather than exhausted early. See `docs/leveling-guide.md`. |
 | `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. |
 | `-d`, `--dealer` | Dealer position | ✅ | — | — | The original uses the `dealer` statement, which dealer3 also accepts. |
@@ -101,7 +102,6 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `-u` | Upper-case the honour cards in output | ⚠️ rejected with a message | ✅ | — | Cosmetic. |
 | `-e` | Exhaust mode | ⚠️ rejected with a message | ⚠️ compiled out; prints "not included" | — | Never finished in the original either. |
 | `-l` | Replay deals from a library file | ⚠️ rejected with a message | ✅ | ⚠️ -l exports DL52 | `--input-deals` covers this use case in dealer3's own way. |
 | `--legacy` | The old single-threaded RNG mode | ⚠️ rejected with a message | — | — | Removed in 0.5.0; still parsed so a script using it gets an explanation. |

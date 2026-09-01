@@ -263,6 +263,15 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         ),
     },
     SwitchRow {
+        short: "-u",
+        long: "",
+        group: "Output",
+        what: "Upper-case the honour cards in output",
+        dealer_exe: Origin::Same,
+        dealer_v2: Origin::Absent,
+        note: Some("Accepted and ignored, because it does nothing in dealer.exe either: `-u` sets a flag read only by the `representation` macro in `dealer.c`, and that macro is never invoked — every output path uses `ucrep` directly. Verified; the reference binary's output is byte-identical with and without it. dealer3's honours are upper case too, so the switch is accepted rather than refused and a command line carrying it still runs. `-v` says so."),
+    },
+    SwitchRow {
         short: "",
         long: "--interleave",
         group: "Output",
@@ -532,15 +541,6 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
     // Declared to clap as hidden arguments purely so the program can explain
     // itself. The dealer3 column derives "rejected" from that hidden flag, so
     // implementing one for real needs no bookkeeping here.
-    SwitchRow {
-        short: "-u",
-        long: "",
-        group: "Recognised but not supported",
-        what: "Upper-case the honour cards in output",
-        dealer_exe: Origin::Same,
-        dealer_v2: Origin::Absent,
-        note: Some("Cosmetic."),
-    },
     SwitchRow {
         short: "-e",
         long: "",
