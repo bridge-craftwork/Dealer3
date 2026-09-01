@@ -159,13 +159,58 @@
           <!-- Values outside a declared range. Shown above the chart rather than
                tucked away: a script whose range is too narrow otherwise looks
                like it simply produced fewer deals. -->
-          <p v-if="f.below || f.above" class="freq-outside">
+          <p v-if="!f.grid && (f.below || f.above)" class="freq-outside">
             <span v-if="f.below">{{ f.below }} below {{ f.min }}</span>
             <span v-if="f.below && f.above"> · </span>
             <span v-if="f.above">{{ f.above }} above {{ f.max }}</span>
           </p>
 
-          <div class="freq">
+          <!-- Two-dimensional: a grid of counts shaded by magnitude, which is
+               what a cross-tabulation is. Drawn as a table because it is one —
+               the row and column headers are the two expressions' values, and
+               a screen reader gets them for free. -->
+          <div v-if="f.grid" class="heat-scroll">
+            <table class="heat">
+              <caption class="sr-only">
+                Counts by {{ (f.label || 'the two expressions').trim() }}
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col"><span class="sr-only">Value</span></th>
+                  <th v-for="label in gridColumnLabels(f.grid)" :key="'c' + label" scope="col">
+                    {{ label }}
+                  </th>
+                  <th scope="col" class="heat-sum">Sum</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, r) in f.grid.counts" :key="'r' + r">
+                  <th scope="row">{{ gridRowLabels(f.grid)[r] }}</th>
+                  <td
+                    v-for="(count, c) in row"
+                    :key="'c' + c"
+                    :style="heatCell(count, gridPeak(f.grid))"
+                    :title="heatTitle(f, r, c, count)"
+                    :class="{ 'is-zero': !count }"
+                  >
+                    {{ count }}
+                  </td>
+                  <td class="heat-sum">{{ gridRowSum(row) }}</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">Sum</th>
+                  <td v-for="(sum, c) in gridColumnSums(f.grid)" :key="'s' + c" class="heat-sum">
+                    {{ sum }}
+                  </td>
+                  <td class="heat-sum heat-total">{{ gridTotal(f.grid) }}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div v-else class="freq">
             <div v-for="bin in f.bins" :key="bin.value" class="freq-row">
               <span class="freq-value">{{ bin.value }}</span>
               <span class="freq-bar-track">
@@ -246,6 +291,15 @@ import DealGrid from '@/components/DealGrid.vue'
 import { parseOnelineDeals } from '@/lib/cardFormatting.js'
 import { formatAverage } from '@/lib/format.js'
 import { handTypePalette } from '@/lib/handTypes.js'
+import {
+  rowLabels as heatRowLabels,
+  columnLabels as heatColumnLabels,
+  peak as heatPeak,
+  rowSum as heatRowSum,
+  columnSums as heatColumnSums,
+  total as heatTotal,
+  cellStyle as heatCellStyle,
+} from '@/lib/heatmap.js'
 
 const props = defineProps({
   result: { type: Object, default: null },
@@ -472,6 +526,23 @@ function percent(count, total) {
   return `${((count / total) * 100).toFixed(1)}%`
 }
 
+// The grid's arithmetic and its colour ramp, kept in lib so they can be
+// tested without a DOM — see `heatmap.test.js`.
+const gridRowLabels = heatRowLabels
+const gridColumnLabels = heatColumnLabels
+const gridPeak = heatPeak
+const gridRowSum = heatRowSum
+const gridColumnSums = heatColumnSums
+const gridTotal = heatTotal
+const heatCell = heatCellStyle
+
+function heatTitle(f, r, c, count) {
+  const rows = gridRowLabels(f.grid)
+  const columns = gridColumnLabels(f.grid)
+  const of = f.total ? ` — ${percent(count, f.total)} of ${f.total}` : ''
+  return `${rows[r]} × ${columns[c]}: ${count}${of}`
+}
+
 const formatValue = formatAverage
 </script>
 
@@ -610,6 +681,59 @@ const formatValue = formatAverage
 .freq-bar.is-zero { background: transparent; }
 .freq-count { font-family: var(--mono); text-align: right; }
 .freq-pct { font-family: var(--mono); text-align: right; color: var(--fg-muted); }
+
+/* A two-dimensional frequency: counts in a grid, shaded by magnitude. */
+.heat-scroll { overflow-x: auto; }
+.heat {
+  border-collapse: separate;
+  /* A 2px gap of surface between fills, so adjacent cells of similar weight
+     stay distinguishable rather than merging into a block. */
+  border-spacing: 2px;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.heat th {
+  font-weight: 500;
+  color: var(--fg-muted);
+  text-align: right;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.heat thead th { text-align: center; }
+.heat td {
+  min-width: 2.6em;
+  padding: 4px 6px;
+  text-align: right;
+  border-radius: 3px;
+  background: var(--bg-subtle);
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+/* An empty cell recedes to the surface: on a sparse grid, nothing should look
+   like nothing rather than like a faint something. */
+.heat td.is-zero { background: transparent; color: var(--fg-muted); }
+/* The margins are totals, not observations. Keeping them off the colour ramp
+   stops the largest numbers in the table from owning the darkest end of it and
+   flattening the cells the grid is actually about. */
+.heat .heat-sum {
+  background: transparent;
+  color: var(--fg-muted);
+  border-left: 1px solid var(--line);
+}
+.heat tfoot .heat-sum { border-left: none; border-top: 1px solid var(--line); }
+.heat tfoot .heat-total { border-left: 1px solid var(--line); color: var(--fg); }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 .deals-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .deals-head h3 { margin: 0; }
