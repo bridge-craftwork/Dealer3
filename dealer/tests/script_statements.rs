@@ -462,3 +462,76 @@ fn unary_minus_negates() {
         assert_eq!(out.trim(), expected, "{written}");
     }
 }
+
+/// #49. An `action` list replaces the default action, and `printall` is the
+/// default — so a list naming only statistics prints no deals. The original
+/// settles it with `will_print` in `defs.y`, incremented by every printing
+/// action and by nothing else.
+#[test]
+fn an_action_that_only_measures_prints_no_deals() {
+    let boards = |out: &str| out.lines().filter(|l| l.trim_end().ends_with('.')).count();
+
+    let (measuring, err, status) = run(
+        &["-p", "3", "-s", "1"],
+        "condition 1\naction average \"hcp\" hcp(north)\n",
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert_eq!(
+        boards(&measuring),
+        0,
+        "no deals were asked for: {measuring:?}"
+    );
+    assert!(measuring.contains("hcp:"), "the average is still reported");
+
+    // The two cases that already agreed with the original must keep agreeing.
+    let (no_action, _, _) = run(&["-p", "3", "-s", "1"], "condition 1\n");
+    assert_eq!(boards(&no_action), 3, "no action at all still prints deals");
+
+    let (explicit, _, _) = run(
+        &["-p", "3", "-s", "1"],
+        "condition 1\naction printall, average \"hcp\" hcp(north)\n",
+    );
+    assert_eq!(
+        boards(&explicit),
+        3,
+        "an explicit format still prints deals"
+    );
+}
+
+/// The silent half: a measuring script takes every deal it generates, rather
+/// than the first forty. `dealer.c:1656` decides both with one expression.
+#[test]
+fn an_action_that_only_measures_takes_every_deal_generated() {
+    let (out, err, status) = run(
+        &["-s", "1", "-v"],
+        "generate 1000\ncondition 1\naction average \"hcp\" hcp(north)\n",
+    );
+    assert_eq!(status, 0, "stderr was: {err}");
+    assert!(
+        out.contains("Produced 1000 hands"),
+        "a measuring run samples everything it generates: {out:?}"
+    );
+
+    // And `-p` still wins when it is given.
+    let (capped, _, _) = run(
+        &["-s", "1", "-v", "-p", "25"],
+        "generate 1000\ncondition 1\naction average \"hcp\" hcp(north)\n",
+    );
+    assert!(capped.contains("Produced 25 hands"), "got: {capped:?}");
+}
+
+/// Asking for a format on the command line is asking for deals, whatever the
+/// script's action list says.
+#[test]
+fn an_explicit_format_shows_deals_even_when_only_measuring() {
+    let (out, _, status) = run(
+        &["-p", "3", "-s", "1", "-f", "printoneline"],
+        "condition 1\naction average \"hcp\" hcp(north)\n",
+    );
+    assert_eq!(status, 0);
+    assert_eq!(
+        out.lines().filter(|l| l.starts_with('n')).count(),
+        3,
+        "got: {out:?}"
+    );
+}
