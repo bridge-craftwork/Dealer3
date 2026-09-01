@@ -110,6 +110,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which has nothing to walk through.
 
 ### Changed
+- **Dealing is about 1.6x faster, and generating a deal nearly 3x.** Every deal
+  generated had all four of its hands sorted on the way out, which cost about
+  two thirds of the time to produce one — and was paid on every deal, while a
+  run keeps well under 1% of them. Nothing needed it: the counting functions
+  are sums and filters, the three that care about rank position sort their own
+  copies, every output formatter sorts the suit it is about to print, and the
+  double-dummy memo key is a bitmask. Generation now costs 188ns a deal against
+  534ns, which is parity with the original C dealer built natively for the same
+  machine, where it had been three times slower. `Hand`'s equality no longer
+  depends on card order, since the sort was the only thing making that safe.
+  Measured over a ten-script corpus in `bench/`.
+
 - **`-u` is accepted and ignored rather than refused.** It does nothing in
   dealer.exe either: `case 'u'` sets a flag read only by the `representation`
   macro in `dealer.c`, and that macro is never invoked — every output path calls
@@ -168,6 +180,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   divide by, so its bar means something.
 
 ### Fixed
+- **`losers_in_suit`, `suit_quality` and `cccc` counted a partial hand's empty
+  slots as cards.** They read the raw thirteen-slot array where every other
+  accessor reads the slice bounded by the hand's length, so a hand holding
+  fewer than thirteen cards had its filler counted — and the filler is a club
+  two, which made an empty club suit look like a long weak one. A void reported
+  three losers. Unreachable from a normal run, since the generator only ever
+  hands them complete hands, but reachable through predeal and hands built by
+  hand, and it failed quietly with plausible numbers rather than crashing.
+
 - **An `action` naming only statistics printed deals, and measured 25x fewer of
   them.** Both from one rule dealer3 did not have: an `action` list *replaces*
   the default action, and `printall` is the default, so a list holding only
