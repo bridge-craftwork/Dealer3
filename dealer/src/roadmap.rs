@@ -149,9 +149,13 @@ pub const REMAINING: &[WorkItem] = &[
         value: Value::Low,
         note: Some(
             "Official Point Count: a whole evaluation system, not a function. `-O` has a \
-             row in the switch table already. Worth knowing that `opener west` parses \
-             today as two bare identifiers and is silently ignored, so an OPC script runs \
-             and quietly means something else.",
+             row in the switch table already. Both words are DealerV2_4's — `opener` \
+             appears nowhere in dealer.exe's `scan.l` — so this is not a gap against the \
+             original. An OPC script is refused by both: dealer3 says \"a name is used but \
+             never defined: opener\" and exits 1, dealer.exe says \"unknown variable\". \
+             This note used to warn that `opener west` was read as two bare identifiers \
+             and silently ignored; the undefined-name check closed that, and the claim was \
+             measured against both binaries rather than left standing.",
         ),
     },
     WorkItem {

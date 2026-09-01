@@ -535,3 +535,31 @@ fn an_explicit_format_shows_deals_even_when_only_measuring() {
         "got: {out:?}"
     );
 }
+
+/// `opener west` is DealerV2_4's statement, and neither dealer3 nor dealer.exe
+/// has it — the word appears nowhere in the original's `scan.l`. Both refuse
+/// it, which is what the roadmap's `opc()` row claims; this keeps the claim
+/// honest.
+///
+/// The nuance is that `opener` must stay usable as an ordinary variable name.
+/// It is a natural word for a bridge script and this suite's own fixtures use
+/// it that way, so refusing the bare word must not cost the assignment.
+#[test]
+fn the_dealerv2_opener_statement_is_refused_but_the_name_is_not() {
+    let (out, err, status) = run(
+        &["-q", "-p", "2", "-s", "1"],
+        "opener west\ncondition hcp(north) >= 15\n",
+    );
+    assert_eq!(status, 1, "stdout was: {out}");
+    assert!(
+        err.contains("never defined") && err.contains("opener"),
+        "the undefined name should be named: {err}"
+    );
+
+    // Defined, it is just a variable, and the script runs.
+    let (_, err, status) = run(
+        &["-q", "-p", "1", "-s", "1"],
+        "opener = hcp(north) >= 12\ncondition opener\n",
+    );
+    assert_eq!(status, 0, "`opener` is still a usable name: {err}");
+}
