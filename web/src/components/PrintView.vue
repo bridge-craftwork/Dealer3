@@ -121,7 +121,22 @@ const props = defineProps({
 /** A run of 500 deals is not a document. Enough to show the shape of the set. */
 const MAX_PRINTED_BOARDS = 12
 
-const siteUrl = 'https://dealer.bridge-classroom.org'
+/**
+ * Where this build is actually being served from, for the footer's way back.
+ *
+ * Derived, not hard-coded. The same build answers on its own pages.dev and is
+ * mounted at bridge-craftwork.com/dealer3/, so any fixed address would be
+ * wrong from one of them — and this one ends up on paper, where a wrong URL
+ * cannot be corrected by redeploying.
+ *
+ * The directory, not the full path: `/dealer3/index.html` and `/dealer3/` must
+ * both print `/dealer3/`. Trailing slash kept so the printed link resolves
+ * without a redirect.
+ */
+const siteUrl = computed(() => {
+  const { origin, pathname } = window.location
+  return origin + pathname.replace(/[^/]*$/, '')
+})
 
 const title = computed(() =>
   props.scenario ? props.scenario.replace(/_/g, ' ') : 'Dealer script',
