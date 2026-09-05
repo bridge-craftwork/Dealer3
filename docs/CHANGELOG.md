@@ -110,6 +110,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which has nothing to walk through.
 
 ### Changed
+- **Double-dummy in an `action` now uses every core.** A script calling
+  `tricks()`, `dds()` or `par()` from its *condition* already solved in
+  parallel, because the workers evaluate the condition; the same call in an
+  *action* solved on one core while the pool sat idle, because the main thread
+  evaluates actions. Each batch's matching deals are now solved on that pool
+  before their actions are evaluated, and the evaluation finds the answers
+  already worked out. On one script `par` in an action went from 12.1s on one
+  core to 2.4s on six, at the same `-R`. No threads were added; deals are still
+  observed in order, and `rnd()` streams and output are unchanged. What gets
+  solved is read off the script, so `average "x" tricks(south, spades)` still
+  costs one search per deal rather than a whole twenty-cell table.
+
 - **Dealing is about 1.6x faster, and generating a deal nearly 3x.** Every deal
   generated had all four of its hands sorted on the way out, which cost about
   two thirds of the time to produce one — and was paid on every deal, while a
