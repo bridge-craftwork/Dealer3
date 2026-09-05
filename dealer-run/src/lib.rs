@@ -32,6 +32,7 @@
 //! its own. The condition and `printes` stay with the caller, which builds its
 //! own for those.
 
+pub mod dd_demand;
 pub mod run;
 pub use run::{
     run, Deals, LevelingOptions, LevelingReport, Phase, Produced, Rows, RunHost, RunOptions,

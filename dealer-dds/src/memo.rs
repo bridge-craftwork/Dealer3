@@ -141,19 +141,29 @@ pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8
 ///
 /// Laid out as `bridge_solver` wants it: seats N, E, S, W and strains C, D, H,
 /// S, NT, which is dealer's own strain numbering too.
-pub fn table(deal: &Deal) -> bridge_solver::DdTricks {
-    let mut tricks = [[0u8; 5]; 4];
+pub fn table(deal: &Deal) -> bridge_solver::DdTable {
+    let mut table = bridge_solver::DdTable::new();
     // Denomination outermost, so the four declarers share one pair of solver
     // caches — `DealAnalysis` keeps them per denomination and throws them away
     // when the denomination changes. Seat-outermost asks for a different
     // denomination on every call and so rebuilds the caches twenty times
     // instead of five, which costs about a third of the run.
     for denomination in Denomination::ALL {
-        for (seat, row) in Position::ALL.iter().zip(tricks.iter_mut()) {
-            row[denomination as usize] = self::tricks(deal, denomination, *seat);
+        for seat in Position::ALL {
+            let tricks = self::tricks(deal, denomination, seat);
+            // Both axes are converted rather than indexed. `DdTable` is keyed
+            // by `Direction` and `Strain`, and this crate counts seats and
+            // denominations its own way; the two happen to agree today, and
+            // writing the cells by name means it does not matter if they stop.
+            // Getting an axis wrong here does not fail, it negates par.
+            table.set(
+                bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(seat)),
+                bridge_solver::STRAINS[denomination as usize],
+                tricks,
+            );
         }
     }
-    bridge_solver::DdTricks { tricks }
+    table
 }
 
 /// The par score, to North-South, at the given vulnerability.

@@ -338,6 +338,30 @@ impl Workers {
         }
         (0..count).map(one).collect()
     }
+
+    /// Run `warm` over every deal, on the pool.
+    ///
+    /// Used to solve a batch's produced deals before the main thread evaluates
+    /// their action. No results come back: what it leaves behind is the solved
+    /// cells in `dealer_dds`'s shared memo, which the evaluation then finds
+    /// already worked out. See `crate::dd_demand`.
+    fn warm_each(&self, deals: &[&Deal], warm: &(dyn Fn(&Deal) + Sync)) {
+        #[cfg(feature = "parallel")]
+        {
+            use rayon::prelude::*;
+            if let Some(pool) = &self.pool {
+                pool.install(|| deals.par_iter().for_each(|deal| warm(deal)));
+                return;
+            }
+            if self.global {
+                deals.par_iter().for_each(|deal| warm(deal));
+                return;
+            }
+        }
+        for deal in deals {
+            warm(deal);
+        }
+    }
 }
 
 /// A deal the producing pass has produced.
@@ -754,6 +778,9 @@ fn run_pass(
     let point_counts = point_counts.as_ref();
     let mut accumulator =
         RunAccumulator::new(&program, MeasureStop::standard(), opts.vulnerability)?;
+    // What the action will ask the solver for, per produced deal. Worked out
+    // once: it is a property of the script, not of a deal.
+    let dd_demand = crate::dd_demand::of_program(&program);
     if let Some(plan) = opts.round_robin {
         accumulator = accumulator.with_round_robin(plan.clone());
     }
@@ -832,6 +859,23 @@ fn run_pass(
         // Where the last of these sits in the stream, so a kept deal's position
         // is known without threading one through every deal.
         let batch_end = source.position;
+
+        // Solve this batch's matched deals on the pool, before the main thread
+        // starts evaluating their actions one at a time. The workers are idle
+        // at this point and the answers are shared, so the loop below finds
+        // every cell already worked out. Nothing else changes: the deals are
+        // still observed in order, and no expression is evaluated here.
+        if !dd_demand.is_none() {
+            let matched_deals: Vec<&Deal> = built
+                .iter()
+                .filter(|(_, matched)| matches!(matched, Ok(true)))
+                .map(|(deal, _)| deal)
+                .collect();
+            if matched_deals.len() > 1 {
+                workers.warm_each(&matched_deals, &|deal| dd_demand.warm(deal));
+            }
+        }
+
         for (index, (deal, matched)) in built.iter().enumerate() {
             if from_stream {
                 generated += 1;
