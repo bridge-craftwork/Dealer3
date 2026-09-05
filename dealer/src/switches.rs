@@ -531,7 +531,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         group: "Reading deals in",
         what: "Filter deals from a file instead of generating",
         dealer_exe: Origin::Differs("-l replays from a library file by index"),
-        dealer_v2: Origin::Differs("-L names a library path, -l exports DL52"),
+        dealer_v2: Origin::Differs("-L names a library path: Pavlicek's solved-deal library, in ZRD format"),
         note: Some(
             "Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are \
              skipped, so check the reported count.",
@@ -556,7 +556,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         group: "Recognised but not supported",
         what: "Replay deals from a library file",
         dealer_exe: Origin::Same,
-        dealer_v2: Origin::Differs("-l exports DL52"),
+        dealer_v2: Origin::Absent,
         note: Some("`--input-deals` covers this use case in dealer3's own way."),
     },
     SwitchRow {
@@ -623,8 +623,7 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Same,
         note: Some(
-            "The companion to DealerV2_4's `-l`; it was mentioned only in the note on \
-             `--input-deals`, which left it the one V2_4 switch with no row of its own.",
+            "DealerV2_4's own library switch, and the same idea as dealer.exe's `-l`: deals that arrive with their double-dummy results already worked out, so `tricks()` is a lookup rather than a search. Different libraries — Pavlicek's ZRD here, Ginsberg's `library.dat` there. DealerV2_4 has no `-l`.",
         ),
     },
 ];

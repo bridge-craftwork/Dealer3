@@ -92,7 +92,7 @@ These switches are new features added in DealerV2_4:
 **V2_4 Focus Areas**:
 - Predeal via command-line (4 switches)
 - Double-dummy analysis with DDS library
-- Multiple export formats (CSV, RP zrd, DL52)
+- Export formats: CSV, and reading Pavlicek's RP ZRD library (`-L`)
 - Advanced evaluation (OPC, Par)
 - Multi-threading support
 - Scripting support with parameters
@@ -106,15 +106,25 @@ These switches exist in both versions but have **different meanings or behavior*
 
 | Switch | dealer.exe Meaning | DealerV2_4 Meaning | Compatibility |
 |--------|-------------------|-------------------|---------------|
-| `-l PATH` | **Read from library.dat** (M. Ginsberg's pre-generated deals for fast tricks() evaluation) | **DL52 format export** (write deals to file in DL52 format) | ⚠️ **INCOMPATIBLE** - Completely different purposes |
+| `-l N` | **Read from library.dat** (M. Ginsberg's pre-generated deals, carrying pre-solved tricks, from index N) | **Not a switch.** `-l` is rejected with the usage message | No conflict — one program has it, the other does not |
 
-**Total: 1 switch with conflict**
+**Total: 0 switches with a conflicting meaning**
 
-**Critical Note**: The `-l` switch has a fundamental incompatibility:
-- **dealer.exe**: INPUT mode - reads pre-generated deals from library.dat for fast bridge.exe/GIB integration
-- **DealerV2_4**: OUTPUT mode - writes deals to file in DL52 format for export
+**This table used to claim a conflict, and there is none.** It said DealerV2_4's
+`-l` exported "DL52 format", making `-l` INPUT in one program and OUTPUT in the
+other. DealerV2_4 has no `-l`: its option string is
+`hmquvVg:p:s:x:C:D:L:M:O:P:R:T:N:E:S:W:X:U:0-9`, and the binary answers `-l`
+with usage. "DL52" appears nowhere in its source, headers or user guide.
 
-This is a **breaking change** between versions that could cause confusion or errors if scripts are ported from dealer.exe to DealerV2_4.
+The two programs do both have a library idea, and it is the same idea rather
+than opposite ones — deals that arrive with their double-dummy results already
+worked out, so `tricks()` is a lookup:
+
+- **dealer.exe** `-l N`: Ginsberg's `library.dat`, reading `libdeal.tricks[dn]`
+- **DealerV2_4** `-L path`: Richard Pavlicek's solved-deal library, ZRD format
+
+dealer3 has neither yet; [#61](https://github.com/bridge-craftwork/Dealer3/issues/61)
+tracks ZRD, which is the one with a published spec and a reference decoder.
 
 ---
 
@@ -142,7 +152,7 @@ This is a **breaking change** between versions that could cause confusion or err
 DealerV2_4 represents a **major enhancement** with:
 1. **Command-line predeal**: 4 new switches (`-N`, `-E`, `-S`, `-W`) for convenience
 2. **DDS integration**: Double-dummy solver with multi-threading
-3. **Export formats**: CSV, RP zrd, DL52 for interoperability
+3. **Export formats**: CSV, and RP ZRD for interoperability
 4. **Advanced evaluation**: OPC, Par calculations
 5. **Scripting support**: Parameters `$0`-`$9` for flexible scripts
 6. **Server mode**: Integration with DealerServer
@@ -177,7 +187,7 @@ Based on this analysis, dealer3 should:
 ### Low Priority (Advanced Features)
 9. ~~Swapping modes~~ - done, using dealer.exe's `-0`/`-2`/`-3` rather than V2_4's `-x MODE`
 10. DDS integration (`-M`, `-R`) - High effort, requires external library
-11. Export formats (`-Z` RP zrd, `-l` DL52) - Niche use cases
+11. Export formats (`-Z` RP ZRD) - niche, but reading ZRD is not: see #61
 
 ### Avoid Conflicts
 - **DO NOT** implement dealer.exe's `-l` (library.dat reader) to avoid confusion with V2_4
@@ -201,7 +211,7 @@ Based on this analysis, dealer3 should:
 | 3-way swap (`-3`) | ✅ Yes | dealer3 keeps `-3`; V2_4 spells it `-x 3` |
 | Upper/lowercase (`-u`) | ❌ No | Cosmetic, dropped |
 | Exhaust mode (`-e`) | ❌ No | Experimental, never finished |
-| Library mode (`-l`) | ⚠️ Different | Now means DL52 export, not input |
+| Library mode (`-l`) | ✅ dealer.exe only | DealerV2_4 has no `-l`; its library switch is `-L` (ZRD) |
 
 **Coverage: 9/13 (69%) of dealer.exe switches work identically in V2_4**
 

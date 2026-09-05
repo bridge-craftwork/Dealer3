@@ -78,28 +78,42 @@ already, so `-u` changes nothing here either — which is the compatible answer.
 ```
 Error: Switch '-l' (library mode) is not supported in dealer3.
 
-Reason: The '-l' switch has conflicting meanings:
-        - In dealer.exe: Read deals from library.dat
-        - In DealerV2_4: Export to DL52 format
+In dealer.exe, '-l N' reads deals from Ginsberg's library.dat,
+starting at index N. Those deals carry pre-solved double-dummy
+tricks, which is what made the switch worth having.
 
-Suggestion: Remove the '-l' switch from your command.
-            Future versions may add library support with a different switch.
+Suggestion: use '--input-deals' to filter deals from a file.
+            Reading a solved library is tracked as issue #61.
 ```
 
 **What it did in dealer.exe**:
-- Read pre-generated deals from `library.dat` (M. Ginsberg's library)
-- Used with bridge.exe from GIB for fast tricks() evaluation
-- INPUT mode (reads deals from file)
+- `-l N` set `loading = 1` and `loadindex = N`, reading pre-generated deals from
+  M. Ginsberg's `library.dat` from that index onward
+- Those records carry pre-solved double-dummy results — `dealer.c` reads
+  `libdeal.tricks[dn]` rather than searching — which is the point of the switch:
+  `tricks()` becomes a lookup
 
-**What it does in DealerV2_4**:
-- Export deals to DL52 format file
-- OUTPUT mode (writes deals to file)
+**What it does in DealerV2_4**: nothing. **There is no `-l`.**
 
-**Why not supported**:
-- **Conflicting purposes**: INPUT in dealer.exe, OUTPUT in DealerV2_4
-- Implementing either version would break compatibility with the other
-- Better to wait for user feedback on which is more important
-- Could add `--library-input` and `--dl52-output` in future
+This page used to say it exported "DL52 format". That was wrong, and wrong in a
+way worth recording, because it drove a roadmap item and a message dealer3
+printed at users. DealerV2_4's option string is
+`hmquvVg:p:s:x:C:D:L:M:O:P:R:T:N:E:S:W:X:U:0-9` — no lowercase `l` — and the
+binary answers `-l` with its usage message. "DL52" appears nowhere in
+DealerV2_4's source, headers or user guide; the only occurrences anywhere were
+in dealer3's own documentation, citing each other.
+
+What DealerV2_4 does have is **`-L`**, naming a path to Richard Pavlicek's
+solved-deal library in ZRD format — the same idea as dealer.exe's `-l`, a
+different file. That is worth having, and is tracked as
+[#61](https://github.com/bridge-craftwork/Dealer3/issues/61) with the format
+work in bridge-encodings#20.
+
+**Why `-l` is still not supported**:
+- `--input-deals` already covers filtering deals from a file, in dealer3's own
+  way and without an index
+- A library's value is its pre-solved tricks, which `--input-deals` cannot carry
+  today — that is what #61 adds
 
 ---
 
@@ -189,8 +203,11 @@ Error: Switch '-l' (library mode) is not supported in dealer3.
 
 ### Could Be Added Later
 1. ~~**Upper/lowercase toggle (`-u`)**~~: accepted and ignored; it is a no-op in dealer.exe too
-2. **Library input (`--library-input`)**: If there's demand for library.dat support
-3. **DL52 export (`--dl52-output`)**: If there's demand for DealerV2_4 compatibility
+2. **Solved-deal libraries**: reading deals *and* their double-dummy tables, so
+   `tricks()` becomes a lookup. Tracked as
+   [#61](https://github.com/bridge-craftwork/Dealer3/issues/61), against
+   Pavlicek's ZRD format rather than Ginsberg's `library.dat`, because ZRD is
+   specified, downloadable and has a reference decoder.
 
 ### Will NOT Be Added
 1. **Swapping modes (`-2`, `-3`)**: Fundamentally incompatible with predeal

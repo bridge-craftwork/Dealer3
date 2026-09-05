@@ -96,14 +96,14 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `--input-deals` | Filter deals from a file instead of generating | ✅ | ⚠️ -l replays from a library file by index | ⚠️ -L names a library path, -l exports DL52 | Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are skipped, so check the reported count. |
+| `--input-deals` | Filter deals from a file instead of generating | ✅ | ⚠️ -l replays from a library file by index | ⚠️ -L names a library path: Pavlicek's solved-deal library, in ZRD format | Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are skipped, so check the reported count. |
 
 ### Recognised but not supported
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
 | `-e` | Exhaust mode | ⚠️ rejected with a message | ⚠️ compiled out; prints "not included" | — | Never finished in the original either. |
-| `-l` | Replay deals from a library file | ⚠️ rejected with a message | ✅ | ⚠️ -l exports DL52 | `--input-deals` covers this use case in dealer3's own way. |
+| `-l` | Replay deals from a library file | ⚠️ rejected with a message | ✅ | — | `--input-deals` covers this use case in dealer3's own way. |
 | `--legacy` | The old single-threaded RNG mode | ⚠️ rejected with a message | — | — | Removed in 0.5.0; still parsed so a script using it gets an explanation. |
 
 ### Not implemented
@@ -115,7 +115,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-U` | DealerServer path | ❌ | — | ✅ |  |
 | `-O` | OPC evaluation for the opener | ❌ | — | ✅ |  |
 | `-D` | Debug verbosity 0-9 | ❌ | — | ✅ |  |
-| `-L` | Path to the RP library the deals are read from | ❌ | — | ✅ | The companion to DealerV2_4's `-l`; it was mentioned only in the note on `--input-deals`, which left it the one V2_4 switch with no row of its own. |
+| `-L` | Path to the RP library the deals are read from | ❌ | — | ✅ | DealerV2_4's own library switch, and the same idea as dealer.exe's `-l`: deals that arrive with their double-dummy results already worked out, so `tricks()` is a lookup rather than a search. Different libraries — Pavlicek's ZRD here, Ginsberg's `library.dat` there. DealerV2_4 has no `-l`. |
 <!-- END GENERATED: switches -->
 
 ## Sources
@@ -148,7 +148,8 @@ the table marks them ⚠️ rather than ✅:
 
 - `-X` — force statistics on (dealer.exe, dealer3) vs export predeal holdings
   (V2_4).
-- `-l` — replay from a library by index (dealer.exe) vs export DL52 (V2_4).
+- `-l` — replay from a library by index (dealer.exe). DealerV2_4 has no `-l`;
+  its library switch is `-L`, naming a Pavlicek ZRD library.
   dealer3 does neither; `--input-deals` covers the first use case in its own
   way.
 - `-P` — vulnerability for par in V2_4; dealer3 uses `--vulnerable`.
