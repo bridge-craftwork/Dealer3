@@ -10,12 +10,32 @@
 #   threaded  the same ES module built for wasm threads       -> pkg/
 #
 # `threaded` needs a pinned nightly and rust-src, and the page must be served
-# with COOP/COEP. It works and it is correct — the same deals, whatever the
-# thread count — but it is **not** what the site ships, because today it is
-# slower: 4M deals in six seconds on one thread against 290K on twelve, getting
-# worse with every thread added. That shape is lock contention, and the lock is
-# almost certainly the allocator: a `Deal` is four `Vec<Card>` allocations and
-# wasm's dlmalloc serialises them all. Allocation-free dealing comes first.
+# with COOP/COEP. It works, it is correct — the same deals, whatever the thread
+# count — and since `Hand` became an inline `[Card; 13]` it is also faster.
+#
+# It used to be slower, and dramatically: 4M deals in six seconds on one thread
+# against 290K on twelve, getting worse with every thread added. That was the
+# allocator. A `Deal` was four `Vec<Card>` allocations and wasm's dlmalloc
+# serialises them, so every worker queued on the same lock. This comment used
+# to end "Allocation-free dealing comes first"; that landed, and the shape
+# reversed.
+#
+# Re-measured 2026-09-05 in Chromium on an M4 Pro (8 performance + 4 efficiency
+# cores), `condition hcp(north) >= 20`, 16M-deal budget, median of three:
+#
+#     threads   1      2      4      8     12
+#     M deals/s 2.86   4.77   7.84  11.13  11.41
+#     vs one    1.00x  1.67x  2.74x  3.89x  3.99x
+#
+# Sublinear, and flat between eight and twelve — four of the cores are
+# efficiency cores and some contention remains — but rising throughout, where it
+# used to collapse. The atomics build costs nothing at one thread (2.86 against
+# the shipped build's 2.73, inside the noise), so threads would not penalise a
+# browser that cannot spawn workers.
+#
+# It is still not what the site ships. That is now a deployment question — a
+# second build to produce and COOP/COEP headers to serve — and no longer a
+# performance one.
 #
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
