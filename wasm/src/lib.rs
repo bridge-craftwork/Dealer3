@@ -285,9 +285,16 @@ fn now_ms() -> f64 {
 /// deals exactly the same deals, which is the property that makes any of this
 /// safe.
 ///
-/// **The site does not ship a threaded build**, because more threads currently
-/// make it slower rather than faster — see `build.sh`. This is the groundwork
-/// and the proof that the engine's side is right, not a switch to flip.
+/// **The site does not ship a threaded build**, but that is a deployment
+/// decision rather than a performance one: a second build to produce, and
+/// COOP/COEP headers to serve.
+///
+/// It used to be a performance one. Threads made the browser slower — 4M deals
+/// in six seconds on one against 290K on twelve — because a `Deal` was four
+/// `Vec<Card>` allocations and wasm's dlmalloc serialises them, so every worker
+/// queued on the same lock. `Hand` is an inline `[Card; 13]` now, and the shape
+/// reversed: measured 2026-09-05, about 4x on twelve threads, and no cost at
+/// one. `build.sh` carries the numbers.
 #[cfg(feature = "parallel")]
 #[wasm_bindgen]
 pub fn start_threads(threads: usize) -> js_sys::Promise {
