@@ -197,22 +197,16 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("`--input-deals` already covers the common case in dealer3's own way."),
     },
     WorkItem {
-        what: "Export in RP zrd format",
+        what: "Read and write RP ZRD, Pavlicek's solved-deal library",
         done_when: Some(DoneWhen::Switch("-Z")),
-        issue: None,
+        issue: Some(61),
         effort: Effort::Medium,
-        value: Value::Low,
-        note: None,
-    },
-    WorkItem {
-        what: "Export in DL52 format",
-        done_when: None,
-        issue: None,
-        effort: Effort::Medium,
-        value: Value::Low,
+        value: Value::Medium,
         note: Some(
-            "DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with \
-             the script parameters, the spelling here would have to differ.",
+            "Reading is the valuable half: a ZRD record carries a deal *and* its twenty \
+             double-dummy results, so `tricks()`, `dds()` and `par()` become lookups rather \
+             than hundred-millisecond searches — which is also what would make them usable \
+             in the browser. The format work is bridge-encodings#20.",
         ),
     },
     WorkItem {

@@ -482,9 +482,9 @@ Keep `docs/implementation_roadmap.md` updated with:
 
 **Options**:
 - A) Support neither dealer.exe nor V2_4 version (current plan - RECOMMENDED)
-- B) Support V2_4 version only (DL52 export)
+- B) ~~Support V2_4 version only (DL52 export)~~ — there is no such switch; DealerV2_4 has no `-l`
 - C) Support dealer.exe version only (library input)
-- D) Add `--library-input` and `--dl52-output` to avoid conflict
+- D) ~~Add `--library-input` and `--dl52-output` to avoid conflict~~ — there was no conflict to avoid
 
 **Recommendation**: Option A - avoid the conflict entirely until user demand clarifies which is needed
 

@@ -159,7 +159,7 @@ letters are dealer.exe's swapping switches and already taken.
 
 So what remains of it is in **What is left** below, which is generated from
 `dealer/src/roadmap.rs` and checked against the argument parser — `-M`, `-Z`,
-DL52 and library mode are all rows in that table, with the switch collisions
+Library mode is a row in that table, with the switch collisions
 written down where they belong. Script parameters used to be a row there too,
 and are now finished: `--param` fills one, a `# param 0 = west` comment declares
 what it should be when nothing does, and `--params` lists what a script wants.
@@ -209,7 +209,7 @@ See `CHANGELOG.md` for the migration note.
 - [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`,
       solved by `bridge-solver` and remembered per deal (#14)
 - [ ] Library mode - `--input-deals` covers the common case; `-l` is rejected
-- [ ] Export formats (`-Z` zrd, DL52)
+- [ ] ZRD: read a solved library, and write one ([#61](https://github.com/bridge-craftwork/Dealer3/issues/61))
 - [x] Script parameters (`$0`-`$9`) - **COMPLETED**. `--param 1=west` rather than
       DealerV2_4's `-1`, which is dealer.exe's swapping switch; a script declares
       its own defaults in a `# param 1 = 15` comment, which the original's lexer
@@ -265,8 +265,7 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🔵 Unlikely | Export in DL52 format | Medium | Low |  | DealerV2_4 spells it `-l`, which is dealer.exe's library switch — so as with the script parameters, the spelling here would have to differ. |
-| 🔵 Unlikely | Export in RP zrd format | Medium | Low |  |  |
+| 🟢 Someday | Read and write RP ZRD, Pavlicek's solved-deal library | Medium | Medium | [#61](https://github.com/bridge-craftwork/Dealer3/issues/61) | Reading is the valuable half: a ZRD record carries a deal *and* its twenty double-dummy results, so `tricks()`, `dds()` and `par()` become lookups rather than hundred-millisecond searches — which is also what would make them usable in the browser. The format work is bridge-encodings#20. |
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` — which the original ignores | Medium | Low |  | **The original accepts it and does nothing with it.** `predealarg : SUIT '(' COMPASS ')' CMPEQ NUMBER` in `defs.y` calls `bias_deal`, which writes `biasdeal[compass][suit]` — and nothing ever reads that array; `dealer.c` contains its declaration and no other mention. Measured rather than inferred: `predeal spades(north) == 5` over 200 deals gives North an average of 3.285 spades, the natural 3.25, on the macOS build and on the Windows one BBO's lineage comes from. So there is no behaviour to be compatible with. dealer3 rejects it loudly, which is the better of the two; implementing it would make dealer3 differ from the original rather than match it. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
 | 🔵 Unlikely | `bktfreq`: frequency in buckets, one and two dimensional | Medium | Low |  | Adjacent to the two-dimensional `frequency` below but not the same thing: that one is the original's, this one groups a range into buckets. |

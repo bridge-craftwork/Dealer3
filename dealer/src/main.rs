@@ -982,12 +982,12 @@ fn main() {
     if args.library {
         eprintln!("Error: Switch '-l' (library mode) is not supported in dealer3.");
         eprintln!();
-        eprintln!("Reason: The '-l' switch has conflicting meanings:");
-        eprintln!("        - In dealer.exe: Read deals from library.dat");
-        eprintln!("        - In DealerV2_4: Export to DL52 format");
+        eprintln!("In dealer.exe, '-l N' reads deals from Ginsberg's library.dat,");
+        eprintln!("starting at index N. Those deals carry pre-solved double-dummy");
+        eprintln!("tricks, which is what made the switch worth having.");
         eprintln!();
-        eprintln!("Suggestion: Remove the '-l' switch from your command.");
-        eprintln!("            Future versions may add library support with a different switch.");
+        eprintln!("Suggestion: use '--input-deals' to filter deals from a file.");
+        eprintln!("            Reading a solved library is tracked as issue #61.");
         std::process::exit(1);
     }
 
