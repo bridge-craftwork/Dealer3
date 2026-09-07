@@ -1,3 +1,10 @@
+# Its own workspace, as the root one's `exclude` already says. Stated here as
+# well so that holds wherever this checkout sits: a git worktree placed inside
+# the repository directory is below the root manifest, whose `exclude` names
+# `wasm` at the top level and so does not reach this copy — cargo then walks up,
+# finds that manifest and refuses to build at all.
+[workspace]
+
 [package]
 name = "dealer3-wasm"
 version = "1.0.0"

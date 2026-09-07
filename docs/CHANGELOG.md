@@ -22,6 +22,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the reverse — is read for what it holds and the disagreement reported. The
     first of those used to come back as no deals at all, with nothing said.
   - No HTTP client: `curl` is not being reimplemented here.
+- **The browser can run a script over deals it is given**, through a new
+  WebAssembly entry point:
+
+  ```js
+  const bytes = new Uint8Array(await (await fetch("/library.zrd")).arrayBuffer())
+  w.generate_from_deals(script, bytes, seed, produce, maxGenerate, "oneline",
+                        false, false, [])
+  ```
+
+  - `generate()` was the only way in and it always shuffles, so a page could not
+    consume supplied deals in *any* format — not a library, not PBN, not the
+    one-line layouts.
+  - Bytes rather than a path or a URL. **The browser is the HTTP client**: JS
+    fetches, and nothing in the engine grows a filesystem or an HTTP client to
+    reach a file it was going to be handed anyway.
+  - One decoder, two callers: it goes through the same reader as
+    `--input-deals`, so a file read in a tab and the same file read at a
+    terminal cannot come to different conclusions about what is in it. The
+    tables travel with their deals, so `tricks()` over a solved library solves
+    nothing.
+  - The result carries an `input` block — the format, deals read, how many
+    arrived solved, separators, skipped records with their reasons, and notes.
+    The command line writes these to stderr and a page has no stderr, and
+    without them a run over a download that arrived short is indistinguishable
+    from a run over all of it: a run that exhausts its deals has not hit its
+    budget, so it stops short and looks exactly like success.
+  - `predeal` is refused rather than ignored, as it is on the command line: it
+    arranges cards into deals this program shuffles, and there is nothing for it
+    to do to deals that arrived already dealt.
 - **Two-dimensional `frequency`.** A second expression and range turns the
   histogram into a cross-tabulation: the first expression down the rows, the
   second across the columns, a Low and a High on each axis, and marginal sums
