@@ -230,6 +230,7 @@ All located alongside this repo, under the same GitHub directory:
 | [Bridge-Parsers](../Bridge-Parsers) | PBN/LIN file parsing | sibling |
 | [pbn-to-pdf](../pbn-to-pdf) | PDF generation | sibling |
 | [bridge-wrangler](../bridge-wrangler) | CLI tool for PBN operations | sibling |
+| [rpdd-reader](../rpdd-reader) | Pavlicek's 10,485,760 solved deals: deals by index, paired with fetched tables | sibling, used by `wasm/` |
 
 ## Known Issues
 
