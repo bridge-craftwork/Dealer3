@@ -1,8 +1,9 @@
-//! Remembering double-dummy results, so no deal is ever searched twice.
+//! What is known about a deal's double-dummy results, and how it travels.
 //!
 //! `tricks()` is orders of magnitude more expensive than every other function
-//! in the language, so what matters is not how fast one search is but how few
-//! of them run. Three things would otherwise repeat work:
+//! in the language — a hundred milliseconds against hundreds of nanoseconds —
+//! so what matters is not how fast one search is but how few of them run.
+//! Three things would otherwise repeat work:
 //!
 //! - A script naming `tricks(south, spades)` twice — once in an `average` and
 //!   again in a `frequency`, say — evaluates two separate expression nodes.
@@ -14,20 +15,28 @@
 //!   `condition` calls `tricks()` is therefore asked about twice, from two
 //!   different threads, with a whole batch of other deals in between.
 //!
-//! The first two are covered by keeping a [`DealAnalysis`] for the deal in
-//! hand, on this thread. The third needs the answer to outlive both the deal
-//! and the thread, so results are handed to a shared table on the way out and
-//! taken back from it on the way in. Only the answers are shared — twenty
-//! bytes a deal — and not the solver's caches, which run to several megabytes
-//! and are worth keeping only for as long as the deal they belong to. A thread
-//! that has called `tricks()` holds one deal's caches until another deal
-//! arrives on it, so a worker pool retains a few megabytes a thread.
+//! The first two are covered by [`CURRENT`], the deal in hand on this thread,
+//! which also holds the solver's caches — several megabytes, worth keeping
+//! only for as long as the deal they belong to.
+//!
+//! The third used to be covered by a global table of 16,384 deals' answers,
+//! keyed by their cards. That is gone. Answers now travel with their deal in a
+//! [`DealTricks`], the same way a table read from a file does (#61): a worker
+//! hands back what it learned along with the deal it learned it about, and the
+//! main thread is holding the answers before it asks. Which is why a file's
+//! table stopped being a special case — an answer from a ZRD record and an
+//! answer a worker searched for arrive by the same route and are the same
+//! thing.
+//!
+//! What a shared store did that this does not: answer about a deal nobody is
+//! holding any more. Nothing wanted that. It kept tables for deals the filter
+//! had rejected, it evicted from the front so a long input lost exactly the
+//! answers it would need first, and a table outlived its deal by an amount
+//! decided by a capacity constant.
 
 use crate::{DealAnalysis, Denomination, KnownTricks};
 use dealer_core::{Deal, Position};
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
-use std::sync::{LazyLock, Mutex};
 
 /// A deal's exact identity: a bit per card, one mask per hand.
 ///
@@ -45,51 +54,105 @@ fn key(deal: &Deal) -> Key {
     key
 }
 
-/// How many deals the shared table remembers.
+/// What is known about one deal's twenty double-dummy results.
 ///
-/// It has to outlive one generation batch — the default is a couple of hundred
-/// deals per thread — for the main thread to still find what a worker worked
-/// out. This is well clear of that, and costs well under a megabyte.
-const REMEMBERED_DEALS: usize = 16_384;
-
-static REMEMBERED: LazyLock<Mutex<Remembered>> = LazyLock::new(|| {
-    Mutex::new(Remembered {
-        known: HashMap::new(),
-        oldest_first: VecDeque::new(),
-    })
-});
-
-/// Results for the deals most recently analysed on any thread.
-struct Remembered {
-    known: HashMap<Key, KnownTricks>,
-    /// The insertion order, for evicting the oldest once the table is full.
-    oldest_first: VecDeque<Key>,
+/// Partial by design. A deal read from a solved file knows all twenty; a deal
+/// whose condition asked one question knows one; a freshly dealt deal knows
+/// none. All three are this type, which is what lets the run carry answers
+/// around without caring where they came from.
+///
+/// Cheap to copy — forty bytes — so it travels by value with its deal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct DealTricks {
+    known: KnownTricks,
 }
 
-fn recall(key: &Key) -> Option<KnownTricks> {
-    // A poisoned lock would mean another thread panicked while holding it.
-    // Nothing here can leave the table inconsistent, so carry on with it.
-    let remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
-    remembered.known.get(key).copied()
-}
+/// Nothing known, for a context built without a deal's answers to hand.
+///
+/// A static so that such a context can borrow one rather than own it, which is
+/// what keeps the field a plain reference instead of an `Option`.
+pub static NOTHING_KNOWN: DealTricks = DealTricks {
+    known: [[None; 4]; 5],
+};
 
-fn remember(key: Key, known: KnownTricks) {
-    let mut remembered = REMEMBERED.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(existing) = remembered.known.get_mut(&key) {
-        for (existing, new) in existing.iter_mut().flatten().zip(known.iter().flatten()) {
-            if existing.is_none() {
-                *existing = *new;
+impl DealTricks {
+    /// Nothing known yet: a deal as dealt.
+    pub fn nothing() -> Self {
+        Self::default()
+    }
+
+    /// Everything known, from a table that arrived solved.
+    ///
+    /// The axis conversion happens here and in [`DealTricks::table`] and
+    /// nowhere else. `DdTable` is keyed by `Direction` and `Strain`, this crate
+    /// counts seats and denominations its own way, and getting either backwards
+    /// returns a plausible number rather than an error — it negated a par score
+    /// once and the tests still passed. One place to be wrong is better than
+    /// one per caller.
+    pub fn from_table(table: &bridge_solver::DdTable) -> Self {
+        let mut known: KnownTricks = [[None; 4]; 5];
+        for (denomination, row) in Denomination::ALL.iter().zip(known.iter_mut()) {
+            for (seat, cell) in Position::ALL.iter().zip(row.iter_mut()) {
+                *cell = Some(table.tricks(
+                    bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(*seat)),
+                    bridge_solver::STRAINS[*denomination as usize],
+                ));
             }
         }
-        return;
+        DealTricks { known }
     }
-    if remembered.oldest_first.len() >= REMEMBERED_DEALS {
-        if let Some(evicted) = remembered.oldest_first.pop_front() {
-            remembered.known.remove(&evicted);
+
+    /// Tricks for one (denomination, declarer), if that one has been worked out.
+    pub fn get(&self, denomination: Denomination, declarer: Position) -> Option<u8> {
+        self.known[denomination as usize][declarer as usize]
+    }
+
+    /// Whether nothing at all is known.
+    pub fn is_empty(&self) -> bool {
+        self.known.iter().flatten().all(Option::is_none)
+    }
+
+    /// The full table, if every cell is known, and `None` otherwise.
+    ///
+    /// Never solves. This answers "do we know this already?", which is what an
+    /// exporter wants: a deal read from a solved library, or one a script has
+    /// asked twenty questions about, can carry its results out again, while a
+    /// deal nobody asked about is not worth twenty searches to annotate.
+    pub fn table(&self) -> Option<bridge_solver::DdTable> {
+        let mut table = bridge_solver::DdTable::new();
+        for (denomination, row) in Denomination::ALL.iter().zip(self.known.iter()) {
+            for (seat, cell) in Position::ALL.iter().zip(row.iter()) {
+                table.set(
+                    bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(*seat)),
+                    bridge_solver::STRAINS[*denomination as usize],
+                    (*cell)?,
+                );
+            }
+        }
+        Some(table)
+    }
+
+    /// Take on answers worked out elsewhere for the same deal.
+    ///
+    /// Anything already known is kept: a double-dummy result is a property of
+    /// the deal, so two answers about the same cell can only agree.
+    pub fn merge(&mut self, other: &DealTricks) {
+        for (mine, theirs) in self.known.iter_mut().zip(other.known.iter()) {
+            for (mine, theirs) in mine.iter_mut().zip(theirs.iter()) {
+                if mine.is_none() {
+                    *mine = *theirs;
+                }
+            }
         }
     }
-    remembered.known.insert(key, known);
-    remembered.oldest_first.push_back(key);
+
+    fn from_known(known: KnownTricks) -> Self {
+        DealTricks { known }
+    }
+
+    fn known(&self) -> KnownTricks {
+        self.known
+    }
 }
 
 thread_local! {
@@ -97,20 +160,54 @@ thread_local! {
     static CURRENT: RefCell<Option<(Key, DealAnalysis)>> = const { RefCell::new(None) };
 }
 
-/// Tricks `declarer` can take in `denomination` on `deal`.
+/// Everything this thread has worked out about `deal`, to hand on with it.
 ///
-/// Searched at most once per (deal, denomination, declarer), however many
-/// times a script asks and from wherever it asks.
-pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8 {
+/// The counterpart of the store that used to do this. A worker calls it right
+/// after evaluating a deal, and what comes back travels with that deal to
+/// whoever looks at it next — so an answer is searched for once even though
+/// the condition and the action run on different threads.
+///
+/// Empty if this thread has moved on to another deal, which is correct rather
+/// than unfortunate: the answers are gone either way, and saying so costs one
+/// comparison instead of a lock.
+pub fn learned(deal: &Deal) -> DealTricks {
+    CURRENT.with(|current| {
+        let current = current.borrow();
+        // Checked before the key is worked out, because this is called for
+        // every deal a run tests and most runs never solve anything. An empty
+        // slot means this thread has never called the solver at all, and
+        // answering that costs a null check rather than fifty-two cards.
+        let Some((held, analysis)) = &*current else {
+            return DealTricks::nothing();
+        };
+        if *held != key(deal) {
+            return DealTricks::nothing();
+        }
+        DealTricks::from_known(analysis.known())
+    })
+}
+
+/// Tricks `declarer` can take in `denomination` on `deal`, searching for it.
+///
+/// `known` is what the caller already has, which the analysis takes on before
+/// searching: a script that asked about spades and now asks about hearts pays
+/// for hearts only.
+///
+/// Searched at most once per (deal, denomination, declarer) on this thread,
+/// however many times a script asks.
+pub(crate) fn solve_tricks(
+    known: &DealTricks,
+    deal: &Deal,
+    denomination: Denomination,
+    declarer: Position,
+) -> u8 {
     let key = key(deal);
     CURRENT.with(|current| {
         let mut current = current.borrow_mut();
         let in_hand = matches!(&*current, Some((held, _)) if *held == key);
         if !in_hand {
             let mut analysis = DealAnalysis::new(deal);
-            if let Some(known) = recall(&key) {
-                analysis.preload(known);
-            }
+            analysis.preload(known.known());
             *current = Some((key, analysis));
         }
         let analysis = match &mut *current {
@@ -118,31 +215,31 @@ pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8
             // Unreachable: the branch above fills the slot when it is empty.
             None => unreachable!("the deal was just installed"),
         };
-
-        let asked_before = analysis.known()[denomination as usize][declarer as usize].is_some();
-        let tricks = analysis.tricks(denomination, declarer);
-        if !asked_before {
-            // Share it as soon as it is worked out, rather than when this deal
-            // is displaced: a worker thread may only see one deal calling
-            // `tricks()` in a whole batch, and the main thread needs the answer
-            // whether or not another deal ever arrives to push it out.
-            remember(key, analysis.known());
-        }
-        tricks
+        analysis.tricks(denomination, declarer)
     })
 }
 
 /// The whole 20-entry double-dummy table for a deal.
 ///
-/// Every cell goes through [`tricks`], so a table costs only the searches that
-/// have not already been done — a script whose condition asked about one
-/// denomination pays for nineteen more, not twenty — and the answers are shared
-/// with every later caller the same way.
+/// Solves it. The one entry point that is meant to: everything else takes what
+/// is known and reads it. Use this to work out a table nobody has — to write
+/// one into a PBN or ZRD export, say — not to answer a question about a deal
+/// that already carries one.
 ///
 /// Laid out as `bridge_solver` wants it: seats N, E, S, W and strains C, D, H,
 /// S, NT, which is dealer's own strain numbering too.
-pub fn table(deal: &Deal) -> bridge_solver::DdTable {
-    let mut table = bridge_solver::DdTable::new();
+pub fn solve_table(deal: &Deal) -> bridge_solver::DdTable {
+    solve_tricks_table(&DealTricks::nothing(), deal)
+        .table()
+        .unwrap_or_else(|| {
+            // Unreachable: every cell was just filled in.
+            bridge_solver::DdTable::new()
+        })
+}
+
+/// Everything known about `deal` after working out whatever is still missing.
+fn solve_tricks_table(known: &DealTricks, deal: &Deal) -> DealTricks {
+    let mut filled = *known;
     // Denomination outermost, so the four declarers share one pair of solver
     // caches — `DealAnalysis` keeps them per denomination and throws them away
     // when the denomination changes. Seat-outermost asks for a different
@@ -150,33 +247,59 @@ pub fn table(deal: &Deal) -> bridge_solver::DdTable {
     // instead of five, which costs about a third of the run.
     for denomination in Denomination::ALL {
         for seat in Position::ALL {
-            let tricks = self::tricks(deal, denomination, seat);
-            // Both axes are converted rather than indexed. `DdTable` is keyed
-            // by `Direction` and `Strain`, and this crate counts seats and
-            // denominations its own way; the two happen to agree today, and
-            // writing the cells by name means it does not matter if they stop.
-            // Getting an axis wrong here does not fail, it negates par.
-            table.set(
-                bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(seat)),
-                bridge_solver::STRAINS[denomination as usize],
-                tricks,
-            );
+            if filled.get(denomination, seat).is_none() {
+                let tricks = solve_tricks(&filled, deal, denomination, seat);
+                filled.known[denomination as usize][seat as usize] = Some(tricks);
+            }
         }
     }
-    table
+    filled
 }
 
-/// The par score, to North-South, at the given vulnerability.
+/// Tricks for one (denomination, declarer), from `known` if it has them.
+///
+/// The variant every evaluation calls. A deal that arrived from a file already
+/// solved knows the answer, and this is a lookup; a deal nobody has solved
+/// knows nothing, and this searches.
+pub fn tricks(
+    known: &DealTricks,
+    deal: &Deal,
+    denomination: Denomination,
+    declarer: Position,
+) -> u8 {
+    match known.get(denomination, declarer) {
+        Some(tricks) => tricks,
+        None => solve_tricks(known, deal, denomination, declarer),
+    }
+}
+
+/// The par score to North-South, from `known` if it has every cell.
+///
+/// Par is derived from all twenty results, so a deal that arrived solved needs
+/// no search at all — which is the difference between a hundred milliseconds
+/// and none. A deal that knows some of them pays only for the rest.
 ///
 /// Negative means East-West are the ones who benefit. A passed-out deal — par
 /// zero — is zero, which is what the original returns too.
-pub fn par_score_ns(deal: &Deal, vul_ns: bool, vul_ew: bool) -> i32 {
-    bridge_solver::par(&table(deal), vul_ns, vul_ew).score_ns
+pub fn par_score_ns(known: &DealTricks, deal: &Deal, vul_ns: bool, vul_ew: bool) -> i32 {
+    let table = match known.table() {
+        Some(table) => table,
+        None => match solve_tricks_table(known, deal).table() {
+            Some(table) => table,
+            // Unreachable: solving fills every cell.
+            None => return 0,
+        },
+    };
+    bridge_solver::par(&table, vul_ns, vul_ew).score_ns
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn nothing() -> DealTricks {
+        DealTricks::nothing()
+    }
     use dealer_core::{Card, Rank, Suit};
 
     /// Each hand holds one whole suit — a deal the solver gets through quickly.
@@ -226,42 +349,121 @@ mod tests {
     #[test]
     fn repeated_questions_agree() {
         let deal = spades_north();
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
-        assert_eq!(tricks(&deal, Denomination::NoTrump, Position::North), 0);
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::Spades, Position::North),
+            13
+        );
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::Spades, Position::North),
+            13
+        );
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::NoTrump, Position::North),
+            0
+        );
         // Coming back to the first question must not have disturbed it.
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::Spades, Position::North),
+            13
+        );
     }
 
     #[test]
     fn a_different_deal_gets_its_own_answers() {
         let deal = spades_north();
         let other = spades_east();
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::Spades, Position::North),
+            13
+        );
         // East holds every spade here, so North's spade contract takes none.
-        assert_eq!(tricks(&other, Denomination::Spades, Position::North), 0);
+        assert_eq!(
+            solve_tricks(&nothing(), &other, Denomination::Spades, Position::North),
+            0
+        );
         // And going back gives the original answer again, not a stale one.
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&nothing(), &deal, Denomination::Spades, Position::North),
+            13
+        );
     }
 
+    /// What a worker learns comes back with the deal, which is how the main
+    /// thread avoids searching for it again.
+    ///
+    /// This is the case a global store used to cover. The difference is that
+    /// the answers now have to be carried: a thread that has moved on knows
+    /// nothing, and it is the caller holding `DealTricks` that remembers.
     #[test]
-    fn what_one_thread_worked_out_another_can_use() {
-        // A deal no other test uses, so the shared table can only have heard
-        // of it from the thread below.
+    fn what_one_thread_worked_out_travels_back_with_the_deal() {
         let deal = one_suit_each(Suit::Clubs, Suit::Diamonds, Suit::Hearts, Suit::Spades);
-        let expected = std::thread::spawn({
+        let (expected, carried) = std::thread::spawn({
             let deal = deal.clone();
-            move || tricks(&deal, Denomination::Clubs, Position::North)
+            move || {
+                let tricks = solve_tricks(&nothing(), &deal, Denomination::Clubs, Position::North);
+                (tricks, learned(&deal))
+            }
         })
         .join()
         .expect("the worker thread should not have panicked");
 
-        // Displace this thread's slot, so the answer can only come from the
-        // shared table.
-        tricks(&spades_north(), Denomination::Spades, Position::North);
         assert_eq!(
-            tricks(&deal, Denomination::Clubs, Position::North),
+            carried.get(Denomination::Clubs, Position::North),
+            Some(expected),
+            "the worker should hand back what it worked out"
+        );
+
+        // Displace this thread's slot, so nothing here knows the deal.
+        solve_tricks(
+            &nothing(),
+            &spades_north(),
+            Denomination::Spades,
+            Position::North,
+        );
+        assert!(
+            learned(&deal).is_empty(),
+            "this thread has moved on and should admit to knowing nothing"
+        );
+
+        // The carried answers are enough: no search, and the same number.
+        let before = crate::searches();
+        assert_eq!(
+            tricks(&carried, &deal, Denomination::Clubs, Position::North),
             expected
+        );
+        assert_eq!(crate::searches(), before, "that should not have searched");
+    }
+
+    #[test]
+    fn a_table_survives_the_round_trip_through_deal_tricks() {
+        let deal = spades_north();
+        let table = solve_table(&deal);
+        let known = DealTricks::from_table(&table);
+        assert_eq!(
+            known.table().expect("every cell is known"),
+            table,
+            "converting a table in and back out must not move anything"
+        );
+        assert_eq!(
+            known.get(Denomination::Spades, Position::North),
+            Some(13),
+            "North holds every spade"
+        );
+    }
+
+    #[test]
+    fn partial_knowledge_is_kept_and_completed() {
+        let deal = spades_north();
+        let mut known = nothing();
+        known.merge(&DealTricks::from_table(&solve_table(&deal)));
+        assert!(known.table().is_some(), "merging a full table completes it");
+
+        let mut one_cell = nothing();
+        one_cell.known[Denomination::Spades as usize][Position::North as usize] = Some(13);
+        assert!(!one_cell.is_empty());
+        assert!(
+            one_cell.table().is_none(),
+            "one cell is not a table, and must not pretend to be"
         );
     }
 }

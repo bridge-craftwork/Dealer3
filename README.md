@@ -251,7 +251,45 @@ domain.
 - **DealerV2_4**: Greg Morse, with Thorvald Aagaard contributing (GPLv3, independent implementation)
 - **dealer3**: Rick Wilson (Unlicense)
 
-Key contributors to the dealer ecosystem:
+### Third-party work dealer3 builds on
+
+**Richard Pavlicek** — the solved-deal library and the binary formats that carry
+it. `rpdd.zrd` holds 10,485,760 random deals with the complete twenty-cell
+double-dummy table for each, published at
+[rpbridge.net](http://www.rpbridge.net/) and © 2007 Richard Pavlicek. His
+`rpdd.txt` records that solving them took almost two years of computer time.
+dealer3 reads that format (`--input-deals foo.zrd`), so `tricks()`, `dds()` and
+`par()` become lookups rather than searches, and understands the companion
+`.zdd` and the deal-generation scheme that rebuilds the deals from it.
+
+*dealer3 ships none of this data.* The library is a courtesy download from its
+author and carries no redistribution grant; obtain it from
+[rpbridge.net](http://www.rpbridge.net/) yourself. DealerV2_4 reads the same
+format with its `-L` switch.
+
+[`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES) lists every package a distributed
+copy is built from, with its licence and copyright, and ships in the release
+archives. `web/public/THIRD-PARTY-NOTICES` is the same for the WebAssembly build,
+which is a different graph — it links wasm-bindgen and js-sys and never sees
+clap. Both are generated from what cargo resolved, by
+`scripts/third-party-notices.py`, and checked in CI: a hand-kept notice file goes
+stale the moment a dependency moves, and a stale notice asserts something untrue
+about what a copy contains. Nothing here pins dependency versions, so the files
+carry none — and they only ever grow, because a machine with an older lock and a
+fresh CI checkout legitimately resolve different sets. CI fails only when
+something resolved that the file does not credit, which is the direction that
+matters.
+
+**Hanhong Xue** — the double-dummy search core. dealer3 solves through
+[bridge-solver](https://github.com/bridge-craftwork/bridge-solver), whose search
+is a Rust reimplementation of
+[macroxue/bridge-solver](https://github.com/macroxue/bridge-solver), © 2013-2026
+Hanhong Xue, dual-licensed Apache-2.0 or MIT. dealer3's own code is public
+domain, but binaries and the WebAssembly build link that work, so those licences
+travel with anything distributed.
+
+### Key contributors to the dealer ecosystem
+
 - Henk Uijterwaal, who maintained dealer through the era this work is based on
   and wrote its PBN support
 - Bruce Moore, Francois Dellacherie, Robin Barker, Danil Suits, Alex Martelli,
@@ -262,6 +300,7 @@ Key contributors to the dealer ecosystem:
 - **GitHub**: https://github.com/bridge-craftwork/Dealer3
 - **Original dealer.exe**: http://www.bridgebase.com/tools/dealer/
 - **DealerV2_4**: https://github.com/dealerv2/Dealer-Version-2-
+- **Pavlicek's solved deals**: http://www.rpbridge.net/
 
 ## Support
 

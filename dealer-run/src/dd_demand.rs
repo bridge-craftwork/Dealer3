@@ -62,20 +62,43 @@ impl DdDemand {
         *self = DdDemand::Table;
     }
 
+    /// Whether `known` already holds everything this demand would search for.
+    ///
+    /// A deal that arrived from a solved file answers yes to any demand; a deal
+    /// whose condition happened to ask the one question the action asks answers
+    /// yes too. Either way there is nothing to warm, and warming anyway is
+    /// invisible except on the clock.
+    pub fn satisfied_by(&self, known: &dealer_dds::DealTricks) -> bool {
+        match self {
+            DdDemand::None => true,
+            DdDemand::Table => known.table().is_some(),
+            DdDemand::Cells(cells) => cells
+                .iter()
+                .all(|(denomination, declarer)| known.get(*denomination, *declarer).is_some()),
+        }
+    }
+
     /// Solve what this demand names, so a later evaluation finds it remembered.
     ///
     /// Errors are not reported: this is a cache warm, and the real evaluation
     /// that follows will raise anything genuinely wrong with its own message
     /// and position. Failing quietly here costs a solve, not an answer.
+    /// Nothing known is passed in throughout: warming exists for deals nobody
+    /// has solved. A deal that already knows the answers is skipped by
+    /// [`DdDemand::satisfied_by`] before reaching here.
     pub fn warm(&self, deal: &dealer_core::Deal) {
         match self {
             DdDemand::None => {}
             DdDemand::Table => {
-                dealer_dds::table(deal);
+                // Solving is the point here; the table it hands back is for
+                // callers that want one. What this leaves on the thread is
+                // collected by `Workers::warm_each` and carried back with the
+                // deal.
+                dealer_dds::solve_table(deal);
             }
             DdDemand::Cells(cells) => {
                 for (denomination, declarer) in cells {
-                    dealer_dds::tricks(deal, *denomination, *declarer);
+                    dealer_dds::tricks(&dealer_dds::NOTHING_KNOWN, deal, *denomination, *declarer);
                 }
             }
         }
@@ -89,8 +112,28 @@ impl DdDemand {
 /// Read the double-dummy demand off a program's `action` statements.
 ///
 /// The condition is deliberately not looked at: it is evaluated by the workers
-/// already, so anything it asks for is solved in parallel and remembered before
-/// the action ever runs. Warming it again would be pure waste.
+/// already, and what they work out comes back with the deal, so the action
+/// finds it in hand. Warming it again would be pure waste — and the run does
+/// not even try, because [`DdDemand::satisfied_by`] sees the answers are
+/// already there.
+/// Whether anything anywhere in `program` can reach the solver.
+///
+/// Wider than [`of_program`], which asks only what a produced deal's *action*
+/// will need. A `tricks()` in the condition reaches the solver too, and a run
+/// whose condition solves has answers worth carrying even though its action
+/// asks for nothing.
+///
+/// Used to keep the carrying off the hot path entirely: for the great majority
+/// of scripts, which never mention double-dummy, there is nothing to carry and
+/// this says so once for the whole run rather than forty bytes a deal.
+pub fn touches_solver(program: &Program) -> bool {
+    let mut demand = DdDemand::None;
+    if let Some(constraint) = dealer_eval::extract_constraint(program) {
+        walk(constraint, program, &mut demand, &mut HashSet::new());
+    }
+    !demand.is_none() || !of_program(program).is_none()
+}
+
 pub fn of_program(program: &Program) -> DdDemand {
     let mut demand = DdDemand::None;
     for statement in &program.statements {

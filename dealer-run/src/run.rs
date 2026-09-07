@@ -70,8 +70,27 @@ pub enum Deals {
         /// How many deals each shuffle is arranged into, for `-2` and `-3`.
         swap: SwapMode,
     },
-    /// Supplied, as `--input-deals` supplies them.
-    Given(Vec<Deal>),
+    /// Supplied, as `--input-deals` supplies them, each with the double-dummy
+    /// table it arrived with.
+    ///
+    /// The table travels with its deal rather than going into a shared store:
+    /// its lifetime is then the deal's, a deal the filter rejects takes its
+    /// table with it, and how many deals a file holds stops mattering.
+    Given(Vec<SolvedDeal>),
+}
+
+/// One supplied deal and whatever double-dummy answers it arrived with.
+///
+/// Empty answers are the ordinary case — most formats carry no analysis — and
+/// mean only "nobody has solved this", which is what a dealt deal looks like
+/// too.
+pub type SolvedDeal = (Deal, dealer_dds::DealTricks);
+
+/// One deal, whether it matched, and what testing it worked out along the way.
+struct Tested {
+    deal: Deal,
+    passed: Result<bool, EvalError>,
+    known: dealer_dds::DealTricks,
 }
 
 /// What a run needs to know.
@@ -315,16 +334,31 @@ impl Workers {
     ///
     /// Collected by index, so the deals come back in the order their seeds were
     /// drawn however many threads worked on them.
+    /// Each deal comes back with whatever double-dummy answers testing it
+    /// worked out, harvested on the thread that did the work. That is how a
+    /// `tricks()` in a condition reaches the action that asks the same
+    /// question later on the main thread: the answer travels with its deal
+    /// rather than being looked up in a store keyed by cards (#61).
     fn build_and_test(
         &self,
         count: usize,
         build: &(dyn Fn(usize) -> Deal + Sync),
-        test: &(dyn Fn(&Deal) -> Result<bool, EvalError> + Sync),
-    ) -> Vec<(Deal, Result<bool, EvalError>)> {
+        test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
+        harvest: bool,
+    ) -> Vec<Tested> {
         let one = |index: usize| {
             let deal = build(index);
-            let passed = test(&deal);
-            (deal, passed)
+            let passed = test(index, &deal);
+            let known = if harvest {
+                dealer_dds::learned(&deal)
+            } else {
+                dealer_dds::DealTricks::nothing()
+            };
+            Tested {
+                deal,
+                passed,
+                known,
+            }
         };
         #[cfg(feature = "parallel")]
         {
@@ -342,25 +376,33 @@ impl Workers {
     /// Run `warm` over every deal, on the pool.
     ///
     /// Used to solve a batch's produced deals before the main thread evaluates
-    /// their action. No results come back: what it leaves behind is the solved
-    /// cells in `dealer_dds`'s shared memo, which the evaluation then finds
-    /// already worked out. See `crate::dd_demand`.
-    fn warm_each(&self, deals: &[&Deal], warm: &(dyn Fn(&Deal) + Sync)) {
+    /// their action, so the evaluation finds every cell already worked out. See
+    /// `crate::dd_demand`.
+    ///
+    /// Returns what each warm worked out, in the order the deals were given,
+    /// so the caller can put it back with its deal. Nothing is left behind on
+    /// the worker for the main thread to find, so warming whose results nobody
+    /// collected would be work thrown away.
+    fn warm_each(
+        &self,
+        deals: &[&Deal],
+        warm: &(dyn Fn(&Deal) + Sync),
+    ) -> Vec<dealer_dds::DealTricks> {
+        let one = |deal: &&Deal| {
+            warm(deal);
+            dealer_dds::learned(deal)
+        };
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
             if let Some(pool) = &self.pool {
-                pool.install(|| deals.par_iter().for_each(|deal| warm(deal)));
-                return;
+                return pool.install(|| deals.par_iter().map(one).collect());
             }
             if self.global {
-                deals.par_iter().for_each(|deal| warm(deal));
-                return;
+                return deals.par_iter().map(one).collect();
             }
         }
-        for deal in deals {
-            warm(deal);
-        }
+        deals.iter().map(one).collect()
     }
 }
 
@@ -381,6 +423,9 @@ pub struct Produced<'a> {
     point_counts: Option<&'a dealer_eval::PointCounts>,
     reports: &'a Reports,
     vulnerability: dealer_core::Vulnerability,
+    /// What is known about this deal's double-dummy results by the time it is
+    /// produced: what it arrived with, plus everything the run worked out.
+    dd_tricks: &'a dealer_dds::DealTricks,
 }
 
 /// What a script asked to be written out per produced deal.
@@ -410,8 +455,13 @@ impl Produced<'_> {
     /// are everywhere else: where their boundaries fall is what a `rnd()` in
     /// one draws against a `rnd()` in another.
     pub fn context(&self) -> dealer_eval::EvalContext<'_> {
-        dealer_eval::EvalContext::with_counts(self.deal, self.variables, self.point_counts)
-            .with_vulnerability(self.vulnerability)
+        dealer_eval::EvalContext::for_deal(
+            self.deal,
+            self.variables,
+            self.point_counts,
+            self.vulnerability,
+            self.dd_tricks,
+        )
     }
 
     /// What the script's `printes` statements say for this deal.
@@ -504,19 +554,24 @@ fn report_row(
             // one part holding its own commas, so it lands in the row as
             // separate columns without the join needing to know.
             CsvTerm::Trix(seats) => {
-                // Solved denomination-outermost, for the cache sharing
-                // described on `dealer_dds::table`, then read back per seat in
-                // the order the report wants.
-                for denomination in dealer_dds::Denomination::ALL {
-                    for seat in seats {
-                        dealer_dds::tricks(deal, denomination, *seat);
+                let known = ctx.dd_tricks();
+                if known.table().is_none() {
+                    // Solved denomination-outermost, for the cache sharing
+                    // described on `dealer_dds::solve_table`, then read back per
+                    // seat in the order the report wants. A deal that arrived
+                    // with its table needs no warming: every read below is a
+                    // lookup.
+                    for denomination in dealer_dds::Denomination::ALL {
+                        for seat in seats {
+                            dealer_dds::tricks(known, deal, denomination, *seat);
+                        }
                     }
                 }
                 for seat in seats {
                     let columns: Vec<String> = dealer_dds::Denomination::ALL
                         .iter()
                         .map(|denomination| {
-                            dealer_dds::tricks(deal, *denomination, *seat).to_string()
+                            dealer_dds::tricks(known, deal, *denomination, *seat).to_string()
                         })
                         .collect();
                     parts.push(columns.join(","));
@@ -626,6 +681,28 @@ impl Source {
         batch
     }
 
+    /// What this handle's deal arrived knowing, if anything.
+    ///
+    /// Only a supplied deal can arrive knowing something: a shuffled deal has
+    /// never been solved by anybody.
+    /// Whether any supplied deal arrived already solved.
+    ///
+    /// Asked once a run rather than once a deal: it decides whether there is
+    /// anything to carry at all.
+    fn carries_tables(&self) -> bool {
+        match &self.deals {
+            Deals::Given(all) => all.iter().any(|(_, known)| !known.is_empty()),
+            Deals::Shuffled { .. } => false,
+        }
+    }
+
+    fn tricks(&self, handle: Handle) -> &dealer_dds::DealTricks {
+        match (&self.deals, handle) {
+            (Deals::Given(all), Handle::Given(index)) => &all[index].1,
+            _ => &dealer_dds::NOTHING_KNOWN,
+        }
+    }
+
     /// The deal a handle stands for.
     fn build(&self, handle: Handle) -> Deal {
         match handle {
@@ -634,7 +711,7 @@ impl Source {
                 Deals::Given(_) => self.shuffle(seed),
             },
             Handle::Given(index) => match &self.deals {
-                Deals::Given(all) => all[index].clone(),
+                Deals::Given(all) => all[index].0.clone(),
                 Deals::Shuffled { .. } => Deal::new(),
             },
         }
@@ -684,7 +761,11 @@ impl Source {
 /// pass deals the rest itself. **The budget can never make a result wrong, only
 /// fail to save time.**
 struct Retained {
-    handles: Vec<Handle>,
+    /// Each handle with what was worked out about its deal, so a second pass
+    /// does not search again for what the first pass already knows. Before
+    /// #61 this came back from a global store; carrying it is the same saving
+    /// without the store.
+    handles: Vec<(Handle, dealer_dds::DealTricks)>,
     budget: usize,
     through: usize,
 }
@@ -700,9 +781,9 @@ impl Retained {
 
     /// Offer a matching deal, kept if there is room. `position` is how many
     /// deals the stream had drawn, this one included.
-    fn offer(&mut self, handle: Handle, position: usize) {
+    fn offer(&mut self, handle: Handle, known: dealer_dds::DealTricks, position: usize) {
         if self.handles.len() < self.budget {
-            self.handles.push(handle);
+            self.handles.push((handle, known));
             self.through = position;
         }
     }
@@ -738,7 +819,7 @@ struct PassOptions<'a> {
     /// How many matching deals to keep for a later pass.
     retain: usize,
     /// Deals to re-run before drawing any new ones.
-    replay: &'a [Handle],
+    replay: &'a [(Handle, dealer_dds::DealTricks)],
     /// How far into the stream `replay` accounts for.
     resume: usize,
     /// Which side is vulnerable, handed to every expression the pass evaluates.
@@ -750,6 +831,15 @@ struct PassOptions<'a> {
     /// unchanged by it, so the pass ends where it always did — when it has
     /// produced what was asked for.
     round_robin: Option<&'a dealer_level::RoundRobinPlan>,
+}
+
+/// One deal's answers out of a batch's, or nothing known.
+///
+/// The vector is empty for a run that can never reach the solver, which is what
+/// keeps the carrying off the hot path — so "no entry" and "nothing known" have
+/// to be the same answer.
+fn known_at(known: &[dealer_dds::DealTricks], index: usize) -> &dealer_dds::DealTricks {
+    known.get(index).unwrap_or(&dealer_dds::NOTHING_KNOWN)
 }
 
 fn run_pass(
@@ -781,6 +871,10 @@ fn run_pass(
     // What the action will ask the solver for, per produced deal. Worked out
     // once: it is a property of the script, not of a deal.
     let dd_demand = crate::dd_demand::of_program(&program);
+    // Whether any answer worth carrying can exist at all: the script reaches
+    // the solver somewhere, or the deals arrived from a file that had already
+    // been solved.
+    let dd_in_play = crate::dd_demand::touches_solver(&program) || source.carries_tables();
     if let Some(plan) = opts.round_robin {
         accumulator = accumulator.with_round_robin(plan.clone());
     }
@@ -809,10 +903,18 @@ fn run_pass(
     // `dealer_eval::eval_with_context_and_counts` so that the run's
     // vulnerability reaches it. `par()` in a condition needs it, and the
     // convenience helper cannot supply one.
-    let test = |deal: &Deal| match constraint {
+    // `index` is into the batch's handles, which is how a deal's table is found:
+    // a supplied deal may have arrived already solved, and the condition should
+    // read that rather than search for what the file already knew.
+    let test = |known: &dealer_dds::DealTricks, deal: &Deal| match constraint {
         Some(expr) => {
-            let ctx = dealer_eval::EvalContext::with_counts(deal, &variables, point_counts)
-                .with_vulnerability(opts.vulnerability);
+            let ctx = dealer_eval::EvalContext::for_deal(
+                deal,
+                &variables,
+                point_counts,
+                opts.vulnerability,
+                known,
+            );
             dealer_eval::eval(expr, &ctx).map(|value| value != 0)
         }
         None => Ok(true),
@@ -827,12 +929,20 @@ fn run_pass(
     let batch_size = opts.batch;
 
     'passing: while produced < opts.produce {
-        // Whatever an earlier pass kept, before anything new.
-        let (handles, from_stream) = if replayed < opts.replay.len() {
+        // Whatever an earlier pass kept, before anything new. A replayed deal
+        // brings back what that pass worked out about it, so a levelled run
+        // does not solve the same deal twice.
+        let (handles, carried, from_stream) = if replayed < opts.replay.len() {
             let take = batch_size.min(opts.replay.len() - replayed);
-            let handles = opts.replay[replayed..replayed + take].to_vec();
+            let slice = &opts.replay[replayed..replayed + take];
             replayed += take;
-            (handles, false)
+            let handles: Vec<Handle> = slice.iter().map(|(handle, _)| *handle).collect();
+            let carried: Vec<dealer_dds::DealTricks> = if dd_in_play {
+                slice.iter().map(|(_, known)| *known).collect()
+            } else {
+                Vec::new()
+            };
+            (handles, carried, false)
         } else {
             if !resumed {
                 source.resume_after(opts.resume);
@@ -846,15 +956,53 @@ fn run_pass(
             if handles.is_empty() {
                 break;
             }
-            (handles, true)
+            // Kept beside the handles rather than paired with them: a handle is
+            // sixteen bytes and this is forty, and a run that can never use it
+            // should not pay to carry it past every deal it deals.
+            let carried: Vec<dealer_dds::DealTricks> = if dd_in_play {
+                handles
+                    .iter()
+                    .map(|handle| *source.tricks(*handle))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            (handles, carried, true)
         };
 
         // The expensive half, on whatever threads there are: making each deal
         // and asking the condition about it. Which of the two costs more is the
         // script's business — a shuffle is about a microsecond, a `tricks()`
         // condition is ten milliseconds — so they travel together.
-        let built =
-            workers.build_and_test(handles.len(), &|index| source.build(handles[index]), &test);
+        let built = workers.build_and_test(
+            handles.len(),
+            &|index| source.build(handles[index]),
+            &|index, deal| test(known_at(&carried, index), deal),
+            dd_in_play,
+        );
+
+        // A supplied deal's own answers, plus whatever testing it worked out.
+        // From here on this is the deal's double-dummy knowledge, and it is the
+        // only place a `tricks()`, `dds()` or `par()` in this batch looks.
+        //
+        // Left empty for a run that cannot reach the solver, which is most of
+        // them. Carrying costs forty bytes and a twenty-cell merge a deal, and
+        // a deal costs a couple of hundred nanoseconds, so doing it for a
+        // script that never mentions double-dummy was measurable — near 7% of
+        // plain generation.
+        let mut known: Vec<dealer_dds::DealTricks> = if dd_in_play {
+            built
+                .iter()
+                .enumerate()
+                .map(|(index, tested)| {
+                    let mut known = *known_at(&carried, index);
+                    known.merge(&tested.known);
+                    known
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         // Where the last of these sits in the stream, so a kept deal's position
         // is known without threading one through every deal.
@@ -862,34 +1010,53 @@ fn run_pass(
 
         // Solve this batch's matched deals on the pool, before the main thread
         // starts evaluating their actions one at a time. The workers are idle
-        // at this point and the answers are shared, so the loop below finds
-        // every cell already worked out. Nothing else changes: the deals are
-        // still observed in order, and no expression is evaluated here.
+        // at this point, so the loop below finds every cell already worked out.
+        // Nothing else changes: the deals are still observed in order, and no
+        // expression is evaluated here.
+        //
+        // A deal that already knows what the script will ask is left out. Its
+        // answers are in hand — from a file that carried them, or from its own
+        // condition — and warming it would search for something nobody would
+        // read. That exclusion is invisible in the output, since the solver
+        // agrees with what is already known, so it shows up only as time.
         if !dd_demand.is_none() {
-            let matched_deals: Vec<&Deal> = built
+            let wanted: Vec<usize> = built
                 .iter()
-                .filter(|(_, matched)| matches!(matched, Ok(true)))
-                .map(|(deal, _)| deal)
+                .enumerate()
+                .filter(|(index, tested)| {
+                    matches!(tested.passed, Ok(true)) && !dd_demand.satisfied_by(&known[*index])
+                })
+                .map(|(index, _)| index)
                 .collect();
-            if matched_deals.len() > 1 {
-                workers.warm_each(&matched_deals, &|deal| dd_demand.warm(deal));
+            if wanted.len() > 1 {
+                let deals: Vec<&Deal> = wanted.iter().map(|index| &built[*index].deal).collect();
+                let warmed = workers.warm_each(&deals, &|deal| dd_demand.warm(deal));
+                for (index, warmed) in wanted.into_iter().zip(warmed) {
+                    known[index].merge(&warmed);
+                }
             }
         }
 
-        for (index, (deal, matched)) in built.iter().enumerate() {
+        for (index, tested) in built.iter().enumerate() {
+            let deal = &tested.deal;
             if from_stream {
                 generated += 1;
             }
-            let matched = matched.as_ref().map_err(|e| RunError::Eval {
+            let matched = tested.passed.as_ref().map_err(|e| RunError::Eval {
                 what: "condition".to_string(),
                 message: e.to_string(),
             })?;
             if !matched {
                 continue;
             }
-            let observed = accumulator.observe(deal, &variables, point_counts)?;
+            let observed =
+                accumulator.observe(deal, &variables, point_counts, known_at(&known, index))?;
             if from_stream {
-                retained.offer(handles[index], batch_end - (built.len() - 1 - index));
+                retained.offer(
+                    handles[index],
+                    *known_at(&known, index),
+                    batch_end - (built.len() - 1 - index),
+                );
             }
             // A deal whose hand type has had its share of the round. It cost
             // exactly what it would have cost anyway — the rarity is in the
@@ -907,6 +1074,7 @@ fn run_pass(
                     point_counts,
                     reports: &reports,
                     vulnerability: opts.vulnerability,
+                    dd_tricks: known_at(&known, index),
                 })
                 .map_err(RunError::Failed)?;
             }

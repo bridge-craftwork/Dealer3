@@ -33,7 +33,35 @@
 //! own for those.
 
 pub mod dd_demand;
+pub mod deal_input;
 pub mod run;
+
+/// Deals from a file, each with the double-dummy table it arrived with.
+///
+/// The engine's use of [`deal_input::read`], kept apart from it: reading a file
+/// is decoding and nothing else. What this adds is the shape a run wants —
+/// pairs ready to hand to [`run::Deals::Given`], where each table travels with
+/// its own deal.
+///
+/// Nothing is put in a shared store. A table belongs to one deal, lives as long
+/// as that deal does, and goes with it when the filter throws it away.
+pub fn deals_from_file(
+    path: &str,
+) -> Result<(Vec<run::SolvedDeal>, deal_input::InputReport), String> {
+    let (records, report) = deal_input::read(path)?;
+    let deals = records
+        .into_iter()
+        .map(|record| {
+            let known = match &record.table {
+                Some(table) => dealer_dds::DealTricks::from_table(table),
+                None => dealer_dds::DealTricks::nothing(),
+            };
+            (record.deal, known)
+        })
+        .collect();
+    Ok((deals, report))
+}
+
 pub use run::{
     run, Deals, LevelingOptions, LevelingReport, Phase, Produced, Rows, RunHost, RunOptions,
     RunReport,
@@ -449,9 +477,10 @@ impl<'a> RunAccumulator<'a> {
         deal: &'d Deal,
         variables: &'d Variables<'d>,
         counts: Option<&'d PointCounts>,
+        dd_tricks: &'d dealer_dds::DealTricks,
     ) -> Result<Observed, RunError> {
         if let Some(plan) = self.round_robin.clone() {
-            let hand_type = self.pick_hand_type(deal, variables, counts)?;
+            let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks)?;
             // Untyped deals are not wanted either: a round robin is a statement
             // about the categories, and a deal in none of them is in no round.
             //
@@ -479,8 +508,8 @@ impl<'a> RunAccumulator<'a> {
                     taken: false,
                 });
             }
-            let level_type = self.pick_level_type(hand_type, deal, variables, counts)?;
-            self.accumulate_statistics(deal, variables, counts)?;
+            let level_type = self.pick_level_type(hand_type, deal, variables, counts, dd_tricks)?;
+            self.accumulate_statistics(deal, variables, counts, dd_tricks)?;
             self.count(hand_type, level_type);
             return Ok(Observed {
                 matched: Matched {
@@ -491,9 +520,9 @@ impl<'a> RunAccumulator<'a> {
             });
         }
 
-        self.accumulate_statistics(deal, variables, counts)?;
-        let hand_type = self.pick_hand_type(deal, variables, counts)?;
-        let level_type = self.pick_level_type(hand_type, deal, variables, counts)?;
+        self.accumulate_statistics(deal, variables, counts, dd_tricks)?;
+        let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks)?;
+        let level_type = self.pick_level_type(hand_type, deal, variables, counts, dd_tricks)?;
         self.count(hand_type, level_type);
         Ok(Observed {
             matched: Matched {
@@ -510,12 +539,12 @@ impl<'a> RunAccumulator<'a> {
         deal: &'d Deal,
         variables: &'d Variables<'d>,
         counts: Option<&'d PointCounts>,
+        dd_tricks: &'d dealer_dds::DealTricks,
     ) -> Result<(), RunError> {
         if self.averages.is_empty() && self.frequencies.is_empty() {
             return Ok(());
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts)
-            .with_vulnerability(self.vulnerability);
+        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
         for average in self.averages.iter_mut() {
             let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
                 what: "Average evaluation error".to_string(),
@@ -555,12 +584,12 @@ impl<'a> RunAccumulator<'a> {
         deal: &'d Deal,
         variables: &'d Variables<'d>,
         counts: Option<&'d PointCounts>,
+        dd_tricks: &'d dealer_dds::DealTricks,
     ) -> Result<Option<usize>, RunError> {
         if self.hand_type_names.is_empty() {
             return Ok(None);
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts)
-            .with_vulnerability(self.vulnerability);
+        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
         pick(&self.hand_type_names, &ctx, deal, "Hand")
     }
 
@@ -572,12 +601,12 @@ impl<'a> RunAccumulator<'a> {
         deal: &'d Deal,
         variables: &'d Variables<'d>,
         counts: Option<&'d PointCounts>,
+        dd_tricks: &'d dealer_dds::DealTricks,
     ) -> Result<Option<usize>, RunError> {
         if self.level_type_names.is_empty() {
             return Ok(hand_type);
         }
-        let ctx = EvalContext::with_counts(deal, variables, counts)
-            .with_vulnerability(self.vulnerability);
+        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
         pick(&self.level_type_names, &ctx, deal, "Level")
     }
 
@@ -789,7 +818,7 @@ mod tests {
         for _ in 0..count {
             let deal = generator.next_deal();
             matched.push(
-                acc.observe(&deal, &variables, None)
+                acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
                     .expect("observe")
                     .matched,
             );
@@ -854,7 +883,7 @@ condition 1
 
         let error = loop {
             let deal = generator.next_deal();
-            if let Err(e) = acc.observe(&deal, &variables, None) {
+            if let Err(e) = acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN) {
                 break e;
             }
         };
@@ -893,7 +922,8 @@ condition 1
         let mut generator = FastDealGenerator::new(20260829);
         while !acc.measure_satisfied() {
             let deal = generator.next_deal();
-            acc.observe(&deal, &variables, None).expect("observe");
+            acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
+                .expect("observe");
             assert!(
                 acc.produced() < 10_000,
                 "should have stopped long before now"
@@ -988,7 +1018,8 @@ condition 1
         let mut acc = RunAccumulator::new(program, MeasureStop::standard(), vulnerability)
             .expect("accumulator");
         let deal = one_suit_each();
-        acc.observe(&deal, &variables, None).expect("observe");
+        acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
+            .expect("observe");
         acc.finish().averages[0].value
     }
 

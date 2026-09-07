@@ -497,3 +497,70 @@ fn missing_input_file_is_reported() {
         out.stderr
     );
 }
+
+/// A board carrying a double-dummy table that is deliberately **wrong**.
+///
+/// The real table for this deal starts `87879...`; this says `67879...`, so
+/// North's notrump result reads 6 where a solver would answer 8.
+///
+/// Wrong on purpose, because a correct table cannot test anything. If the tag
+/// were ignored and the deal solved instead, the answer would be the same
+/// either way and the test would pass while the feature was gone — which is
+/// exactly what an earlier version of this test did.
+const DOCTORED_BOARD: &str = "\
+[Event \"doctored\"]
+[Board \"1\"]
+[Deal \"N:QJ3.A93.K4.KT875 A98.QJT2.97653.2 T76.K65.AQJ8.J43 K542.874.T2.AQ96\"]
+[DoubleDummyTricks \"67879878793555345564\"]
+";
+
+/// A deal that arrives with a table is not solved again: the file's answer is
+/// used, even when it disagrees with the solver.
+///
+/// These tags used to be dropped at the door. `--input-deals` read through a
+/// line-oriented reader that yields deals and discards everything around them,
+/// so a file annotated by our own solver lost its analysis on the way in.
+///
+/// Trusting the file is the decision under test, not an accident of it: a
+/// library exists to save the searches, and re-solving to check would throw
+/// that away. The doctored cell is what makes "trusted" observable.
+#[test]
+fn a_pbn_table_is_used_rather_than_solved_again() {
+    let corpus = temp_file("doctored", DOCTORED_BOARD);
+    let script = temp_file(
+        "script-doctored",
+        "condition 1\naction printrpt(\"t\", trix(deal))\n",
+    );
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-p",
+            "1",
+        ],
+        None,
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stderr.contains("arrived with double-dummy tables"),
+        "should say the table came from the file:\n{}",
+        out.stderr
+    );
+    // Clubs, diamonds, hearts, spades, notrump for North, then East, South,
+    // West. North's notrump is the fifth number, and it is the doctored one.
+    assert!(
+        out.stdout
+            .contains("9,7,8,7,6,3,5,5,5,3,9,7,8,7,8,4,6,5,5,4"),
+        "the file's table should be used as written:\n{}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("9,7,8,7,8,3,5,5,5,3"),
+        "solving anyway would give 8 for North notrump, and would mean the tag was \
+         ignored:\n{}",
+        out.stdout
+    );
+}

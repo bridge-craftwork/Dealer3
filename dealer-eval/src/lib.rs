@@ -346,6 +346,18 @@ pub struct EvalContext<'a> {
     /// vulnerability is can be answered from here later without moving
     /// anything.
     vulnerability: dealer_core::Vulnerability,
+    /// What is already known about this deal's twenty double-dummy results.
+    ///
+    /// Complete for a deal read from a file that carried its results — a ZRD
+    /// record, or a PBN board with `[DoubleDummyTricks]`. Partial for a deal
+    /// whose condition asked a question on a worker thread and handed the
+    /// answer back. Empty for a deal nobody has looked at.
+    ///
+    /// `tricks()`, `dds()` and `par()` read it before searching, which is the
+    /// difference between a lookup and a hundred milliseconds. Empty is not a
+    /// failure: it is what a freshly dealt deal looks like, and it is solved on
+    /// demand.
+    dd_tricks: &'a dealer_dds::DealTricks,
 }
 
 /// Can evaluating `expr` reach a call to `rnd()`?
@@ -434,6 +446,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 
@@ -446,6 +459,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 
@@ -457,6 +471,39 @@ impl<'a> EvalContext<'a> {
     pub fn with_vulnerability(mut self, vulnerability: dealer_core::Vulnerability) -> Self {
         self.vulnerability = vulnerability;
         self
+    }
+
+    /// Everything a run knows about one deal, in one call.
+    ///
+    /// A constructor rather than more builders, and every argument required.
+    /// `vulnerability` was a builder once and three of the four places that
+    /// build a context forgot to call it, so `par()` ignored `--vulnerable` for
+    /// months without a test noticing (#54). `dd_tricks` would fail more quietly
+    /// still — a missed site re-solves a deal whose answer was already known,
+    /// so every number stays right and the run is merely slow.
+    ///
+    /// Taking both as arguments makes leaving one out a compile error.
+    pub fn for_deal(
+        deal: &'a Deal,
+        variables: &'a Variables<'a>,
+        counts: Option<&'a PointCounts>,
+        vulnerability: dealer_core::Vulnerability,
+        dd_tricks: &'a dealer_dds::DealTricks,
+    ) -> Self {
+        EvalContext {
+            deal,
+            variables,
+            cache: RefCell::new(FxHashMap::default()),
+            rnd: RefCell::new(None),
+            counts,
+            vulnerability,
+            dd_tricks,
+        }
+    }
+
+    /// What is already known about this deal's double-dummy results.
+    pub fn dd_tricks(&self) -> &'a dealer_dds::DealTricks {
+        self.dd_tricks
     }
 
     /// Which side is vulnerable.
@@ -496,6 +543,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts,
             vulnerability: dealer_core::Vulnerability::default(),
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 }
@@ -1301,7 +1349,7 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             // Solved by bridge-solver, and remembered for this deal: several
             // denominations, or the same one asked for from the condition and
             // again from a statistic, cost one search each at most.
-            Ok(dealer_dds::tricks(ctx.deal, denomination, declarer) as i32)
+            Ok(dealer_dds::tricks(ctx.dd_tricks(), ctx.deal, denomination, declarer) as i32)
         }
 
         Function::Score => {
@@ -1418,8 +1466,12 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             };
 
             let vulnerability = ctx.vulnerability();
-            let score_ns =
-                dealer_dds::par_score_ns(ctx.deal, vulnerability.ns(), vulnerability.ew());
+            let score_ns = dealer_dds::par_score_ns(
+                ctx.dd_tricks(),
+                ctx.deal,
+                vulnerability.ns(),
+                vulnerability.ew(),
+            );
             Ok(if north_south { score_ns } else { -score_ns })
         }
     }
