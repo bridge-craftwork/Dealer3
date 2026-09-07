@@ -448,35 +448,32 @@ fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
 
 /// Escape a string for JSON. Labels come from the script, so they can hold
 /// quotes, backslashes and control characters.
-/// Read a ZRD library, reporting what was in it the way a terminal would.
+/// Read deals from a file, reporting what was in it the way a terminal would.
 ///
-/// The reading and the double-dummy seeding are `dealer_run`'s, so that a
-/// browser reading a library behaves the same without implementing it again.
-/// What is left here is what a terminal does with the report: write it to
-/// stderr, and refuse the tables-only companion format with an explanation.
-fn read_zrd_library(source: &str) -> Vec<Deal> {
-    if dealer_run::zrd_input::is_tables_only_path(source) {
-        eprintln!(
-            "Error: '{}' is a .zdd file, which holds double-dummy tables with no deals.",
-            source
-        );
-        eprintln!("       --input-deals needs the deals too: use the .zrd built from it.");
-        std::process::exit(1);
-    }
-
-    let (deals, report) = dealer_run::deals_from_library(source).unwrap_or_else(|e| {
+/// The reading, the format detection and the double-dummy tables are
+/// `dealer_run`'s, so a browser reading the same file behaves the same without
+/// implementing it again. What is left here is what a terminal does with the
+/// report: write it to stderr.
+fn read_input_deals(source: &str) -> Vec<Deal> {
+    let (deals, report) = dealer_run::deals_from_file(source).unwrap_or_else(|e| {
         eprintln!("Error {}", e);
         std::process::exit(1);
     });
 
+    // Unreadable content is indistinguishable from metadata in a text file, so
+    // a caller that needs to know every deal arrived should compare the count
+    // against what it expected. Named individually up to a limit, then counted.
     const MAX_SKIP_WARNINGS: usize = 10;
     for skipped in report.skipped.iter().take(MAX_SKIP_WARNINGS) {
         eprintln!("Warning: skipping {}", skipped);
     }
     if report.skipped.len() > MAX_SKIP_WARNINGS {
+        eprintln!("Warning: further skips will not be reported");
+    }
+    if !report.skipped.is_empty() {
         eprintln!(
-            "Warning: {} further unreadable record(s) not reported",
-            report.skipped.len() - MAX_SKIP_WARNINGS
+            "Warning: skipped {} unreadable deal(s) from input",
+            report.skipped.len()
         );
     }
     if report.separators > 0 {
@@ -485,11 +482,11 @@ fn read_zrd_library(source: &str) -> Vec<Deal> {
             report.separators, source
         );
     }
-    if report.unsolved > 0 {
+    if report.solved > 0 {
         eprintln!(
-            "Note: {} of {} deals in '{}' carry no double-dummy table; those will be solved \
-             on demand.",
-            report.unsolved,
+            "Note: {} of {} deals in '{}' arrived with double-dummy tables; those will not \
+             be solved again.",
+            report.solved,
             deals.len(),
             source
         );
@@ -1609,80 +1606,7 @@ fn main() {
         // rather than streamed, because a levelled run looks at them twice —
         // once to characterize the scenario, once to apply the keeps — and the
         // second pass has to be able to go back to the first one's deals.
-        let input_deals: Option<Vec<Deal>> = args.input_deals.as_deref().map(|source| {
-            // A ZRD library is binary, indexed by record, and read by seeking
-            // rather than by lines — so it cannot go through `DealReader`, and
-            // it cannot come from stdin.
-            if dealer_run::zrd_input::is_library_path(source) {
-                return read_zrd_library(source);
-            }
-            use bridge_encodings::DealReader;
-            use std::io::{BufRead, BufReader};
-            let stream: Box<dyn BufRead> = if source == "-" {
-                Box::new(BufReader::new(io::stdin()))
-            } else {
-                Box::new(BufReader::new(std::fs::File::open(source).unwrap_or_else(
-                    |e| {
-                        eprintln!("Error opening input deals file '{}': {}", source, e);
-                        std::process::exit(1);
-                    },
-                )))
-            };
-            // `DealReader` silently ignores lines it does not recognise as
-            // deals, which is what lets PBN metadata and stats output be fed in
-            // directly. It only yields `Err` for I/O failures, which are
-            // recoverable — so skip and report the total. Because unreadable
-            // *content* is indistinguishable from metadata, a caller that needs
-            // to know every deal arrived should compare the reported count
-            // against an expected total.
-            let mut skipped = 0usize;
-            const MAX_SKIP_WARNINGS: usize = 10;
-            let mut deals: Vec<Deal> = Vec::new();
-            // Counts what the reader handed over, so a warning can say which
-            // board — the reader's own position, not the index in `deals`,
-            // which skips are already pulling out of step.
-            let mut board = 0usize;
-            let complain = |skipped: &mut usize, what: String| {
-                *skipped += 1;
-                if *skipped <= MAX_SKIP_WARNINGS {
-                    eprintln!("Warning: {}", what);
-                    if *skipped == MAX_SKIP_WARNINGS {
-                        eprintln!("Warning: further skips will not be reported");
-                    }
-                }
-            };
-            for result in DealReader::new(stream) {
-                board += 1;
-                match result {
-                    // A deal the reader accepted can still be one this program
-                    // cannot use: a hand of fourteen does not fit, and used to
-                    // end the run with `a hand cannot hold more than 13 cards`
-                    // and no mention of the file it came from. A deal a card
-                    // short fitted and was worse — it ran, and reported
-                    // statistics over a twelve-card hand without a word.
-                    Ok(deal) => match Deal::try_from(deal) {
-                        Ok(deal) => match deal.check_complete() {
-                            Ok(()) => deals.push(deal),
-                            Err(e) => complain(
-                                &mut skipped,
-                                format!("skipping deal {} — it is not a whole deal: {}", board, e),
-                            ),
-                        },
-                        Err(e) => {
-                            complain(&mut skipped, format!("skipping deal {} — {}", board, e))
-                        }
-                    },
-                    Err(e) => complain(
-                        &mut skipped,
-                        format!("skipping unreadable deal {}: {}", board, e),
-                    ),
-                }
-            }
-            if skipped > 0 {
-                eprintln!("Warning: skipped {} unreadable deal(s) from input", skipped);
-            }
-            deals
-        });
+        let input_deals: Option<Vec<Deal>> = args.input_deals.as_deref().map(read_input_deals);
 
         // The switch wins over the script, as `-s` does over `seed`. Without
         // either, the script's own `_Share` declarations answer — and those

@@ -33,37 +33,32 @@
 //! own for those.
 
 pub mod dd_demand;
+pub mod deal_input;
 pub mod run;
-pub mod zrd_input;
 
-/// Deals from a ZRD library, with their tables put where `tricks()` will find
-/// them.
+/// Deals from a file, with their tables put where `tricks()` will find them.
 ///
-/// The engine's use of [`zrd_input::read_library`], kept apart from it: reading
-/// a file is decoding and nothing else, while deciding that a table which came
-/// with a deal should stand in for a search is a statement about how a run
-/// answers `tricks()`. Those are different jobs and the first should not depend
-/// on the second.
+/// The engine's use of [`deal_input::read`], kept apart from it: reading a file
+/// is decoding and nothing else, while deciding that a table which came with a
+/// deal should stand in for a search is a statement about how a run answers
+/// `tricks()`.
 ///
-/// A table is handed to [`dealer_dds::remember_table`], which is where every
-/// double-dummy answer is looked for before a search runs — the same place a
-/// worker thread's answer goes so the main thread can find it. So a script that
-/// asks gets the file's answer, a script that does not ask never looks, and an
-/// unsolved record is simply not put there and is solved on demand.
-///
-/// Taken as given. Checking a library's tables against a search would throw
-/// away the reason for reading a solved library.
-pub fn deals_from_library(
+/// Interim, and known to be so. #61 has the tables travel with their deals
+/// instead of going into a shared store; until that lands this seeds
+/// `dealer_dds`, whose store holds 16,384 deals and evicts from the front — so
+/// an input larger than that loses the tables for the deals a run reaches
+/// first. Fine for the files this reads today, wrong as a destination.
+pub fn deals_from_file(
     path: &str,
-) -> Result<(Vec<dealer_core::Deal>, zrd_input::LibraryReport), String> {
-    let (records, report) = zrd_input::read_library(path)?;
+) -> Result<(Vec<dealer_core::Deal>, deal_input::InputReport), String> {
+    let (records, report) = deal_input::read(path)?;
     let deals = records
         .into_iter()
-        .map(|(deal, table)| {
-            if let Some(table) = &table {
-                dealer_dds::remember_table(&deal, table);
+        .map(|record| {
+            if let Some(table) = &record.table {
+                dealer_dds::remember_table(&record.deal, table);
             }
-            deal
+            record.deal
         })
         .collect();
     Ok((deals, report))
