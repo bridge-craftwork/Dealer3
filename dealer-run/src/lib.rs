@@ -49,7 +49,25 @@ pub fn deals_from_file(
     path: &str,
 ) -> Result<(Vec<run::SolvedDeal>, deal_input::InputReport), String> {
     let (records, report) = deal_input::read(path)?;
-    let deals = records
+    Ok((to_solved(records), report))
+}
+
+/// The same, from bytes a caller already holds.
+///
+/// What a front end without a filesystem needs: a page handed a file, or a
+/// library fetched over the network. It reaches the same reader as
+/// [`deals_from_file`] — the difference between the two is where the bytes came
+/// from, and it stops there.
+pub fn deals_from_bytes(
+    bytes: &[u8],
+) -> Result<(Vec<run::SolvedDeal>, deal_input::InputReport), String> {
+    let (records, report) = deal_input::read_bytes(bytes)?;
+    Ok((to_solved(records), report))
+}
+
+/// Pair each deal with what is already known of its double-dummy answers.
+fn to_solved(records: Vec<deal_input::InputDeal>) -> Vec<run::SolvedDeal> {
+    records
         .into_iter()
         .map(|record| {
             let known = match &record.table {
@@ -58,8 +76,7 @@ pub fn deals_from_file(
             };
             (record.deal, known)
         })
-        .collect();
-    Ok((deals, report))
+        .collect()
 }
 
 pub use run::{

@@ -460,6 +460,12 @@ fn read_input_deals(source: &str) -> Vec<dealer_run::run::SolvedDeal> {
         std::process::exit(1);
     });
 
+    // A name that disagreed with the content is worth a line: the file was read
+    // as what it holds, which is not what the caller asked for by name.
+    for note in &report.notes {
+        eprintln!("Note: {}", note);
+    }
+
     // Unreadable content is indistinguishable from metadata in a text file, so
     // a caller that needs to know every deal arrived should compare the count
     // against what it expected. Named individually up to a limit, then counted.

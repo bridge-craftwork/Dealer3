@@ -79,7 +79,8 @@ echo "hcp(north) >= 0" | dealer -E S8743,HA9,D642,CQT64 -W SQ965,HK63,DAQJT,CA5 
 ## Filtering Existing Deals
 
 `--input-deals` reads deals from a file instead of generating them, then applies the
-script's constraints as usual. PBN and oneline formats are auto-detected.
+script's constraints as usual. The format is detected from the content: a Pavlicek
+`.zrd` library, PBN, oneline or printall, whatever the file is called.
 
 ```bash
 # Filter an existing PBN file
@@ -87,6 +88,9 @@ dealer filter.dlr --input-deals hands.pbn -f pbn
 
 # Read deals from stdin (script must be a file argument, since stdin is taken)
 cat hands.pbn | dealer filter.dlr --input-deals - -f oneline
+
+# A binary library reads the same way, so fetching one needs no HTTP client here
+curl -s https://example.org/deals.zrd | dealer filter.dlr --input-deals -
 
 # Check how many deals in a file satisfy a constraint
 echo "hcp(north) >= 15" > strong.dlr
@@ -105,6 +109,8 @@ Notes:
 - Lines that are not recognised as deals are ignored, so PBN metadata and previous
   stats output can be piped straight in. Check the reported `Generated N hands` count
   to confirm every deal you expected was actually read.
+- A file whose name disagrees with its content — a `.zrd` holding PBN, or the reverse
+  — is read for what it holds, and the disagreement is reported.
 
 ## Constraint Language
 
