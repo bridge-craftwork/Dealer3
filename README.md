@@ -267,6 +267,15 @@ author and carries no redistribution grant; obtain it from
 [rpbridge.net](http://www.rpbridge.net/) yourself. DealerV2_4 reads the same
 format with its `-L` switch.
 
+[`THIRD-PARTY-NOTICES`](THIRD-PARTY-NOTICES) lists every package a distributed
+copy is built from, with its licence and copyright, and ships in the release
+archives. `web/public/THIRD-PARTY-NOTICES` is the same for the WebAssembly build,
+which is a different graph — it links wasm-bindgen and js-sys and never sees
+clap. Both are generated from what cargo resolved, by
+`scripts/third-party-notices.py`, and checked in CI: a hand-kept notice file goes
+stale the moment a dependency moves, and a stale notice asserts something untrue
+about what a copy contains.
+
 **Hanhong Xue** — the double-dummy search core. dealer3 solves through
 [bridge-solver](https://github.com/bridge-craftwork/bridge-solver), whose search
 is a Rust reimplementation of

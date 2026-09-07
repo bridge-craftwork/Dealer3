@@ -109,6 +109,9 @@ jobs:
           mkdir -p dist
           cp target/${{ matrix.target }}/release/${{ matrix.dealer_artifact }} dist/${{ matrix.dealer_asset }}
           cp LICENSE dist/
+          # The MIT and Apache-2.0 licences of what dealer3 links ask that
+          # their copyright notices travel with copies. This is the copy.
+          cp THIRD-PARTY-NOTICES dist/
           if [ -f README.md ]; then
             cp README.md dist/
           fi
@@ -119,9 +122,9 @@ jobs:
         run: |
           cd dist
           if [ -f README.md ]; then
-            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE README.md
+            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE THIRD-PARTY-NOTICES README.md
           else
-            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE
+            tar -czf ${{ matrix.dealer_asset }}.tar.gz ${{ matrix.dealer_asset }} LICENSE THIRD-PARTY-NOTICES
           fi
 
       - name: Create dealer zip (Windows)
@@ -130,9 +133,9 @@ jobs:
         run: |
           cd dist
           if [ -f README.md ]; then
-            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE README.md
+            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE THIRD-PARTY-NOTICES README.md
           else
-            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE
+            7z a ${{ matrix.dealer_asset }}.zip ${{ matrix.dealer_asset }} LICENSE THIRD-PARTY-NOTICES
           fi
 
       - name: Upload Release Assets

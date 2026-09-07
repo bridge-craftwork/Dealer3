@@ -80,6 +80,14 @@ jobs:
           --write-leveled /tmp/regenerated.dlr
         diff -u examples/NT_Ladder.leveled.dlr /tmp/regenerated.dlr
 
+    # THIRD-PARTY-NOTICES asserts what a distributed copy contains. A
+    # hand-kept one goes stale the moment a dependency moves, and a stale
+    # notice is worse than none — so it is generated, and this fails if it
+    # no longer matches what cargo resolved.
+    - name: Check the third-party notices are up to date
+      if: runner.os == 'Linux'
+      run: scripts/third-party-notices.py --check
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
