@@ -67,15 +67,20 @@ impl DdDemand {
     /// Errors are not reported: this is a cache warm, and the real evaluation
     /// that follows will raise anything genuinely wrong with its own message
     /// and position. Failing quietly here costs a solve, not an answer.
+    /// `None` for the table throughout: warming exists for deals nobody has
+    /// solved. A deal that arrived with its table needs no warming, and the
+    /// run skips it before reaching here.
     pub fn warm(&self, deal: &dealer_core::Deal) {
         match self {
             DdDemand::None => {}
             DdDemand::Table => {
-                dealer_dds::table(deal);
+                // The answers go into the memo on the way, which is the point
+                // here; the table it hands back is for callers that want it.
+                dealer_dds::solve_table(deal);
             }
             DdDemand::Cells(cells) => {
                 for (denomination, declarer) in cells {
-                    dealer_dds::tricks(deal, *denomination, *declarer);
+                    dealer_dds::tricks(None, deal, *denomination, *declarer);
                 }
             }
         }

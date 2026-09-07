@@ -101,7 +101,7 @@ thread_local! {
 ///
 /// Searched at most once per (deal, denomination, declarer), however many
 /// times a script asks and from wherever it asks.
-pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8 {
+pub(crate) fn solve_tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8 {
     let key = key(deal);
     CURRENT.with(|current| {
         let mut current = current.borrow_mut();
@@ -134,14 +134,19 @@ pub fn tricks(deal: &Deal, denomination: Denomination, declarer: Position) -> u8
 
 /// The whole 20-entry double-dummy table for a deal.
 ///
-/// Every cell goes through [`tricks`], so a table costs only the searches that
-/// have not already been done — a script whose condition asked about one
+/// Solves it. The one entry point that is meant to: everything else takes a
+/// table and reads it. Use this to work out a table nobody has — to write one
+/// into a PBN or ZRD export, say — not to answer a question about a deal that
+/// already carries one.
+///
+/// Every cell goes through [`solve_tricks`], so a table costs only the searches
+/// that have not already been done — a script whose condition asked about one
 /// denomination pays for nineteen more, not twenty — and the answers are shared
 /// with every later caller the same way.
 ///
 /// Laid out as `bridge_solver` wants it: seats N, E, S, W and strains C, D, H,
 /// S, NT, which is dealer's own strain numbering too.
-pub fn table(deal: &Deal) -> bridge_solver::DdTable {
+pub fn solve_table(deal: &Deal) -> bridge_solver::DdTable {
     let mut table = bridge_solver::DdTable::new();
     // Denomination outermost, so the four declarers share one pair of solver
     // caches — `DealAnalysis` keeps them per denomination and throws them away
@@ -150,7 +155,7 @@ pub fn table(deal: &Deal) -> bridge_solver::DdTable {
     // instead of five, which costs about a third of the run.
     for denomination in Denomination::ALL {
         for seat in Position::ALL {
-            let tricks = self::tricks(deal, denomination, seat);
+            let tricks = self::solve_tricks(deal, denomination, seat);
             // Both axes are converted rather than indexed. `DdTable` is keyed
             // by `Direction` and `Strain`, and this crate counts seats and
             // denominations its own way; the two happen to agree today, and
@@ -164,6 +169,49 @@ pub fn table(deal: &Deal) -> bridge_solver::DdTable {
         }
     }
     table
+}
+
+/// Tricks for one (denomination, declarer), from `table` if it has them.
+///
+/// The variant every evaluation should call. A deal that arrived from a file
+/// already solved carries its table, and the answer is a lookup; a deal nobody
+/// has solved carries none, and this is [`solve_tricks`] exactly.
+///
+/// The axis conversion lives here rather than at the call site because it is
+/// the kind of mistake that does not fail: `DdTable` is keyed by `Direction`
+/// and `Strain`, this crate counts seats and denominations its own way, and
+/// getting either backwards returns a plausible number. One place to be wrong
+/// is better than one per caller.
+pub fn tricks(
+    table: Option<&bridge_solver::DdTable>,
+    deal: &Deal,
+    denomination: Denomination,
+    declarer: Position,
+) -> u8 {
+    match table {
+        Some(table) => table.tricks(
+            bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(declarer)),
+            bridge_solver::STRAINS[denomination as usize],
+        ),
+        None => solve_tricks(deal, denomination, declarer),
+    }
+}
+
+/// The par score to North-South, from `table` if it has one.
+///
+/// Par is derived from all twenty results, so a deal that arrived solved needs
+/// no search at all — which is the difference between a hundred milliseconds
+/// and none.
+pub fn par_score_ns(
+    table: Option<&bridge_solver::DdTable>,
+    deal: &Deal,
+    vul_ns: bool,
+    vul_ew: bool,
+) -> i32 {
+    match table {
+        Some(table) => bridge_solver::par(table, vul_ns, vul_ew).score_ns,
+        None => solve_par_score_ns(deal, vul_ns, vul_ew),
+    }
 }
 
 /// Take a solved table as given, without solving anything.
@@ -219,8 +267,8 @@ pub fn known_table(deal: &Deal) -> Option<bridge_solver::DdTable> {
 ///
 /// Negative means East-West are the ones who benefit. A passed-out deal — par
 /// zero — is zero, which is what the original returns too.
-pub fn par_score_ns(deal: &Deal, vul_ns: bool, vul_ew: bool) -> i32 {
-    bridge_solver::par(&table(deal), vul_ns, vul_ew).score_ns
+pub(crate) fn solve_par_score_ns(deal: &Deal, vul_ns: bool, vul_ew: bool) -> i32 {
+    bridge_solver::par(&solve_table(deal), vul_ns, vul_ew).score_ns
 }
 
 #[cfg(test)]
@@ -275,22 +323,43 @@ mod tests {
     #[test]
     fn repeated_questions_agree() {
         let deal = spades_north();
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
-        assert_eq!(tricks(&deal, Denomination::NoTrump, Position::North), 0);
+        assert_eq!(
+            solve_tricks(&deal, Denomination::Spades, Position::North),
+            13
+        );
+        assert_eq!(
+            solve_tricks(&deal, Denomination::Spades, Position::North),
+            13
+        );
+        assert_eq!(
+            solve_tricks(&deal, Denomination::NoTrump, Position::North),
+            0
+        );
         // Coming back to the first question must not have disturbed it.
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&deal, Denomination::Spades, Position::North),
+            13
+        );
     }
 
     #[test]
     fn a_different_deal_gets_its_own_answers() {
         let deal = spades_north();
         let other = spades_east();
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&deal, Denomination::Spades, Position::North),
+            13
+        );
         // East holds every spade here, so North's spade contract takes none.
-        assert_eq!(tricks(&other, Denomination::Spades, Position::North), 0);
+        assert_eq!(
+            solve_tricks(&other, Denomination::Spades, Position::North),
+            0
+        );
         // And going back gives the original answer again, not a stale one.
-        assert_eq!(tricks(&deal, Denomination::Spades, Position::North), 13);
+        assert_eq!(
+            solve_tricks(&deal, Denomination::Spades, Position::North),
+            13
+        );
     }
 
     #[test]
@@ -300,16 +369,16 @@ mod tests {
         let deal = one_suit_each(Suit::Clubs, Suit::Diamonds, Suit::Hearts, Suit::Spades);
         let expected = std::thread::spawn({
             let deal = deal.clone();
-            move || tricks(&deal, Denomination::Clubs, Position::North)
+            move || solve_tricks(&deal, Denomination::Clubs, Position::North)
         })
         .join()
         .expect("the worker thread should not have panicked");
 
         // Displace this thread's slot, so the answer can only come from the
         // shared table.
-        tricks(&spades_north(), Denomination::Spades, Position::North);
+        solve_tricks(&spades_north(), Denomination::Spades, Position::North);
         assert_eq!(
-            tricks(&deal, Denomination::Clubs, Position::North),
+            solve_tricks(&deal, Denomination::Clubs, Position::North),
             expected
         );
     }

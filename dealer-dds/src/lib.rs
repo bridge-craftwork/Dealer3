@@ -14,7 +14,16 @@
 
 mod memo;
 
-pub use memo::{known_table, par_score_ns, remember_table, table, tricks};
+// `tricks` and `par_score_ns` take the deal's table as their first argument.
+// There is deliberately no variant that does not: a caller that forgot one
+// would re-solve a deal whose answer was already known, and every number would
+// still be right, so nothing would fail. Making it an argument makes forgetting
+// a compile error. `None` says "nobody has solved this", which is honest.
+//
+// [`solve_table`] is the one entry point that does search, for callers that
+// need a table nobody has yet — an export writing tables out, or a test making
+// one to supply.
+pub use memo::{known_table, par_score_ns, remember_table, solve_table, tricks};
 
 use dealer_core::{Deal, Position, Suit};
 

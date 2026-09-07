@@ -454,7 +454,7 @@ fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
 /// `dealer_run`'s, so a browser reading the same file behaves the same without
 /// implementing it again. What is left here is what a terminal does with the
 /// report: write it to stderr.
-fn read_input_deals(source: &str) -> Vec<Deal> {
+fn read_input_deals(source: &str) -> Vec<dealer_run::run::SolvedDeal> {
     let (deals, report) = dealer_run::deals_from_file(source).unwrap_or_else(|e| {
         eprintln!("Error {}", e);
         std::process::exit(1);
@@ -1606,7 +1606,8 @@ fn main() {
         // rather than streamed, because a levelled run looks at them twice —
         // once to characterize the scenario, once to apply the keeps — and the
         // second pass has to be able to go back to the first one's deals.
-        let input_deals: Option<Vec<Deal>> = args.input_deals.as_deref().map(read_input_deals);
+        let input_deals: Option<Vec<dealer_run::run::SolvedDeal>> =
+            args.input_deals.as_deref().map(read_input_deals);
 
         // The switch wins over the script, as `-s` does over `seed`. Without
         // either, the script's own `_Share` declarations answer — and those

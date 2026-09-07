@@ -70,9 +70,17 @@ pub enum Deals {
         /// How many deals each shuffle is arranged into, for `-2` and `-3`.
         swap: SwapMode,
     },
-    /// Supplied, as `--input-deals` supplies them.
-    Given(Vec<Deal>),
+    /// Supplied, as `--input-deals` supplies them, each with the double-dummy
+    /// table it arrived with.
+    ///
+    /// The table travels with its deal rather than going into a shared store:
+    /// its lifetime is then the deal's, a deal the filter rejects takes its
+    /// table with it, and how many deals a file holds stops mattering.
+    Given(Vec<SolvedDeal>),
 }
+
+/// One supplied deal and the double-dummy table it arrived with, if any.
+pub type SolvedDeal = (Deal, Option<bridge_types::DdTable>);
 
 /// What a run needs to know.
 pub struct RunOptions {
@@ -319,11 +327,11 @@ impl Workers {
         &self,
         count: usize,
         build: &(dyn Fn(usize) -> Deal + Sync),
-        test: &(dyn Fn(&Deal) -> Result<bool, EvalError> + Sync),
+        test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
     ) -> Vec<(Deal, Result<bool, EvalError>)> {
         let one = |index: usize| {
             let deal = build(index);
-            let passed = test(&deal);
+            let passed = test(index, &deal);
             (deal, passed)
         };
         #[cfg(feature = "parallel")]
@@ -381,6 +389,8 @@ pub struct Produced<'a> {
     point_counts: Option<&'a dealer_eval::PointCounts>,
     reports: &'a Reports,
     vulnerability: dealer_core::Vulnerability,
+    /// The table this deal arrived with, if it came from a file that had one.
+    dd_table: Option<&'a bridge_types::DdTable>,
 }
 
 /// What a script asked to be written out per produced deal.
@@ -410,8 +420,13 @@ impl Produced<'_> {
     /// are everywhere else: where their boundaries fall is what a `rnd()` in
     /// one draws against a `rnd()` in another.
     pub fn context(&self) -> dealer_eval::EvalContext<'_> {
-        dealer_eval::EvalContext::with_counts(self.deal, self.variables, self.point_counts)
-            .with_vulnerability(self.vulnerability)
+        dealer_eval::EvalContext::for_deal(
+            self.deal,
+            self.variables,
+            self.point_counts,
+            self.vulnerability,
+            self.dd_table,
+        )
     }
 
     /// What the script's `printes` statements say for this deal.
@@ -504,19 +519,24 @@ fn report_row(
             // one part holding its own commas, so it lands in the row as
             // separate columns without the join needing to know.
             CsvTerm::Trix(seats) => {
-                // Solved denomination-outermost, for the cache sharing
-                // described on `dealer_dds::table`, then read back per seat in
-                // the order the report wants.
-                for denomination in dealer_dds::Denomination::ALL {
-                    for seat in seats {
-                        dealer_dds::tricks(deal, denomination, *seat);
+                let table = ctx.dd_table();
+                if table.is_none() {
+                    // Solved denomination-outermost, for the cache sharing
+                    // described on `dealer_dds::solve_table`, then read back per
+                    // seat in the order the report wants. A deal that arrived
+                    // with its table needs no warming: every read below is a
+                    // lookup.
+                    for denomination in dealer_dds::Denomination::ALL {
+                        for seat in seats {
+                            dealer_dds::tricks(None, deal, denomination, *seat);
+                        }
                     }
                 }
                 for seat in seats {
                     let columns: Vec<String> = dealer_dds::Denomination::ALL
                         .iter()
                         .map(|denomination| {
-                            dealer_dds::tricks(deal, *denomination, *seat).to_string()
+                            dealer_dds::tricks(table, deal, *denomination, *seat).to_string()
                         })
                         .collect();
                     parts.push(columns.join(","));
@@ -626,6 +646,17 @@ impl Source {
         batch
     }
 
+    /// The table this handle's deal arrived with, if any.
+    ///
+    /// Only a supplied deal can have one: a shuffled deal has never been
+    /// solved by anybody.
+    fn table(&self, handle: Handle) -> Option<&bridge_types::DdTable> {
+        match (&self.deals, handle) {
+            (Deals::Given(all), Handle::Given(index)) => all[index].1.as_ref(),
+            _ => None,
+        }
+    }
+
     /// The deal a handle stands for.
     fn build(&self, handle: Handle) -> Deal {
         match handle {
@@ -634,7 +665,7 @@ impl Source {
                 Deals::Given(_) => self.shuffle(seed),
             },
             Handle::Given(index) => match &self.deals {
-                Deals::Given(all) => all[index].clone(),
+                Deals::Given(all) => all[index].0.clone(),
                 Deals::Shuffled { .. } => Deal::new(),
             },
         }
@@ -809,10 +840,18 @@ fn run_pass(
     // `dealer_eval::eval_with_context_and_counts` so that the run's
     // vulnerability reaches it. `par()` in a condition needs it, and the
     // convenience helper cannot supply one.
-    let test = |deal: &Deal| match constraint {
+    // `index` is into the batch's handles, which is how a deal's table is found:
+    // a supplied deal may have arrived already solved, and the condition should
+    // read that rather than search for what the file already knew.
+    let test = |table: Option<&bridge_types::DdTable>, deal: &Deal| match constraint {
         Some(expr) => {
-            let ctx = dealer_eval::EvalContext::with_counts(deal, &variables, point_counts)
-                .with_vulnerability(opts.vulnerability);
+            let ctx = dealer_eval::EvalContext::for_deal(
+                deal,
+                &variables,
+                point_counts,
+                opts.vulnerability,
+                table,
+            );
             dealer_eval::eval(expr, &ctx).map(|value| value != 0)
         }
         None => Ok(true),
@@ -853,8 +892,11 @@ fn run_pass(
         // and asking the condition about it. Which of the two costs more is the
         // script's business — a shuffle is about a microsecond, a `tricks()`
         // condition is ten milliseconds — so they travel together.
-        let built =
-            workers.build_and_test(handles.len(), &|index| source.build(handles[index]), &test);
+        let built = workers.build_and_test(
+            handles.len(),
+            &|index| source.build(handles[index]),
+            &|index, deal| test(source.table(handles[index]), deal),
+        );
 
         // Where the last of these sits in the stream, so a kept deal's position
         // is known without threading one through every deal.
@@ -865,11 +907,20 @@ fn run_pass(
         // at this point and the answers are shared, so the loop below finds
         // every cell already worked out. Nothing else changes: the deals are
         // still observed in order, and no expression is evaluated here.
+        //
+        // A deal that arrived from a file with its own table is left out: its
+        // answers are already known, and warming it would solve a deal for the
+        // sake of an answer nobody would read. That exclusion is invisible in
+        // the output — the solver would agree with the file — so it shows up
+        // only as time.
         if !dd_demand.is_none() {
             let matched_deals: Vec<&Deal> = built
                 .iter()
-                .filter(|(_, matched)| matches!(matched, Ok(true)))
-                .map(|(deal, _)| deal)
+                .enumerate()
+                .filter(|(index, (_, matched))| {
+                    matches!(matched, Ok(true)) && source.table(handles[*index]).is_none()
+                })
+                .map(|(_, (deal, _))| deal)
                 .collect();
             if matched_deals.len() > 1 {
                 workers.warm_each(&matched_deals, &|deal| dd_demand.warm(deal));
@@ -887,7 +938,12 @@ fn run_pass(
             if !matched {
                 continue;
             }
-            let observed = accumulator.observe(deal, &variables, point_counts)?;
+            let observed = accumulator.observe(
+                deal,
+                &variables,
+                point_counts,
+                source.table(handles[index]),
+            )?;
             if from_stream {
                 retained.offer(handles[index], batch_end - (built.len() - 1 - index));
             }
@@ -907,6 +963,7 @@ fn run_pass(
                     point_counts,
                     reports: &reports,
                     vulnerability: opts.vulnerability,
+                    dd_table: source.table(handles[index]),
                 })
                 .map_err(RunError::Failed)?;
             }
