@@ -10,7 +10,7 @@
 
 import { createRequire } from 'module'
 import { execFileSync } from 'child_process'
-import { writeFileSync, mkdtempSync } from 'fs'
+import { writeFileSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -84,7 +84,7 @@ for (const c of CASES) {
     const printed = execFileSync(CLI,
       [path, '-s', String(c.seed), '-p', String(c.produce), '-q'],
       { encoding: 'utf8' })
-    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false)).printes
+    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false, [])).printes
     if (printed !== fromWasm) {
       fail(c.name, `printes differs\n      cli:  ${JSON.stringify(printed)}\n      wasm: ${JSON.stringify(fromWasm)}`)
     } else {
@@ -96,7 +96,7 @@ for (const c of CASES) {
   const cli = parseCli(execFileSync(CLI,
     [path, '-s', String(c.seed), '-p', String(c.produce), '-f', 'oneline', '-X'],
     { encoding: 'utf8' }))
-  const wasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false))
+  const wasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false, []))
 
   if (JSON.stringify(cli.deals) !== JSON.stringify(wasm.deals)) {
     fail(c.name, `deals differ (cli ${cli.deals.length}, wasm ${wasm.deals.length})`)
@@ -132,7 +132,51 @@ for (const c of CASES) {
   if (!failures) console.log(`  ✓ ${c.name} (generated=${wasm.generated} produced=${wasm.produced})`)
 }
 
+// Supplied deals. `--input-deals` and `generate_from_deals` are two callers of
+// one reader, which is only worth saying if they agree — the same file, the same
+// script, the same deals out. The CLI opens the path; the bindings are handed
+// the bytes, as a page hands them over after a `fetch()`.
+const LIBRARY = join(here, '..', 'dealer-run', 'tests', 'fixtures', 'rpdd_10First.zrd')
+const SUPPLIED = [
+  { name: 'supplied deals, unfiltered', script: 'condition 1\n' },
+  { name: 'supplied deals, filtered', script: 'condition hcp(north) >= 12\n' },
+  { name: 'supplied deals, average',
+    script: 'condition 1\naction printoneline, average "N HCP" hcp(north)\n' },
+]
+
+for (const c of SUPPLIED) {
+  const path = join(tmp, `${c.name.replace(/\W+/g, '_')}.dlr`)
+  writeFileSync(path, c.script)
+
+  const cli = parseCli(execFileSync(CLI,
+    [path, '--input-deals', LIBRARY, '-p', '100', '-f', 'oneline', '-X'],
+    { encoding: 'utf8' }))
+  const bytes = new Uint8Array(readFileSync(LIBRARY))
+  const wasm = JSON.parse(
+    w.generate_from_deals(c.script, bytes, 1, 100, 500000, 'oneline', false, false, []))
+
+  if (JSON.stringify(cli.deals) !== JSON.stringify(wasm.deals)) {
+    fail(c.name, `deals differ (cli ${cli.deals.length}, wasm ${wasm.deals.length})`)
+    continue
+  }
+  if (cli.produced !== wasm.produced) fail(c.name, `produced ${cli.produced} vs ${wasm.produced}`)
+  cli.averages.forEach((a, i) => {
+    if (Math.abs(a.value - wasm.averages[i].value) > 1e-4) {
+      fail(c.name, `average "${a.label}" ${a.value} vs ${wasm.averages[i].value}`)
+    }
+  })
+  // The fixture is ten solved records, and the report is how a page learns
+  // that. A run that quietly read fewer would otherwise look like a filter
+  // that matched fewer.
+  const read = wasm.input
+  if (!read) fail(c.name, 'no input report came back')
+  else if (read.read !== 10 || read.solved !== 10 || read.format !== 'zrd') {
+    fail(c.name, `input report says ${JSON.stringify(read)}`)
+  }
+  if (!failures) console.log(`  \u2713 ${c.name} (read=${read?.read} produced=${wasm.produced})`)
+}
+
 console.log(failures
   ? `\n${failures} mismatch(es) between wasm and the native CLI`
-  : `\nall ${CASES.length} cases match the native CLI`)
+  : `\nall ${CASES.length + SUPPLIED.length} cases match the native CLI`)
 process.exit(failures ? 1 : 0)

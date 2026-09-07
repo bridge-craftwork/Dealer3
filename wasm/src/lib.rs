@@ -46,15 +46,15 @@ enum Format {
 }
 
 impl Format {
-    fn parse(s: &str) -> Result<Self, JsError> {
+    fn parse(s: &str) -> Result<Self, String> {
         match s.to_ascii_lowercase().as_str() {
             "oneline" | "printoneline" => Ok(Format::OneLine),
             "printall" | "all" => Ok(Format::PrintAll),
             "pbn" | "printpbn" => Ok(Format::Pbn),
-            other => Err(JsError::new(&format!(
+            other => Err(format!(
                 "Unknown format '{}'. Use 'oneline', 'printall' or 'pbn'.",
                 other
-            ))),
+            )),
         }
     }
 
@@ -234,6 +234,87 @@ struct GenerateResult {
     leveling: Option<LevelingResult>,
     /// Present only when the run was dealt round robin.
     round_robin: Option<RoundRobinResult>,
+    /// What the supplied deals turned out to be. Present only for
+    /// [`generate_from_deals`]; a run that shuffles reads nothing.
+    input: Option<InputSummary>,
+}
+
+/// What arrived, when the caller supplied the deals rather than a seed.
+///
+/// The command line writes this to stderr and a page has no stderr, so it comes
+/// back with the results instead. Without it a run over a library that arrived
+/// short, or one whose records were mostly unreadable, looks exactly like a run
+/// over all of it — fewer deals produced, nothing said. `read` against what the
+/// caller believes it handed over is the check worth making, and it is the only
+/// thing that catches a truncated download.
+#[derive(Serialize)]
+struct InputSummary {
+    /// Which reader handled the bytes: `"zrd"`, `"pbn"` or `"lines"`.
+    format: String,
+    /// Deals read, which is every deal the run had to work with. The filter can
+    /// only reduce this.
+    read: usize,
+    /// Deals that arrived with a double-dummy table and so are not solved
+    /// again: `tricks()` over one of these costs nothing.
+    solved: usize,
+    /// Deals nobody has solved yet, which are solved on demand.
+    unsolved: usize,
+    /// Section separators, which are not deals. A library divides its sections
+    /// with a record giving one seat sixteen cards.
+    separators: usize,
+    /// Records that could not be read, each with its reason, at most
+    /// [`MAX_REPORTED_SKIPS`] of them. The deals around them were still read.
+    skipped: Vec<String>,
+    /// How many were skipped altogether, which `skipped` may not list in full.
+    skipped_count: usize,
+    /// Worth saying, but not a failure — chiefly a file whose name disagrees
+    /// with what is inside it.
+    notes: Vec<String>,
+}
+
+/// Skipped records named individually before the rest are merely counted. A
+/// library whose every record was unreadable would otherwise hand a page
+/// millions of strings it can show none of.
+const MAX_REPORTED_SKIPS: usize = 10;
+
+impl InputSummary {
+    /// The reader's report, as the page sees it.
+    ///
+    /// `read` is passed in rather than added up from the report: it is how many
+    /// deals the run was actually handed, which is the number a caller checks
+    /// against what it sent.
+    fn new(report: &dealer_run::deal_input::InputReport, read: usize) -> Self {
+        Self {
+            format: report.format.to_string(),
+            read,
+            solved: report.solved,
+            unsolved: report.unsolved,
+            separators: report.separators,
+            skipped: report
+                .skipped
+                .iter()
+                .take(MAX_REPORTED_SKIPS)
+                .cloned()
+                .collect(),
+            skipped_count: report.skipped.len(),
+            notes: report.notes.clone(),
+        }
+    }
+}
+
+/// Where a run's deals come from: the one thing the two entry points differ in,
+/// and deliberately the only thing.
+enum DealSource {
+    /// Shuffled from the seed, which is every ordinary run.
+    Shuffled,
+    /// Supplied by the caller, already decoded by `dealer-run`'s reader — the
+    /// same reader `--input-deals` goes through, so a file read in a tab and
+    /// the same file read at a terminal cannot come to different conclusions
+    /// about what is in it.
+    Supplied {
+        deals: Vec<dealer_run::run::SolvedDeal>,
+        report: dealer_run::deal_input::InputReport,
+    },
 }
 
 /// How a round robin was shaped, for a page that has to word it. The counts
@@ -258,8 +339,24 @@ struct OutputContext {
 
 /// Wall-clock milliseconds. `std::time::SystemTime::now()` panics on
 /// wasm32-unknown-unknown, so read the clock through JS instead.
+///
+/// Off wasm there is no JS to read: a `js_sys` import panics with "cannot call
+/// wasm-bindgen imported functions on non-wasm targets", which would put every
+/// one of these entry points out of reach of an ordinary `cargo test`. The
+/// clock is the only thing standing in the way of running them there, and what
+/// it reads has no effect on which deals come out.
 fn now_ms() -> f64 {
-    js_sys::Date::now()
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0)
+    }
 }
 
 /// Generate deals matching `script`, returning JSON.
@@ -456,6 +553,108 @@ pub fn generate(
     params: Vec<String>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
+    run_script(
+        script,
+        seed,
+        produce,
+        max_generate,
+        format,
+        auto_level,
+        round_robin,
+        &params,
+        on_progress,
+        DealSource::Shuffled,
+    )
+    .map_err(|e| JsError::new(&e))
+}
+
+/// Run `script` over deals the caller supplies, rather than dealing any.
+///
+/// Everything else — `auto_level`, `round_robin`, `params`, `format` and the
+/// JSON that comes back — is [`generate`]'s and behaves as it does there. Where
+/// the deals come from is the only difference between the two.
+///
+/// `deals` is the file's bytes — a `Uint8Array`, which is what a `fetch()`
+/// gives after `arrayBuffer()`. **The browser is the HTTP client**: nothing
+/// here fetches, opens or names a file, which is why one entry point serves a
+/// download, a drag-and-drop and a file input alike.
+///
+/// The format is decided by what the bytes are, not what they were called — a
+/// Pavlicek `.zrd` library, PBN, or the one-line and printall layouts — through
+/// the same reader `--input-deals` uses at the terminal. A library's records
+/// and PBN's `[DoubleDummyTricks]` bring their double-dummy tables with them, so
+/// a script calling `tricks()` over a solved file solves nothing.
+///
+/// What came back is in `input`, and **a caller should look at it**: `read`
+/// against the number of deals it believes it sent is what tells a run over a
+/// truncated download from a run over all of it. Neither `produced` nor
+/// `hit_limit` can say that — a run that exhausts the deals it was given has
+/// not hit its budget, so it stops short and looks like success.
+///
+/// `seed` no longer decides which deals appear, since they are given, but it is
+/// still what `rnd()` draws from and what orders an interleaved set — so it is
+/// asked for, exactly as `generate` asks for it.
+///
+/// `predeal` is refused rather than ignored: it arranges cards into deals this
+/// program shuffles, and there is nothing for it to do to deals that arrived
+/// already dealt. The command line refuses the same combination.
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen]
+pub fn generate_from_deals(
+    script: &str,
+    deals: &[u8],
+    seed: u32,
+    produce: usize,
+    max_generate: usize,
+    format: &str,
+    auto_level: bool,
+    round_robin: bool,
+    params: Vec<String>,
+    on_progress: Option<js_sys::Function>,
+) -> Result<String, JsError> {
+    // One decoder, two front ends. Anything read here that the command line
+    // would not read the same way is a bug in one of them, not a difference
+    // between a page and a terminal.
+    let (supplied, report) = dealer_run::deals_from_bytes(deals).map_err(|e| JsError::new(&e))?;
+    run_script(
+        script,
+        seed,
+        produce,
+        max_generate,
+        format,
+        auto_level,
+        round_robin,
+        &params,
+        on_progress,
+        DealSource::Supplied {
+            deals: supplied,
+            report,
+        },
+    )
+    .map_err(|e| JsError::new(&e))
+}
+
+/// The body both entry points share: everything except where the deals came
+/// from.
+///
+/// Speaks `String` rather than `JsError` so that it can be called from an
+/// ordinary test. `JsError::new` reaches for JavaScript's `Error`, which does
+/// not exist off wasm — a failure raised in here would abort the test process
+/// instead of being an error a test can assert on, and the failures are
+/// precisely what wants asserting.
+#[allow(clippy::too_many_arguments)]
+fn run_script(
+    script: &str,
+    seed: u32,
+    produce: usize,
+    max_generate: usize,
+    format: &str,
+    auto_level: bool,
+    round_robin: bool,
+    params: &[String],
+    on_progress: Option<js_sys::Function>,
+    source: DealSource,
+) -> Result<String, String> {
     let format = Format::parse(format)?;
     let started = now_ms();
 
@@ -469,11 +668,20 @@ pub fn generate(
     // than once and a single bar would appear to restart.
     let progress = Progress::new(on_progress);
 
-    let params = script_params_from(&params).map_err(|e| JsError::new(&e))?;
-    let preprocessed =
-        dealer_parser::preprocess_all(script, &params).map_err(|e| JsError::new(&e))?;
-    let program = dealer_parser::parse_program(&preprocessed)
-        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+    let params = script_params_from(params)?;
+    let preprocessed = dealer_parser::preprocess_all(script, &params)?;
+    let program =
+        dealer_parser::parse_program(&preprocessed).map_err(|e| format!("Parse error: {}", e))?;
+
+    // Split before the script is read, so the statements can be checked against
+    // what the run is actually going to deal from.
+    let (given, input) = match source {
+        DealSource::Shuffled => (None, None),
+        DealSource::Supplied { deals, report } => {
+            let summary = InputSummary::new(&report, deals.len());
+            (Some(deals), Some(summary))
+        }
+    };
 
     // Settings that affect how a deal is labelled rather than which deals are
     // produced, and the predeal the run starts from.
@@ -494,18 +702,30 @@ pub fn generate(
                     VulnerabilityType::All => Vulnerability::All,
                 })
             }
+            // Predeal arranges cards into deals this program shuffles. Against
+            // supplied deals there is nothing for it to do, and quietly
+            // ignoring it would leave a script looking as though its predealt
+            // cards were honoured. The command line refuses the same pair.
+            Statement::Predeal { .. } if given.is_some() => {
+                return Err(
+                    "predeal arranges cards into deals this program shuffles, so it has \
+                     nothing to do with deals supplied to it"
+                        .to_string(),
+                )
+            }
             Statement::Predeal { position, cards } => predeal
                 .predeal(*position, cards)
-                .map_err(|e| JsError::new(&format!("Predeal error: {}", e)))?,
+                .map_err(|e| format!("Predeal error: {}", e))?,
             // `print` is a paginated hand record with form feeds, written for a
             // line printer. There is nowhere for that to go on a page, and
             // quietly dropping it would leave a script looking as though it had
             // run.
             Statement::Action { print_hands, .. } if !print_hands.is_empty() => {
-                return Err(JsError::new(
+                return Err(
                     "print(...) writes a paginated hand record for a printer and is not \
-                     available in the browser",
-                ))
+                     available in the browser"
+                        .to_string(),
+                )
             }
             _ => {}
         }
@@ -535,9 +755,15 @@ pub fn generate(
                 Some(Vulnerability::All) => dealer_core::Vulnerability::Both,
                 Some(Vulnerability::None) | None => dealer_core::Vulnerability::None,
             },
-            deals: Deals::Shuffled {
-                predeal,
-                swap: dealer_core::SwapMode::None,
+            // The supplied deals, or the shuffle. Moved rather than cloned:
+            // a library is large, and copying it to choose between two arms
+            // would double the peak the page has to hold.
+            deals: match given {
+                Some(deals) => Deals::Given(deals),
+                None => Deals::Shuffled {
+                    predeal,
+                    swap: dealer_core::SwapMode::None,
+                },
             },
             // Whatever the caller started a pool with, and one if it did not
             // — see `start_threads`. A thread count cannot change what comes
@@ -565,7 +791,7 @@ pub fn generate(
         },
         &mut page,
     )
-    .map_err(|e| JsError::new(&e.to_string()))?;
+    .map_err(|e| e.to_string())?;
 
     // Interleaved, a set walks through the categories rather than meeting them
     // as they fall. Numbered by where they land, so a reader that sorts on the
@@ -728,8 +954,9 @@ pub fn generate(
             even: p.even(),
         }),
         seconds: (now_ms() - started) / 1000.0,
+        input,
     };
-    serde_json::to_string(&result).map_err(|e| JsError::new(&e.to_string()))
+    serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 
 /// A hand type's share of a levelled run once the keeps are applied.
@@ -1271,4 +1498,272 @@ pub fn script_params(script: &str) -> String {
 #[wasm_bindgen]
 pub fn version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Ten records of Pavlicek's library, every one of them solved. The same
+    /// fixture `dealer-run` reads, so a front end that read it differently
+    /// would show up here rather than in a browser.
+    const LIBRARY: &[u8] = include_bytes!("../../dealer-run/tests/fixtures/rpdd_10First.zrd");
+
+    /// North's hand in the fixture's first record. Pins that the deals returned
+    /// are the file's: a shuffle that happened to produce ten deals would
+    /// satisfy every count in these tests and fail this.
+    const FIRST_NORTH: &str = "J873.J42.Q65.KT2";
+
+    /// Two deals in the one-line layout, which carries no tables.
+    const TWO_ONELINE: &str = concat!(
+        "n J873.J42.Q65.KT2 e AT652.A976.AJ82. s Q4.85.KT9.A87643 w K9.KQT3.743.QJ95\n",
+        "n QJ3.A93.K4.KT875 e A98.QJT2.97653.2 s T76.K65.AQJ8.J43 w K542.874.T2.AQ96\n",
+    );
+
+    /// Run a script over supplied bytes, as the page would.
+    fn over(deals: &[u8], script: &str) -> Result<serde_json::Value, String> {
+        let (supplied, report) = dealer_run::deals_from_bytes(deals)?;
+        let json = run_script(
+            script,
+            1,
+            1000,
+            1_000_000,
+            "oneline",
+            false,
+            false,
+            &[],
+            None,
+            DealSource::Supplied {
+                deals: supplied,
+                report,
+            },
+        )?;
+        serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    /// The `input` block, which every supplied run must carry.
+    fn input(result: &serde_json::Value) -> &serde_json::Value {
+        let report = &result["input"];
+        assert!(!report.is_null(), "a supplied run must report what it read");
+        report
+    }
+
+    #[test]
+    fn the_deals_that_run_are_the_deals_that_were_supplied() {
+        let result = over(LIBRARY, "condition 1\n").expect("a library should run");
+
+        assert_eq!(result["generated"], 10, "the fixture holds ten records");
+        assert_eq!(result["produced"], 10, "nothing filters them out");
+        assert_eq!(
+            result["deals"].as_array().map(Vec::len),
+            Some(10),
+            "every one of them should come back"
+        );
+        // Not merely ten deals: the file's ten. A shuffle would pass every
+        // count above and fail here.
+        assert!(
+            result["deals"][0]
+                .as_str()
+                .is_some_and(|deal| deal.contains(FIRST_NORTH)),
+            "the first deal should be the file's first record, not a shuffle: {}",
+            result["deals"][0]
+        );
+    }
+
+    #[test]
+    fn the_report_says_what_arrived() {
+        let result = over(LIBRARY, "condition 1\n").expect("a library should run");
+        let report = input(&result);
+
+        assert_eq!(report["format"], "zrd");
+        assert_eq!(report["read"], 10);
+        assert_eq!(
+            report["solved"], 10,
+            "every record of this fixture carries its table"
+        );
+        assert_eq!(report["unsolved"], 0);
+        assert_eq!(report["separators"], 0);
+        assert_eq!(report["skipped_count"], 0);
+        assert_eq!(report["skipped"].as_array().map(Vec::len), Some(0));
+        assert_eq!(report["notes"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn a_short_read_is_visible_even_though_the_run_looks_like_a_success() {
+        // Half a library — what a download cut off on a record boundary
+        // leaves. The run produces five deals and reports no limit hit, so the
+        // count read is the only thing that can say the other five never
+        // arrived.
+        let half = &LIBRARY[..LIBRARY.len() / 2];
+        let result = over(half, "condition 1\n").expect("half a library is still a library");
+
+        assert_eq!(result["produced"], 5);
+        assert_eq!(
+            result["hit_limit"], false,
+            "it ran out of deals, not budget"
+        );
+        assert_eq!(input(&result)["read"], 5, "the count is the only warning");
+    }
+
+    #[test]
+    fn a_filter_still_applies_to_supplied_deals() {
+        // Ground truth from the fixture itself rather than a number written
+        // here: what is under test is that the condition is applied to these
+        // deals, and a hand-copied count would agree just as well with a filter
+        // that had stopped being applied at all.
+        let (deals, _) = dealer_run::deals_from_bytes(LIBRARY).expect("read the fixture");
+        let expected = deals
+            .iter()
+            .filter(|(deal, _)| deal.hand(Position::North).hcp() >= 13)
+            .count();
+        assert!(
+            expected > 0 && expected < deals.len(),
+            "this test is pointless unless the filter both keeps and rejects: {}",
+            expected
+        );
+
+        let result = over(LIBRARY, "condition hcp(north) >= 13\n").expect("run over the fixture");
+        assert_eq!(result["produced"], expected);
+        assert_eq!(result["generated"], 10, "all ten were examined");
+        assert_eq!(input(&result)["read"], 10);
+    }
+
+    #[test]
+    fn text_deals_arrive_unsolved_and_are_counted_as_such() {
+        let result = over(TWO_ONELINE.as_bytes(), "condition 1\n").expect("one-line should run");
+        let report = input(&result);
+
+        assert_eq!(report["format"], "lines");
+        assert_eq!(report["read"], 2);
+        assert_eq!(report["solved"], 0, "this layout carries no tables");
+        assert_eq!(report["unsolved"], 2);
+        assert_eq!(result["produced"], 2);
+    }
+
+    #[test]
+    fn a_pbn_table_comes_through_as_solved_and_a_board_without_one_does_not() {
+        // Two boards, one of them analysed. Read is neither `solved` nor
+        // `unsolved` here, which is the point: a run has to be told how many
+        // deals it got, and neither count is that number.
+        let pbn = "[Board \"1\"]\n\
+                   [Deal \"N:QJ3.A93.K4.KT875 A98.QJT2.97653.2 T76.K65.AQJ8.J43 K542.874.T2.AQ96\"]\n\
+                   [DoubleDummyTricks \"87879878793555345564\"]\n\
+                   \n\
+                   [Board \"2\"]\n\
+                   [Deal \"N:J873.J42.Q65.KT2 AT652.A976.AJ82. Q4.85.KT9.A87643 K9.KQT3.743.QJ95\"]\n";
+
+        let result = over(pbn.as_bytes(), "condition 1\n").expect("PBN should run");
+        let report = input(&result);
+
+        assert_eq!(report["format"], "pbn");
+        assert_eq!(report["read"], 2);
+        assert_eq!(report["solved"], 1, "the table travelled with its own deal");
+        assert_eq!(report["unsolved"], 1, "and not with the other one");
+        assert_eq!(result["produced"], 2);
+    }
+
+    #[test]
+    fn a_deal_that_could_not_be_read_is_named_rather_than_silently_dropped() {
+        // The second board is a card short. It is worse than an unreadable one:
+        // it would otherwise run, and report statistics over a twelve-card
+        // hand, without a word.
+        let pbn = "[Board \"1\"]\n\
+                   [Deal \"N:QJ3.A93.K4.KT875 A98.QJT2.97653.2 T76.K65.AQJ8.J43 K542.874.T2.AQ96\"]\n\
+                   \n\
+                   [Board \"2\"]\n\
+                   [Deal \"N:J87.J42.Q65.KT2 AT652.A976.AJ82. Q4.85.KT9.A87643 K9.KQT3.743.QJ95\"]\n";
+
+        let result = over(pbn.as_bytes(), "condition 1\n").expect("the good board still runs");
+        let report = input(&result);
+
+        assert_eq!(report["read"], 1, "only one board was whole");
+        assert_eq!(result["produced"], 1);
+        assert_eq!(report["skipped_count"], 1);
+        assert_eq!(
+            report["skipped"].as_array().map(Vec::len),
+            Some(1),
+            "and the reason should come with it: {}",
+            report["skipped"]
+        );
+    }
+
+    #[test]
+    fn bytes_that_are_neither_format_are_an_error_that_says_so() {
+        // A library cut off part way through a record, which is what a
+        // connection dropped mid-download leaves.
+        let ragged = &LIBRARY[..LIBRARY.len() - 5];
+        let error = over(ragged, "condition 1\n").expect_err("this is not readable");
+        assert!(
+            error.contains("neither a Pavlicek library nor text"),
+            "the error should name what was ruled out: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn predeal_is_refused_against_supplied_deals() {
+        let error = over(LIBRARY, "predeal north SAKQ\ncondition 1\n")
+            .expect_err("predeal has nothing to do with deals that arrived dealt");
+        assert!(
+            error.contains("predeal"),
+            "the error should say which statement is the problem: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn predeal_still_works_when_the_deals_are_shuffled() {
+        // The refusal above has to be about supplied deals rather than about
+        // predeal, which the browser has always honoured.
+        let json = run_script(
+            "predeal north SAKQ\ncondition 1\n",
+            1,
+            3,
+            100_000,
+            "oneline",
+            false,
+            false,
+            &[],
+            None,
+            DealSource::Shuffled,
+        )
+        .expect("a shuffled run predeals as it always did");
+        let result: serde_json::Value =
+            serde_json::from_str(&json).expect("the result should be JSON");
+        assert_eq!(result["produced"], 3);
+        assert!(
+            result["input"].is_null(),
+            "a run that read nothing has nothing to report: {}",
+            result["input"]
+        );
+    }
+
+    #[test]
+    fn statistics_are_accumulated_over_supplied_deals() {
+        // The rest of the machinery has to reach supplied deals too, not just
+        // the list of them: an `average` over a file is most of why one is
+        // read.
+        let (deals, _) = dealer_run::deals_from_bytes(LIBRARY).expect("read the fixture");
+        let expected: f64 = deals
+            .iter()
+            .map(|(deal, _)| deal.hand(Position::North).hcp() as f64)
+            .sum::<f64>()
+            / deals.len() as f64;
+
+        let result = over(
+            LIBRARY,
+            "condition 1\naction printoneline, average \"N HCP\" hcp(north)\n",
+        )
+        .expect("run over the fixture");
+        let average = result["averages"][0]["value"]
+            .as_f64()
+            .expect("an average should come back");
+        assert!(
+            (average - expected).abs() < 1e-9,
+            "average over the file's deals: got {}, expected {}",
+            average,
+            expected
+        );
+        assert_eq!(result["averages"][0]["count"], 10);
+    }
 }

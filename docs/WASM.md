@@ -15,9 +15,11 @@ cd wasm
 Requires [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) and the
 `wasm32-unknown-unknown` target (`rustup target add wasm32-unknown-unknown`).
 
-Current size: **~1102 KB raw, ~386 KB gzipped**, including `bridge-solver`,
+Current size: **~1400 KB raw, ~500 KB gzipped**, including `bridge-solver`,
 which `tricks()` reaches through `dealer-dds`. The solver is about 11 KB
-gzipped of that.
+gzipped of that, and the readers behind `generate_from_deals` — ZRD, PBN and the
+line-oriented layouts — about 22 KB gzipped: measured by building without that
+entry point, which comes to 1351 KB raw and 478 KB gzipped.
 
 ## Why it works cleanly
 
@@ -50,6 +52,7 @@ cover this build too: it is the same generator.
 | Export | Returns | Notes |
 |---|---|---|
 | `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9` |
+| `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
 | `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
 | `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
@@ -108,6 +111,69 @@ At most `MAX_RETURNED_DEALS` (500) deals are returned, since a script may ask fo
 tens of thousands to build a histogram and a page cannot show them all.
 Statistics still accumulate over every matching deal, so `produced` can exceed
 `deals.length`.
+
+### `generate_from_deals`
+
+Runs the script over deals the caller hands over, rather than dealing any. Same
+arguments as `generate` with the file's bytes inserted second, and the same JSON
+back with one field added.
+
+**The browser is the HTTP client.** Nothing in the engine fetches, opens or
+names a file — JS does that and passes the bytes:
+
+```js
+const bytes = new Uint8Array(await (await fetch("/library.zrd")).arrayBuffer())
+const result = JSON.parse(w.generate_from_deals(
+  "condition hcp(north) >= 15\n", bytes, 1, 40, 1000000, "oneline",
+  false, false, [], null))
+console.log(result.input)
+// { format: "zrd", read: 10, solved: 10, unsolved: 0,
+//   separators: 0, skipped: [], skipped_count: 0, notes: [] }
+```
+
+A dropped file or a file input works the same way: `new
+Uint8Array(await file.arrayBuffer())`.
+
+The format is decided by what the bytes *are*, not what they were called — a
+Pavlicek `.zrd` library, PBN, or the one-line and printall layouts — through
+`dealer-run`'s reader, which is the one `--input-deals` uses at the terminal.
+There is deliberately no second decoder: a file read in a tab and the same file
+read at a terminal cannot come to different conclusions about what is in it.
+
+Records that carry double-dummy tables — a library's, or PBN's
+`[DoubleDummyTricks]` and `[OptimumResultTable]` — bring them along, so a script
+calling `tricks()` over a solved file solves nothing.
+
+**Read `input`.** It is the only thing that says how much arrived:
+
+| field | what it says |
+|---|---|
+| `format` | which reader handled the bytes: `"zrd"`, `"pbn"` or `"lines"` |
+| `read` | deals the run was handed. Compare it against what you sent |
+| `solved` | of those, how many arrived with a double-dummy table |
+| `unsolved` | the rest, which are solved on demand |
+| `separators` | section separators, which are not deals |
+| `skipped` | records that could not be read, with reasons, at most 10 |
+| `skipped_count` | how many were skipped altogether |
+| `notes` | worth saying, but not a failure |
+
+The command line prints all of this to stderr and a page has no stderr, which is
+why it comes back with the results. Neither `produced` nor `hit_limit` can stand
+in for it: a run that exhausts the deals it was given has not hit its budget, so
+it stops short and looks exactly like success. A truncated download that read 40
+deals of 4,000 shows up in `read` and nowhere else.
+
+`seed` no longer decides which deals appear, since they are given, but it is
+still what `rnd()` draws from and what orders an interleaved set.
+
+`predeal` is refused rather than ignored — it arranges cards into deals this
+program shuffles, and there is nothing for it to do to deals that arrived
+already dealt. The command line refuses the same combination.
+
+The bytes are decoded in full, so the caller decides how much to hand over: a
+library is 23 bytes a record, and slicing the `Uint8Array` before passing it
+reads a window of one. (Issue #65 covers an offset and limit in the engine
+itself.)
 
 ### `check_script`
 
@@ -242,6 +308,20 @@ This is not theoretical: it caught predeal being silently ignored in the wasm
 path, which produced plausible-looking deals that simply did not honour the
 script's `predeal` lines. Run it after changing either the bindings or the CLI's
 generation loop.
+
+## Testing the bindings off a browser
+
+`cargo test` inside `wasm/` runs the entry points on the host, not in a browser:
+the only thing that stood in the way was the clock, and `now_ms` reads
+`SystemTime` off wasm rather than `Date.now()`. What it reads has no effect on
+which deals come out.
+
+That is what covers `generate_from_deals` — it runs over
+`dealer-run/tests/fixtures/rpdd_10First.zrd` and asserts the deals are the
+file's ten, that the filter still applies to them, and what `input` says about
+each format. It is not a browser, so it does not cover the JS boundary itself:
+that a `Uint8Array` arrives as `&[u8]` is `wasm-bindgen`'s, and is exercised by
+building and calling the package (`./build.sh nodejs`).
 
 ## Known gaps
 
