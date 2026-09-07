@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--input-deals` reads a solved-deal library from a pipe**, so a library can
+  be fetched by something that already knows how:
+
+  ```
+  curl -s https://.../deals.zrd | dealer script.dlr --input-deals -
+  ```
+
+  - The format is now decided by the content rather than the filename. Standard
+    input has no filename, so a piped library was read as text and died on
+    `stream did not contain valid UTF-8` before any reader saw it.
+  - A file whose name disagrees with what is in it — a `.zrd` holding PBN, or
+    the reverse — is read for what it holds and the disagreement reported. The
+    first of those used to come back as no deals at all, with nothing said.
+  - No HTTP client: `curl` is not being reimplemented here.
 - **Two-dimensional `frequency`.** A second expression and range turns the
   histogram into a cross-tabulation: the first expression down the rows, the
   second across the columns, a Low and a High on each axis, and marginal sums

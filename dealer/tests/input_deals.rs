@@ -42,6 +42,21 @@ fn temp_file(tag: &str, contents: &str) -> PathBuf {
     path
 }
 
+/// The same for bytes, and with an extension, so a name can be made to
+/// disagree with what the file holds.
+fn temp_binary(tag: &str, extension: &str, contents: &[u8]) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    path.push(format!(
+        "dealer3-test-{}-{}-{:?}.{}",
+        tag,
+        std::process::id(),
+        std::thread::current().id(),
+        extension
+    ));
+    std::fs::write(&path, contents).expect("failed to write temp file");
+    path
+}
+
 struct Output {
     stdout: String,
     stderr: String,
@@ -50,6 +65,12 @@ struct Output {
 
 /// Run the binary with `args`, optionally piping `stdin_data` in.
 fn run(args: &[&str], stdin_data: Option<&str>) -> Output {
+    run_bytes(args, stdin_data.map(|data| data.as_bytes()))
+}
+
+/// The same, for input that is not text: a ZRD library is binary, and it is
+/// exactly the case that used to die before the reader saw it.
+fn run_bytes(args: &[&str], stdin_data: Option<&[u8]>) -> Output {
     let mut child = Command::new(bin())
         .args(args)
         .stdin(Stdio::piped())
@@ -61,7 +82,7 @@ fn run(args: &[&str], stdin_data: Option<&str>) -> Output {
     {
         let stdin = child.stdin.as_mut().expect("stdin unavailable");
         if let Some(data) = stdin_data {
-            stdin.write_all(data.as_bytes()).expect("write to stdin");
+            stdin.write_all(data).expect("write to stdin");
         }
     }
     // Dropping stdin closes it, so the child sees EOF.
@@ -562,5 +583,144 @@ fn a_pbn_table_is_used_rather_than_solved_again() {
         "solving anyway would give 8 for North notrump, and would mean the tag was \
          ignored:\n{}",
         out.stdout
+    );
+}
+
+/// Ten records of Pavlicek's solved-deal library: binary, and not valid UTF-8,
+/// which is what used to stop it at the door.
+const LIBRARY: &[u8] = include_bytes!("../../dealer-run/tests/fixtures/rpdd_10First.zrd");
+
+/// A library arriving down a pipe is read as a library.
+///
+/// The point of the pipe is `curl -s https://…/deals.zrd | dealer script.dlr
+/// --input-deals -`, which is how a library reaches this program without it
+/// growing an HTTP client. It used to fail on "stream did not contain valid
+/// UTF-8": stdin was read into a `String`, and the format was decided by the
+/// filename, which `-` does not have.
+#[test]
+fn a_library_piped_in_is_read_as_one() {
+    let script = temp_file("script-piped-library", "condition 1\n");
+
+    let out = run_bytes(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            "-",
+            "-f",
+            "oneline",
+            "-X",
+        ],
+        Some(LIBRARY),
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stdout.contains("Generated 10 hands"),
+        "all ten records should have been read:\n{}",
+        out.stdout
+    );
+    assert_eq!(count_deals(&out.stdout), 10, "stdout:\n{}", out.stdout);
+    // The records are solved, so their tables came through the pipe too. A
+    // reader that recovered the deals and dropped the tables would produce the
+    // same ten deals and say nothing here.
+    assert!(
+        out.stderr.contains("10 of 10 deals"),
+        "the tables should have arrived with the deals:\n{}",
+        out.stderr
+    );
+}
+
+/// A library under a name that says otherwise is read for what it holds.
+#[test]
+fn a_library_named_as_pbn_is_read_and_the_mismatch_reported() {
+    let corpus = temp_binary("library-as-pbn", "pbn", LIBRARY);
+    let script = temp_file("script-library-as-pbn", "condition 1\n");
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-f",
+            "oneline",
+            "-X",
+        ],
+        None,
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stdout.contains("Generated 10 hands"),
+        "stdout:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stderr.contains("whatever its name says"),
+        "the name and the content disagree, and that should be said:\n{}",
+        out.stderr
+    );
+}
+
+/// And text under a `.zrd` name, which is the half-download case.
+///
+/// It used to be read as twenty-three-byte records of nothing: no deals, no
+/// error, and no clue which of the two was wrong.
+#[test]
+fn text_named_as_a_library_is_read_and_the_mismatch_reported() {
+    let corpus = temp_binary("text-as-zrd", "zrd", ONELINE_CORPUS.as_bytes());
+    let script = temp_file("script-text-as-zrd", FILTER);
+
+    let out = run(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            corpus.to_str().unwrap(),
+            "-f",
+            "oneline",
+            "-X",
+        ],
+        None,
+    );
+
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    assert!(
+        out.stdout.contains("Generated 6 hands"),
+        "the deals are there to be read:\n{}",
+        out.stdout
+    );
+    assert_eq!(count_deals(&out.stdout), 2, "stdout:\n{}", out.stdout);
+    assert!(
+        out.stderr.contains("named as a Pavlicek library"),
+        "the name and the content disagree, and that should be said:\n{}",
+        out.stderr
+    );
+}
+
+/// A library that arrived short is refused in terms of the library it is.
+#[test]
+fn a_library_cut_short_is_refused_with_a_reason() {
+    let script = temp_file("script-truncated", "condition 1\n");
+
+    let out = run_bytes(
+        &[
+            script.to_str().unwrap(),
+            "--input-deals",
+            "-",
+            "-f",
+            "oneline",
+        ],
+        Some(&LIBRARY[..LIBRARY.len() - 5]),
+    );
+
+    assert!(!out.success, "stdout:\n{}", out.stdout);
+    assert!(
+        out.stderr.contains("neither a Pavlicek library nor text"),
+        "should name both formats it ruled out:\n{}",
+        out.stderr
+    );
+    assert!(
+        !out.stderr.contains("stream did not contain valid UTF-8"),
+        "that message is what this replaced:\n{}",
+        out.stderr
     );
 }
