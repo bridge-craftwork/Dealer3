@@ -274,7 +274,11 @@ which is a different graph — it links wasm-bindgen and js-sys and never sees
 clap. Both are generated from what cargo resolved, by
 `scripts/third-party-notices.py`, and checked in CI: a hand-kept notice file goes
 stale the moment a dependency moves, and a stale notice asserts something untrue
-about what a copy contains.
+about what a copy contains. Nothing here pins dependency versions, so the files
+carry none — and they only ever grow, because a machine with an older lock and a
+fresh CI checkout legitimately resolve different sets. CI fails only when
+something resolved that the file does not credit, which is the direction that
+matters.
 
 **Hanhong Xue** — the double-dummy search core. dealer3 solves through
 [bridge-solver](https://github.com/bridge-craftwork/bridge-solver), whose search
