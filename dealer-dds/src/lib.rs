@@ -14,16 +14,17 @@
 
 mod memo;
 
-// `tricks` and `par_score_ns` take the deal's table as their first argument.
-// There is deliberately no variant that does not: a caller that forgot one
-// would re-solve a deal whose answer was already known, and every number would
-// still be right, so nothing would fail. Making it an argument makes forgetting
-// a compile error. `None` says "nobody has solved this", which is honest.
+// `tricks` and `par_score_ns` take what is known about the deal as their first
+// argument. There is deliberately no variant that does not: a caller that
+// forgot one would re-solve a deal whose answer was already known, and every
+// number would still be right, so nothing would fail. Making it an argument
+// makes forgetting a compile error. `DealTricks::nothing()` says "nobody has
+// solved this", which is honest.
 //
-// [`solve_table`] is the one entry point that does search, for callers that
-// need a table nobody has yet — an export writing tables out, or a test making
-// one to supply.
-pub use memo::{known_table, par_score_ns, remember_table, solve_table, tricks};
+// [`solve_table`] is the one entry point that does search unconditionally, for
+// callers that need a table nobody has yet — an export writing tables out, or a
+// test making one to supply.
+pub use memo::{learned, par_score_ns, solve_table, tricks, DealTricks, NOTHING_KNOWN};
 
 use dealer_core::{Deal, Position, Suit};
 
@@ -178,15 +179,17 @@ impl Default for DoubleDummyResult {
     }
 }
 
-/// How many searches have run, for tests that care that a result was
-/// remembered rather than worked out again.
+/// How many searches have run, for tests that care that a result was already
+/// known rather than worked out again.
 static SEARCHES: AtomicUsize = AtomicUsize::new(0);
 
 /// How many double-dummy searches this process has run.
 ///
-/// Every answer either comes from a search or from something already
-/// remembered, so a test can bracket a piece of work with this and see how
-/// much of it the memo absorbed. Counts every thread.
+/// Every answer either comes from a search or from something already known, so
+/// a test can bracket a piece of work with this and see how much searching it
+/// really did. That is the only way to see it: a run that carried nothing and
+/// solved everything again prints exactly the same numbers. Counts every
+/// thread.
 pub fn searches() -> usize {
     SEARCHES.load(Ordering::Relaxed)
 }

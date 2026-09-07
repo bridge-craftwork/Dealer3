@@ -346,16 +346,18 @@ pub struct EvalContext<'a> {
     /// vulnerability is can be answered from here later without moving
     /// anything.
     vulnerability: dealer_core::Vulnerability,
-    /// This deal's double-dummy table, when it arrived with one.
+    /// What is already known about this deal's twenty double-dummy results.
     ///
-    /// Set for a deal read from a file that already carried its results — a ZRD
-    /// record, or a PBN board with `[DoubleDummyTricks]`. `tricks()`, `dds()`
-    /// and `par()` then read it instead of searching, which is the difference
-    /// between a lookup and a hundred milliseconds.
+    /// Complete for a deal read from a file that carried its results — a ZRD
+    /// record, or a PBN board with `[DoubleDummyTricks]`. Partial for a deal
+    /// whose condition asked a question on a worker thread and handed the
+    /// answer back. Empty for a deal nobody has looked at.
     ///
-    /// `None` is not a failure. It is what a dealt deal looks like, and what an
-    /// unsolved record looks like, and both are solved on demand.
-    dd_table: Option<&'a dealer_dds::bridge_solver::DdTable>,
+    /// `tricks()`, `dds()` and `par()` read it before searching, which is the
+    /// difference between a lookup and a hundred milliseconds. Empty is not a
+    /// failure: it is what a freshly dealt deal looks like, and it is solved on
+    /// demand.
+    dd_tricks: &'a dealer_dds::DealTricks,
 }
 
 /// Can evaluating `expr` reach a call to `rnd()`?
@@ -444,7 +446,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
-            dd_table: None,
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 
@@ -457,7 +459,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
-            dd_table: None,
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 
@@ -476,7 +478,7 @@ impl<'a> EvalContext<'a> {
     /// A constructor rather than more builders, and every argument required.
     /// `vulnerability` was a builder once and three of the four places that
     /// build a context forgot to call it, so `par()` ignored `--vulnerable` for
-    /// months without a test noticing (#54). `dd_table` would fail more quietly
+    /// months without a test noticing (#54). `dd_tricks` would fail more quietly
     /// still — a missed site re-solves a deal whose answer was already known,
     /// so every number stays right and the run is merely slow.
     ///
@@ -486,7 +488,7 @@ impl<'a> EvalContext<'a> {
         variables: &'a Variables<'a>,
         counts: Option<&'a PointCounts>,
         vulnerability: dealer_core::Vulnerability,
-        dd_table: Option<&'a dealer_dds::bridge_solver::DdTable>,
+        dd_tricks: &'a dealer_dds::DealTricks,
     ) -> Self {
         EvalContext {
             deal,
@@ -495,13 +497,13 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts,
             vulnerability,
-            dd_table,
+            dd_tricks,
         }
     }
 
-    /// This deal's double-dummy table, if it came with one.
-    pub fn dd_table(&self) -> Option<&'a dealer_dds::bridge_solver::DdTable> {
-        self.dd_table
+    /// What is already known about this deal's double-dummy results.
+    pub fn dd_tricks(&self) -> &'a dealer_dds::DealTricks {
+        self.dd_tricks
     }
 
     /// Which side is vulnerable.
@@ -541,7 +543,7 @@ impl<'a> EvalContext<'a> {
             rnd: RefCell::new(None),
             counts,
             vulnerability: dealer_core::Vulnerability::default(),
-            dd_table: None,
+            dd_tricks: &dealer_dds::NOTHING_KNOWN,
         }
     }
 }
@@ -1347,7 +1349,7 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             // Solved by bridge-solver, and remembered for this deal: several
             // denominations, or the same one asked for from the condition and
             // again from a statistic, cost one search each at most.
-            Ok(dealer_dds::tricks(ctx.dd_table(), ctx.deal, denomination, declarer) as i32)
+            Ok(dealer_dds::tricks(ctx.dd_tricks(), ctx.deal, denomination, declarer) as i32)
         }
 
         Function::Score => {
@@ -1465,7 +1467,7 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
 
             let vulnerability = ctx.vulnerability();
             let score_ns = dealer_dds::par_score_ns(
-                ctx.dd_table(),
+                ctx.dd_tricks(),
                 ctx.deal,
                 vulnerability.ns(),
                 vulnerability.ew(),
