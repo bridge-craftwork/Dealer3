@@ -88,6 +88,47 @@ jobs:
       if: runner.os == 'Linux'
       run: scripts/third-party-notices.py --check
 
+  wasm:
+    name: WebAssembly
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+        targets: wasm32-unknown-unknown
+
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: wasm
+
+    # `wasm/` is its own workspace, so nothing above builds it. That is how a
+    # change to `dealer-run`'s API reached `main` while the bindings that call
+    # it no longer compiled: the root gate was green and had no reason not to
+    # be. This job is what makes the two front ends fail together.
+    - name: Check formatting
+      working-directory: wasm
+      run: cargo fmt --all -- --check
+
+    - name: Run clippy
+      working-directory: wasm
+      run: cargo clippy --all-targets -- -D warnings
+
+    # Host target, so the tests actually run — the wasm ones would need a
+    # browser or Node, and these assert on what the engine did with the deals.
+    - name: Run tests
+      working-directory: wasm
+      run: cargo test
+
+    - name: Build for wasm32
+      working-directory: wasm
+      run: cargo build --target wasm32-unknown-unknown --release
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -198,7 +239,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [test, lint, check-licenses, regression]
+    needs: [test, wasm, lint, check-licenses, regression]
 
     steps:
     - name: Summary
