@@ -11,6 +11,12 @@ dealer-eval = { path = "../dealer-eval" }
 dealer-dds = { path = "../dealer-dds" }
 dealer-level = { path = "../dealer-level" }
 dealer-pbn = { path = "../dealer-pbn" }
+# Reading a deal source is the engine's, so that a browser and a terminal
+# read a ZRD library the same way rather than each implementing it.
+bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }
+# `DdTable` travels with a deal read from a library. It is a data type, not a
+# solver: reading a file does not depend on being able to solve one.
+bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 
 # Threading is the engine's, not a caller's: a front end that had to supply it
 # would be as fast as it happened to bother being, and the browser — which

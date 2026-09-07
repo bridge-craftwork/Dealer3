@@ -14,7 +14,7 @@
 
 mod memo;
 
-pub use memo::{par_score_ns, table, tricks};
+pub use memo::{known_table, par_score_ns, remember_table, table, tricks};
 
 use dealer_core::{Deal, Position, Suit};
 

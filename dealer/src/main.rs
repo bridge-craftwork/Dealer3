@@ -448,6 +448,55 @@ fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
 
 /// Escape a string for JSON. Labels come from the script, so they can hold
 /// quotes, backslashes and control characters.
+/// Read a ZRD library, reporting what was in it the way a terminal would.
+///
+/// The reading and the double-dummy seeding are `dealer_run`'s, so that a
+/// browser reading a library behaves the same without implementing it again.
+/// What is left here is what a terminal does with the report: write it to
+/// stderr, and refuse the tables-only companion format with an explanation.
+fn read_zrd_library(source: &str) -> Vec<Deal> {
+    if dealer_run::zrd_input::is_tables_only_path(source) {
+        eprintln!(
+            "Error: '{}' is a .zdd file, which holds double-dummy tables with no deals.",
+            source
+        );
+        eprintln!("       --input-deals needs the deals too: use the .zrd built from it.");
+        std::process::exit(1);
+    }
+
+    let (deals, report) = dealer_run::deals_from_library(source).unwrap_or_else(|e| {
+        eprintln!("Error {}", e);
+        std::process::exit(1);
+    });
+
+    const MAX_SKIP_WARNINGS: usize = 10;
+    for skipped in report.skipped.iter().take(MAX_SKIP_WARNINGS) {
+        eprintln!("Warning: skipping {}", skipped);
+    }
+    if report.skipped.len() > MAX_SKIP_WARNINGS {
+        eprintln!(
+            "Warning: {} further unreadable record(s) not reported",
+            report.skipped.len() - MAX_SKIP_WARNINGS
+        );
+    }
+    if report.separators > 0 {
+        eprintln!(
+            "Note: {} section separator(s) in '{}' were not deals.",
+            report.separators, source
+        );
+    }
+    if report.unsolved > 0 {
+        eprintln!(
+            "Note: {} of {} deals in '{}' carry no double-dummy table; those will be solved \
+             on demand.",
+            report.unsolved,
+            deals.len(),
+            source
+        );
+    }
+    deals
+}
+
 fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
@@ -1561,6 +1610,12 @@ fn main() {
         // once to characterize the scenario, once to apply the keeps — and the
         // second pass has to be able to go back to the first one's deals.
         let input_deals: Option<Vec<Deal>> = args.input_deals.as_deref().map(|source| {
+            // A ZRD library is binary, indexed by record, and read by seeking
+            // rather than by lines — so it cannot go through `DealReader`, and
+            // it cannot come from stdin.
+            if dealer_run::zrd_input::is_library_path(source) {
+                return read_zrd_library(source);
+            }
             use bridge_encodings::DealReader;
             use std::io::{BufRead, BufReader};
             let stream: Box<dyn BufRead> = if source == "-" {

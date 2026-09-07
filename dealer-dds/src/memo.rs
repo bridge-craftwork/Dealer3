@@ -166,6 +166,55 @@ pub fn table(deal: &Deal) -> bridge_solver::DdTable {
     table
 }
 
+/// Take a solved table as given, without solving anything.
+///
+/// For a caller that already has the answers — reading a ZRD library, say,
+/// where every record carries its twenty results. Seeding the memo is all it
+/// takes: `tricks()` recalls before it searches, so a later `tricks()`, `dds()`
+/// or `par()` on this deal finds the cell already worked out and never reaches
+/// the solver.
+///
+/// That is also why nothing here needs to know whether the script *will* ask.
+/// A memo is passive: seeding it costs twenty bytes and a lock, and a run whose
+/// script never mentions double-dummy simply never looks.
+///
+/// The caller is trusted. Nothing checks these against a search — that would
+/// throw away the reason for reading a solved library in the first place.
+pub fn remember_table(deal: &Deal, table: &bridge_solver::DdTable) {
+    let mut known: KnownTricks = [[None; 4]; 5];
+    for (denomination, row) in Denomination::ALL.iter().zip(known.iter_mut()) {
+        for (seat, cell) in Position::ALL.iter().zip(row.iter_mut()) {
+            *cell = Some(table.tricks(
+                bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(*seat)),
+                bridge_solver::STRAINS[*denomination as usize],
+            ));
+        }
+    }
+    remember(key(deal), known);
+}
+
+/// The deal's table if every cell is already known, and `None` otherwise.
+///
+/// Unlike [`table`], this never solves. It answers "do we happen to know this
+/// already?", which is what an exporter wants: a deal read from a solved
+/// library, or one a script has already asked twenty questions about, can carry
+/// its results out again, while a deal nobody asked about is not worth twenty
+/// searches to annotate.
+pub fn known_table(deal: &Deal) -> Option<bridge_solver::DdTable> {
+    let known = recall(&key(deal))?;
+    let mut table = bridge_solver::DdTable::new();
+    for (denomination, row) in Denomination::ALL.iter().zip(known.iter()) {
+        for (seat, cell) in Position::ALL.iter().zip(row.iter()) {
+            table.set(
+                bridge_solver::seat_to_direction(bridge_solver::direction_to_seat(*seat)),
+                bridge_solver::STRAINS[*denomination as usize],
+                (*cell)?,
+            );
+        }
+    }
+    Some(table)
+}
+
 /// The par score, to North-South, at the given vulnerability.
 ///
 /// Negative means East-West are the ones who benefit. A passed-out deal — par
