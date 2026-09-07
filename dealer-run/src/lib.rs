@@ -45,10 +45,14 @@ pub mod run;
 ///
 /// Nothing is put in a shared store. A table belongs to one deal, lives as long
 /// as that deal does, and goes with it when the filter throws it away.
+///
+/// `window` is which part of a solved-deal library to read — where to start and
+/// how much to take. [`deal_input::Window::all`] reads the file as it stands.
 pub fn deals_from_file(
     path: &str,
+    window: deal_input::Window,
 ) -> Result<(Vec<run::SolvedDeal>, deal_input::InputReport), String> {
-    let (records, report) = deal_input::read(path)?;
+    let (records, report) = deal_input::read(path, window)?;
     Ok((to_solved(records), report))
 }
 
@@ -60,8 +64,9 @@ pub fn deals_from_file(
 /// from, and it stops there.
 pub fn deals_from_bytes(
     bytes: &[u8],
+    window: deal_input::Window,
 ) -> Result<(Vec<run::SolvedDeal>, deal_input::InputReport), String> {
-    let (records, report) = deal_input::read_bytes(bytes)?;
+    let (records, report) = deal_input::read_bytes(bytes, window)?;
     Ok((to_solved(records), report))
 }
 

@@ -533,8 +533,36 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Differs("-l replays from a library file by index"),
         dealer_v2: Origin::Differs("-L names a library path: Pavlicek's solved-deal library, in ZRD format"),
         note: Some(
-            "Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are \
-             skipped, so check the reported count.",
+            "Reads a Pavlicek `.zrd` library, PBN or one-line, decided by the content, `-` \
+             for stdin. Unrecognised lines are skipped, so check the reported count.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--input-offset",
+        group: "Reading deals in",
+        what: "Start a solved-deal library at this record",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Differs("`-s` doubles as the offset: it counts 1000-record blocks to skip"),
+        note: Some(
+            "Counts records, separators included, not deals. Without it the seed picks the \
+             starting record, so a library run reproduces from `-s` the way a generated one \
+             does. DealerV2_4's block skip is not followed: it makes a seed mean different \
+             deals in different libraries, an error in a small one, and adjacent seeds \
+             adjacent blocks.",
+        ),
+    },
+    SwitchRow {
+        short: "",
+        long: "--input-limit",
+        group: "Reading deals in",
+        what: "Read this many deals from a solved-deal library",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "Counts deals, so separators do not spend it. Only the window is read. More than \
+             the library holds wraps round and repeats deals, which `average` and `frequency` \
+             then count twice; the run says when that happened.",
         ),
     },
     // ---- Recognised but not supported -------------------------------------

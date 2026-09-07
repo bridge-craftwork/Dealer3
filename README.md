@@ -67,6 +67,8 @@ echo "hcp(north) >= 0" | dealer -E S8743,HA9,D642,CQT64 -W SQ965,HK63,DAQJT,CA5 
 
 ### Deal Input
 - `--input-deals SOURCE` - Read deals from a file instead of generating them; use `-` for stdin
+- `--input-offset N` - Start a solved-deal library at record N (records, separators included)
+- `--input-limit N` - Read this many deals from it, wrapping round the file when it runs short
 
 ### Export
 - `-C FILE, --CSV FILE` - CSV export file
@@ -92,6 +94,9 @@ cat hands.pbn | dealer filter.dlr --input-deals - -f oneline
 # A binary library reads the same way, so fetching one needs no HTTP client here
 curl -s https://example.org/deals.zrd | dealer filter.dlr --input-deals -
 
+# Forty deals out of a ten-million-record library, from a reproducible place in it
+dealer filter.dlr --input-deals rpdd.zrd -s 42 -g 5000
+
 # Check how many deals in a file satisfy a constraint
 echo "hcp(north) >= 15" > strong.dlr
 dealer strong.dlr --input-deals hands.pbn -q -X
@@ -102,7 +107,18 @@ dealer3's regression tests compare constraint evaluation against dealer.exe.
 
 Notes:
 
-- `--seed` is ignored — the deals are supplied, not generated.
+- `--seed` picks where in a **solved-deal library** to start reading, so the same
+  seed reads the same deals there, exactly as it deals the same deals when
+  generating. For PBN and one-line files it is ignored — those are read in the
+  order somebody wrote them.
+- `--input-offset` names a starting record outright instead. It counts *records*,
+  separators included, because that is what the file numbers; `--input-limit`
+  counts deals, because deals are what a run spends. Past the end of the file
+  wraps round to the beginning.
+- `--input-limit` larger than the library repeats deals, and `average` and
+  `frequency` then count each repeat — a sample with replacement rather than a
+  bigger sample. The run says so when it happens. `-g` on its own never repeats:
+  it is a ceiling on what gets read, not a demand.
 - It cannot be combined with predeal, since predeal only applies to generation.
 - `-p` and `-g` still apply: `-p` stops once that many deals match, `-g` caps how many
   are read. Running out of input before `-p` is satisfied is not an error.
