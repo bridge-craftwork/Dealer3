@@ -298,7 +298,7 @@ pub fn read(source: &str, window: Window) -> Result<(Vec<InputDeal>, InputReport
 /// so that a supplied library behaves the same in a tab as at a terminal rather
 /// than through a second decoder that drifts from this one.
 pub fn read_bytes(bytes: &[u8], window: Window) -> Result<(Vec<InputDeal>, InputReport), String> {
-    read_named(bytes, "the supplied deals", window)
+    read_named(bytes, "the supplied data", window)
 }
 
 /// [`read_bytes`], with a name for the bytes so an error can say where they came

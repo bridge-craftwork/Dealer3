@@ -61,3 +61,6 @@ scripts/__pycache__/
 
 # Generated at build time by web/scripts/emit-reference.mjs
 web/public/reference.txt
+
+# Agent worktrees, created inside the repo directory and never part of it.
+.claude/worktrees/
