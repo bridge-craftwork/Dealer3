@@ -215,8 +215,8 @@ pub fn looks_like_library(bytes: &[u8]) -> bool {
 /// a file on disk and a pipe cannot come to different conclusions about the
 /// same bytes.
 fn records_decode(head: &[u8]) -> bool {
-    head.chunks_exact(RECORD_LEN)
-        .all(|record| read_record(record).is_ok())
+    let (records, _) = head.as_chunks::<RECORD_LEN>();
+    records.iter().all(|record| read_record(record).is_ok())
 }
 
 /// Does the file at `path` hold a library? Reads its head, not the whole file.
