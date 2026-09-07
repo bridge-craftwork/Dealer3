@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **39 of the 49 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **41 of the 51 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -96,7 +96,9 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
-| `--input-deals` | Filter deals from a file instead of generating | ✅ | ⚠️ -l replays from a library file by index | ⚠️ -L names a library path: Pavlicek's solved-deal library, in ZRD format | Reads PBN or one-line, auto-detected, `-` for stdin. Unrecognised lines are skipped, so check the reported count. |
+| `--input-deals` | Filter deals from a file instead of generating | ✅ | ⚠️ -l replays from a library file by index | ⚠️ -L names a library path: Pavlicek's solved-deal library, in ZRD format | Reads a Pavlicek `.zrd` library, PBN or one-line, decided by the content, `-` for stdin. Unrecognised lines are skipped, so check the reported count. |
+| `--input-offset` | Start a solved-deal library at this record | ✅ | — | ⚠️ `-s` doubles as the offset: it counts 1000-record blocks to skip | Counts records, separators included, not deals. Without it the seed picks the starting record, so a library run reproduces from `-s` the way a generated one does. DealerV2_4's block skip is not followed: it makes a seed mean different deals in different libraries, an error in a small one, and adjacent seeds adjacent blocks. |
+| `--input-limit` | Read this many deals from a solved-deal library | ✅ | — | — | Counts deals, so separators do not spend it. Only the window is read. More than the library holds wraps round and repeats deals, which `average` and `frequency` then count twice; the run says when that happened. |
 
 ### Recognised but not supported
 

@@ -615,7 +615,13 @@ pub fn generate_from_deals(
     // One decoder, two front ends. Anything read here that the command line
     // would not read the same way is a bug in one of them, not a difference
     // between a page and a terminal.
-    let (supplied, report) = dealer_run::deals_from_bytes(deals).map_err(|e| JsError::new(&e))?;
+    // The whole file, in order. A page that wants to start somewhere else —
+    // the seed picking a position in a large library, which is what #68 asks
+    // for — will pass a window of its own; that is a decision about what the
+    // page offers, not one to make while wiring two branches together.
+    let (supplied, report) =
+        dealer_run::deals_from_bytes(deals, dealer_run::deal_input::Window::all())
+            .map_err(|e| JsError::new(&e))?;
     run_script(
         script,
         seed,
@@ -1522,7 +1528,8 @@ mod tests {
 
     /// Run a script over supplied bytes, as the page would.
     fn over(deals: &[u8], script: &str) -> Result<serde_json::Value, String> {
-        let (supplied, report) = dealer_run::deals_from_bytes(deals)?;
+        let (supplied, report) =
+            dealer_run::deals_from_bytes(deals, dealer_run::deal_input::Window::all())?;
         let json = run_script(
             script,
             1,
@@ -1611,7 +1618,9 @@ mod tests {
         // here: what is under test is that the condition is applied to these
         // deals, and a hand-copied count would agree just as well with a filter
         // that had stopped being applied at all.
-        let (deals, _) = dealer_run::deals_from_bytes(LIBRARY).expect("read the fixture");
+        let (deals, _) =
+            dealer_run::deals_from_bytes(LIBRARY, dealer_run::deal_input::Window::all())
+                .expect("read the fixture");
         let expected = deals
             .iter()
             .filter(|(deal, _)| deal.hand(Position::North).hcp() >= 13)
@@ -1743,7 +1752,9 @@ mod tests {
         // The rest of the machinery has to reach supplied deals too, not just
         // the list of them: an `average` over a file is most of why one is
         // read.
-        let (deals, _) = dealer_run::deals_from_bytes(LIBRARY).expect("read the fixture");
+        let (deals, _) =
+            dealer_run::deals_from_bytes(LIBRARY, dealer_run::deal_input::Window::all())
+                .expect("read the fixture");
         let expected: f64 = deals
             .iter()
             .map(|(deal, _)| deal.hand(Position::North).hcp() as f64)

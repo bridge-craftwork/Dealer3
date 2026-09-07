@@ -121,6 +121,37 @@ struct Args {
     #[arg(long = "input-deals", value_name = "SOURCE")]
     input_deals: Option<String>,
 
+    /// Start a solved-deal library at this record, counting from zero
+    ///
+    /// Counts *records*, not deals: a `.zrd` is fixed-length records, a section
+    /// separator is one of them, and record N is the one the file itself
+    /// numbers N. (`--input-limit` counts deals, because deals are what a run
+    /// spends.) Past the end of the file wraps round to the beginning.
+    ///
+    /// Without this, `-s` picks the starting record, so a seed means the same
+    /// thing for a library as for a generated run: the same seed reads the same
+    /// deals.
+    ///
+    /// Libraries only. A PBN or one-line file has no records to seek to and is
+    /// read from the beginning, which is said out loud.
+    #[arg(long = "input-offset", value_name = "N")]
+    input_offset: Option<u64>,
+
+    /// Read this many deals from a solved-deal library
+    ///
+    /// Counts deals: separators and unreadable records do not spend it. Only
+    /// this window is read, so a run wanting forty deals out of ten million
+    /// records reads forty-odd records rather than the file.
+    ///
+    /// More than the library holds wraps back to its first record and repeats
+    /// deals — `average` and `frequency` then count each repeat, which makes a
+    /// sample with replacement rather than a bigger sample. The run says so
+    /// when it happens.
+    ///
+    /// Without this the ceiling is `-g`, and the library is never repeated.
+    #[arg(long = "input-limit", value_name = "N")]
+    input_limit: Option<usize>,
+
     /// Level this scenario and run it, in one go
     ///
     /// Deals it once to find out what it does — how often each `HandType_*`
@@ -454,11 +485,23 @@ fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
 /// `dealer_run`'s, so a browser reading the same file behaves the same without
 /// implementing it again. What is left here is what a terminal does with the
 /// report: write it to stderr.
-fn read_input_deals(source: &str) -> Vec<dealer_run::run::SolvedDeal> {
-    let (deals, report) = dealer_run::deals_from_file(source).unwrap_or_else(|e| {
+fn read_input_deals(
+    source: &str,
+    window: dealer_run::deal_input::Window,
+    seed_given: bool,
+) -> Vec<dealer_run::run::SolvedDeal> {
+    let (deals, report) = dealer_run::deals_from_file(source, window).unwrap_or_else(|e| {
         eprintln!("Error {}", e);
         std::process::exit(1);
     });
+
+    // `-s` used to be ignored by every kind of supplied deal, and for text it
+    // still is: a PBN file is read in the order somebody wrote it. A library is
+    // the exception — the seed picks where in it to start — and the report says
+    // which record it picked, so the warning would contradict it.
+    if seed_given && report.format != "zrd" {
+        eprintln!("Warning: --seed is ignored when using --input-deals");
+    }
 
     // A name that disagreed with the content is worth a line: the file was read
     // as what it holds, which is not what the caller asked for by name.
@@ -1588,8 +1631,24 @@ fn main() {
                 );
                 std::process::exit(1);
             }
-            if args.seed.is_some() {
-                eprintln!("Warning: --seed is ignored when using --input-deals");
+        }
+
+        // The window switches are about seeking within a library, so they need
+        // one to seek in. Said here rather than ignored quietly: a caller who
+        // asked for record 900,000 and got board 1 should hear about it.
+        if args.input_deals.is_none() {
+            for (switch, given) in [
+                ("--input-offset", args.input_offset.is_some()),
+                ("--input-limit", args.input_limit.is_some()),
+            ] {
+                if given {
+                    eprintln!(
+                        "Error: {} says where to read supplied deals from, so it needs \
+                         --input-deals.",
+                        switch
+                    );
+                    std::process::exit(1);
+                }
             }
         }
 
@@ -1608,12 +1667,32 @@ fn main() {
         // dealer.exe behavior: stats hidden by default, -v shows them
         let verbose_stats = args.force_verbose || args.verbose;
 
-        // `--input-deals` supplies the deals rather than the seed. Read in full
-        // rather than streamed, because a levelled run looks at them twice —
-        // once to characterize the scenario, once to apply the keeps — and the
-        // second pass has to be able to go back to the first one's deals.
-        let input_deals: Option<Vec<dealer_run::run::SolvedDeal>> =
-            args.input_deals.as_deref().map(read_input_deals);
+        // Which part of a supplied library to read. The window is read in full
+        // rather than streamed, because a levelled run looks at the deals twice
+        // — once to characterize the scenario, once to apply the keeps — and
+        // the second pass has to be able to go back to the first one's deals.
+        // What the window buys is not reading the rest of the file at all.
+        let input_window = dealer_run::deal_input::Window {
+            // `-s` picks the record unless a record was named outright, which
+            // is what makes a library run reproducible the way a generated one
+            // is: same seed, same deals, whichever source they come from.
+            start: match args.input_offset {
+                Some(record) => dealer_run::deal_input::Start::Record(record),
+                None => dealer_run::deal_input::Start::Seed(seed),
+            },
+            // `-g` is a ceiling on what a run will look at, so it is a ceiling
+            // on what is worth reading — but it is 10,000,000 by default, and a
+            // default is no reason to repeat a short library ten million times.
+            // Repeating is what `--input-limit` asks for, and only that.
+            take: match args.input_limit {
+                Some(limit) => dealer_run::deal_input::Take::Exactly(limit),
+                None => dealer_run::deal_input::Take::AtMost(max_generate),
+            },
+        };
+        let input_deals: Option<Vec<dealer_run::run::SolvedDeal>> = args
+            .input_deals
+            .as_deref()
+            .map(|source| read_input_deals(source, input_window, args.seed.is_some()));
 
         // The switch wins over the script, as `-s` does over `seed`. Without
         // either, the script's own `_Share` declarations answer — and those

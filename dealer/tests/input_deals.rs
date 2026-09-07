@@ -724,3 +724,187 @@ fn a_library_cut_short_is_refused_with_a_reason() {
         out.stderr
     );
 }
+
+// ---------------------------------------------------------------------------
+// The window: where in a library a run starts, and how much of it it reads.
+// ---------------------------------------------------------------------------
+
+/// The deal lines of a run over the fixture library, with `args` added.
+///
+/// Every window test compares one reading against another, so they all go
+/// through here: what is under test is which deals came back and in what
+/// order, not how a deal is rendered.
+fn library_run(path: &str, args: &[&str]) -> Output {
+    let script = temp_file("script-window", "condition 1\n");
+    let mut all = vec![
+        script.to_str().expect("utf-8 path").to_string(),
+        "--input-deals".to_string(),
+        path.to_string(),
+        "-f".to_string(),
+        "oneline".to_string(),
+        "-X".to_string(),
+    ];
+    all.extend(args.iter().map(|arg| arg.to_string()));
+    let borrowed: Vec<&str> = all.iter().map(String::as_str).collect();
+    let out = run(&borrowed, None);
+    assert!(out.success, "stderr:\n{}", out.stderr);
+    out
+}
+
+/// Just the deals, in the order they were produced.
+fn deal_lines(out: &Output) -> Vec<String> {
+    out.stdout
+        .lines()
+        .filter(|line| line.starts_with("n "))
+        .map(str::to_string)
+        .collect()
+}
+
+/// `--input-offset N` starts at record N, and record N is the file's own
+/// numbering.
+#[test]
+fn an_offset_names_the_record_a_library_starts_at() {
+    let library = temp_binary("window-offset", "zrd", LIBRARY);
+    let path = library.to_str().expect("utf-8 path");
+
+    let in_order = deal_lines(&library_run(path, &["--input-offset", "0"]));
+    assert_eq!(in_order.len(), 10, "the fixture holds ten deals");
+
+    let from_seven = deal_lines(&library_run(
+        path,
+        &["--input-offset", "7", "--input-limit", "1"],
+    ));
+    assert_eq!(
+        from_seven,
+        in_order[7..8],
+        "record 7 is the eighth deal of the file"
+    );
+
+    // And the rest of the file follows it, coming round to the start.
+    let whole_pass = deal_lines(&library_run(path, &["--input-offset", "7"]));
+    let rotated: Vec<String> = in_order[7..]
+        .iter()
+        .chain(in_order[..7].iter())
+        .cloned()
+        .collect();
+    assert_eq!(whole_pass, rotated, "a pass from an offset is still a pass");
+}
+
+/// `-s` picks the starting record, so it means for a library what it means for
+/// a generated run: the same seed reads the same deals.
+#[test]
+fn the_seed_picks_where_a_library_starts() {
+    let library = temp_binary("window-seed", "zrd", LIBRARY);
+    let path = library.to_str().expect("utf-8 path");
+
+    let once = deal_lines(&library_run(path, &["-s", "1"]));
+    let again = deal_lines(&library_run(path, &["-s", "1"]));
+    assert_eq!(once, again, "the same seed should read the same deals");
+
+    let elsewhere = deal_lines(&library_run(path, &["-s", "2"]));
+    assert_ne!(
+        once[0], elsewhere[0],
+        "a different seed should start somewhere else"
+    );
+    let mut sorted_once = once.clone();
+    let mut sorted_elsewhere = elsewhere.clone();
+    sorted_once.sort();
+    sorted_elsewhere.sort();
+    assert_eq!(
+        sorted_once, sorted_elsewhere,
+        "both are a pass over the same library, in a different order"
+    );
+
+    // The seed is doing something here, so the warning that it is ignored has
+    // no business being printed.
+    let out = library_run(path, &["-s", "1"]);
+    assert!(
+        !out.stderr.contains("--seed is ignored"),
+        "the seed is not ignored for a library:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("seed 1 starts this library at record"),
+        "which record it picked is worth saying:\n{}",
+        out.stderr
+    );
+}
+
+/// Asking for more deals than the library holds wraps round, and says what
+/// that does to the statistics.
+#[test]
+fn a_limit_past_the_end_of_the_library_repeats_deals_and_reports_it() {
+    let library = temp_binary("window-wrap", "zrd", LIBRARY);
+    let path = library.to_str().expect("utf-8 path");
+
+    let out = library_run(path, &["--input-offset", "0", "--input-limit", "25"]);
+    let deals = deal_lines(&out);
+
+    assert_eq!(
+        deals.len(),
+        25,
+        "the run asked for 25 deals:\n{}",
+        out.stdout
+    );
+    assert_eq!(
+        deals[..10],
+        deals[10..20],
+        "the second pass is the first one again"
+    );
+    assert!(
+        out.stderr
+            .contains("holds 10 deals and the run asked for 25"),
+        "the repeat should be reported:\n{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("count the repeats"),
+        "and what it does to `average` and `frequency` said:\n{}",
+        out.stderr
+    );
+}
+
+/// `-g` bounds what is read without asking for the library to be repeated.
+#[test]
+fn the_generate_ceiling_does_not_repeat_the_library() {
+    let library = temp_binary("window-ceiling", "zrd", LIBRARY);
+    let path = library.to_str().expect("utf-8 path");
+
+    let out = library_run(path, &["--input-offset", "0", "-g", "25"]);
+
+    assert_eq!(
+        deal_lines(&out).len(),
+        10,
+        "a ceiling is not a demand:\n{}",
+        out.stdout
+    );
+    assert!(
+        !out.stderr.contains("repeat"),
+        "nothing repeated, so nothing to report:\n{}",
+        out.stderr
+    );
+
+    let short = library_run(path, &["--input-offset", "0", "-g", "4"]);
+    assert_eq!(
+        deal_lines(&short).len(),
+        4,
+        "and it does bound the reading:\n{}",
+        short.stdout
+    );
+}
+
+/// The window switches need a library to seek in.
+#[test]
+fn the_window_switches_need_input_deals() {
+    let script = temp_file("script-window-alone", "condition 1\n");
+
+    for switch in ["--input-offset", "--input-limit"] {
+        let out = run(&[script.to_str().expect("utf-8 path"), switch, "3"], None);
+        assert!(!out.success, "{} alone should be refused", switch);
+        assert!(
+            out.stderr.contains("needs --input-deals"),
+            "and say why:\n{}",
+            out.stderr
+        );
+    }
+}

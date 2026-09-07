@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A solved-deal library is read from an offset, and only as far as the run
+  needs** (#65). It used to be read whole into memory before the run started,
+  which for the published 241 MB library is 10,485,760 deals whether the script
+  wanted forty of them or all of them.
+
+  ```
+  dealer filter.dlr --input-deals rpdd.zrd -s 42 -g 5000
+  ```
+
+  - **`-s` picks the starting record**, so a seed means the same thing for a
+    library as for a generated run: the same seed reads the same deals. It used
+    to be ignored outright, with a warning. It still is for PBN and one-line
+    files, which are read in the order somebody wrote them.
+  - `--input-offset N` names a record instead. It counts records, separators
+    included; `--input-limit N` counts deals. Past the end of the file wraps
+    round to the beginning, so a start near the end still reads a whole library.
+  - `--input-limit` past the end of the library repeats deals, which `average`
+    and `frequency` then count more than once — a sample with replacement, not a
+    bigger sample. The run reports it when it happens. `-g` alone is a ceiling
+    on what is read and never repeats anything.
 - **`--input-deals` reads a solved-deal library from a pipe**, so a library can
   be fetched by something that already knows how:
 
