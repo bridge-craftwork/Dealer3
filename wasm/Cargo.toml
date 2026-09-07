@@ -26,6 +26,19 @@ dealer-pbn = { path = "../dealer-pbn" }
 dealer-level = { path = "../dealer-level" }
 dealer-run = { path = "../dealer-run" }
 
+# The solved-deal library, which the CLI does not need: it has the whole
+# 241MB file and seeks in it. A page cannot download that to look at five
+# deals, so it fetches 640 KiB pieces of tables and this crate makes the deals
+# those tables belong to. Git rather than a version: it is not published, and
+# the local [patch] in ../.cargo/config.toml is what a development build
+# resolves it to — see ../dev-build.sh for why bare cargo is not safe here.
+#
+# `chunks` is the layer that turns "deals from index N" into the URLs that
+# answer it. Without it the crate is the generator and the pairing alone.
+rpdd-reader = { git = "https://github.com/bridge-craftwork/rpdd-reader", features = [
+    "chunks",
+] }
+
 wasm-bindgen = "0.2"
 # For a wall-clock reading: std::time::SystemTime::now() panics on
 # wasm32-unknown-unknown. js_sys::Date works in both the browser and Node.

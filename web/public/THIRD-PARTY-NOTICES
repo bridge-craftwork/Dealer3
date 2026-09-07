@@ -17,7 +17,7 @@ was written, not the one in the copy you hold. What does not drift is
 the list of packages and what each is licensed under, which is what a
 notice is for.
 
-69 third-party packages, all under permissive licences.
+70 third-party packages, all under permissive licences.
 Dev-dependencies are excluded: a test harness is not in a binary.
 
 Summary
@@ -28,7 +28,7 @@ Summary
     1  Apache-2.0/MIT
     2  MIT
    57  MIT OR Apache-2.0
-    2  Unlicense
+    3  Unlicense
     2  Unlicense OR MIT
 
 
@@ -254,6 +254,11 @@ regex-syntax
     Licence: MIT OR Apache-2.0
     Source:  https://github.com/rust-lang/regex
     Copyright (c) 2014 The Rust Project Developers
+
+rpdd-reader
+    Licence: Unlicense
+    Source:  https://github.com/bridge-craftwork/rpdd-reader
+    Dedicated to the public domain; no copyright asserted.
 
 rustc-hash
     Licence: Apache-2.0 OR MIT

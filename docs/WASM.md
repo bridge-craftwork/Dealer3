@@ -53,6 +53,8 @@ cover this build too: it is the same generator.
 |---|---|---|
 | `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9` |
 | `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
+| `new Library(manifestUrl)` | object | The published solved-deal library, fetched a piece at a time; see below |
+| `rpdd_manifest_url()` | string | The manifest of the library we host, for `new Library(...)` |
 | `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
 | `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
@@ -174,6 +176,62 @@ The bytes are decoded in full, so the caller decides how much to hand over: a
 library is 23 bytes a record, and slicing the `Uint8Array` before passing it
 reads a window of one. (Issue #65 covers an offset and limit in the engine
 itself.)
+
+### `Library`
+
+Deals that arrive with their double-dummy tables, so `tricks()`, `dds()` and
+`par()` are lookups rather than searches. There are 10,485,760 of them — Richard
+Pavlicek's, solved over almost two years of computer time — but the file is
+241 MB, which is not a download a tab can make to look at five deals.
+
+So only the tables are published, as 640 KiB pieces, and the deals are not
+published at all: they are a pure function of their index, and `rpdd-reader`
+recreates them here at about 640ns each. `Library` joins the two and hands back
+`.zrd` bytes for `generate_from_deals` — the same bytes, the same reader and the
+same run as `--input-deals` at a terminal. There is deliberately no second run
+path.
+
+**The page does the fetching.** `fetch` is asynchronous and a wasm export cannot
+await one, so the library says what it needs and is told:
+
+```js
+const lib = new Library(rpdd_manifest_url())
+
+let need
+while ((need = lib.needs(index, count)).length)
+  for (const url of need)
+    lib.supply(url, new Uint8Array(await (await fetch(url)).arrayBuffer()))
+
+const result = JSON.parse(w.generate_from_deals(
+  script, lib.zrd(index, count), seed, 40, 1000000, "oneline",
+  false, false, [], null))
+```
+
+The first round asks for the manifest and the second for the chunks it names;
+the caller fetches URLs and never learns which is which. Cache them however you
+like — a `Map`, the Cache API, IndexedDB — and hand the same bytes back.
+
+| Member | Returns | Notes |
+|---|---|---|
+| `needs(firstDeal, count)` | `string[]` | URLs still wanted. Empty means `zrd` will answer |
+| `supply(url, bytes)` | — | Bytes for a URL `needs` returned. Throws for one it did not |
+| `zrd(firstDeal, count)` | `Uint8Array` | The run, for `generate_from_deals`. Throws while anything is missing |
+| `manifest_url` | string | What it was pointed at |
+| `total_deals` | number \| undefined | Known once the manifest has been supplied |
+| `forget_chunks()` | — | Release held pieces, keeping the manifest |
+
+A page asks for **deals from index N** and never computes a piece number, an
+offset or a wrap. Which piece holds a deal, how a run crossing a boundary is
+stitched and how one past the end wraps to the beginning are all derived from
+the manifest, inside `rpdd-reader`. `firstDeal` past the end of the library
+wraps, so an index may be derived from a seed without knowing the size.
+
+The layout is data, not code: `deals_per_chunk`, `record_bytes`, `total_deals`
+and every chunk's path and first deal come from the manifest, and chunk paths
+are resolved relative to it. Point `new Library(...)` at a different manifest of
+the same shape and it works.
+
+There is no UI for this yet; that is issue #68.
 
 ### `check_script`
 
@@ -309,6 +367,24 @@ path, which produced plausible-looking deals that simply did not honour the
 script's `predeal` lines. Run it after changing either the bindings or the CLI's
 generation loop.
 
+It passes `--input-offset 0` to the CLI, which is what makes it a comparison:
+without it the seed chooses where in a library to start (#65), and the two sides
+then read the same records in different rotations.
+
+`wasm/library-check.mjs` does the same job for `Library`, against the JS
+boundary rather than the CLI:
+
+```bash
+cd wasm && ./build.sh nodejs && node library-check.mjs
+```
+
+`cargo test` inside `wasm/` already checks the arithmetic, in Rust, on the host.
+What it cannot check is that `needs()` arrives as an array, that a `Uint8Array`
+handed to `supply()` reaches Rust as `&[u8]`, and that `zrd()` comes back as
+bytes `generate_from_deals` accepts. Those are `wasm-bindgen`'s, and they are
+where the wiring bugs happen. It serves the ten-record fixture as two `.zdd`
+chunks and checks the run byte for byte, across the join and around the wrap.
+
 ## Testing the bindings off a browser
 
 `cargo test` inside `wasm/` runs the entry points on the host, not in a browser:
@@ -322,6 +398,17 @@ file's ten, that the filter still applies to them, and what `input` says about
 each format. It is not a browser, so it does not cover the JS boundary itself:
 that a `Uint8Array` arrives as `&[u8]` is `wasm-bindgen`'s, and is exercised by
 building and calling the package (`./build.sh nodejs`).
+
+The same fixture covers `Library`, cut up the way the library is published: its
+ten records become two chunks of five tables with the deals thrown away, served
+through the ask/supply loop, and the run that comes back must be **the fixture's
+own records byte for byte** — including one that crosses the boundary between
+the two chunks and one that runs off the end and wraps. That is the check that
+catches an off-by-one in a chunk's starting deal, which would otherwise pair
+every deal with its neighbour's table: legal deals, well-formed tables, right
+lengths, wrong answers. `rpdd-reader` runs the same comparison against the whole
+241 MB library, which is not committed anywhere and which its tests skip when it
+is absent.
 
 ## Known gaps
 

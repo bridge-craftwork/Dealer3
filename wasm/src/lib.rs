@@ -16,6 +16,8 @@
 //! Output is byte-identical to the native binary for the same seed and script,
 //! so the Tier 2 regression hashes pin this build too.
 
+mod library;
+
 use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_parser::vocabulary;
 use dealer_parser::{Statement, VulnerabilityType};

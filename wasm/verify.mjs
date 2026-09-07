@@ -148,8 +148,14 @@ for (const c of SUPPLIED) {
   const path = join(tmp, `${c.name.replace(/\W+/g, '_')}.dlr`)
   writeFileSync(path, c.script)
 
+  // `--input-offset 0` is what makes this a comparison. Without it the CLI
+  // lets the seed choose where in the library to start (#65), and with no
+  // `-s` it picks the seed at random — so the two sides read the same ten
+  // records in different rotations and the diff was noise. The bindings are
+  // handed the bytes from the beginning, so the CLI is told to start there.
   const cli = parseCli(execFileSync(CLI,
-    [path, '--input-deals', LIBRARY, '-p', '100', '-f', 'oneline', '-X'],
+    [path, '--input-deals', LIBRARY, '--input-offset', '0',
+     '-p', '100', '-s', '1', '-f', 'oneline', '-X'],
     { encoding: 'utf8' }))
   const bytes = new Uint8Array(readFileSync(LIBRARY))
   const wasm = JSON.parse(
