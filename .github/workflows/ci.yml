@@ -129,6 +129,30 @@ jobs:
       working-directory: wasm
       run: cargo build --target wasm32-unknown-unknown --release
 
+    # The host tests above run the engine; these run the actual bindings and
+    # compare them against the native CLI over the same deals. Nothing else
+    # does: #65 changed what a seed means for a library, `verify.mjs` started
+    # disagreeing with the CLI, and it reached main because no job ran it.
+    - name: Install wasm-pack
+      uses: jetli/wasm-pack-action@v0.4.0
+
+    - name: Build the bindings for node
+      working-directory: wasm
+      run: ./build.sh nodejs
+
+    # verify.mjs runs this against the bindings over the same deals, so the
+    # comparison needs both halves built.
+    - name: Build the command line to compare against
+      run: cargo build --release --bin dealer
+
+    - name: The bindings agree with the command line
+      working-directory: wasm
+      run: node verify.mjs
+
+    - name: The library serves what it should
+      working-directory: wasm
+      run: node library-check.mjs
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
