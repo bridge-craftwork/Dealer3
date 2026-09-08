@@ -55,6 +55,8 @@ cover this build too: it is the same generator.
 | `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
 | `new Library(manifestUrl)` | object | The published solved-deal library, fetched a piece at a time; see below |
 | `rpdd_manifest_url()` | string | The manifest of the library we host, for `new Library(...)` |
+| `record_for_seed(seed, records)` | number | Which record a run's seed starts at — the CLI's own mapping, not a page's |
+| `script_uses_double_dummy(script, params)` | bool \| undefined | Whether anything in the script can reach the solver |
 | `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
 | `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
@@ -231,7 +233,42 @@ and every chunk's path and first deal come from the manifest, and chunk paths
 are resolved relative to it. Point `new Library(...)` at a different manifest of
 the same shape and it works.
 
-There is no UI for this yet; that is issue #68.
+The browser app uses this behind its **Pre-solved deals** radio: `web/src/lib/library.js`
+holds the page's half — fetching, caching and how much to ask for — and drives it
+from inside the engine worker, since a `Library` is a handle into one wasm
+instance's memory and cannot be passed to another thread.
+
+### `record_for_seed`
+
+```js
+const first = record_for_seed(seed, lib.total_deals)   // then needs/zrd from there
+```
+
+Where a seed starts in a library of `records` records. **A page must not work
+this out for itself.** The mapping is
+`Xoshiro256PlusPlus::seed_from_u64(seed).next_u64() % records` — the same
+`deal_input::Start::Seed` the command line reduces `-s` through, so `dealer -s 7
+--input-deals rpdd.zrd` and a browser run with seed 7 read the same deals. A
+JavaScript hash, however reasonable, lands somewhere else, and nothing fails:
+the two front ends simply disagree, healthily, for ever. `wasm/verify.mjs`
+compares a handful of seeds against the CLI's own note rather than trusting the
+agreement.
+
+`records` is the library being read, not a chunk: the seed names a deal in the
+library, and the piece follows from it. A partial library answers differently,
+which is correct — the seed names a position in the file it was given.
+
+### `script_uses_double_dummy`
+
+`true`, `false`, or `undefined` when the script does not parse — which is not
+the same as `false`, and a page must not tell someone their script asks for
+nothing when it could not read the script at all.
+
+The question a page asks before offering to fetch a library: a script that never
+calls `tricks()`, `dds()` or `par()` gains nothing from deals that arrive with
+the answers. Answered by `dd_demand::touches_solver` off the parsed program, so
+`t = tricks(north, notrump)` counts through the variable that reads it and a
+comment mentioning `par` does not count at all.
 
 ### `check_script`
 

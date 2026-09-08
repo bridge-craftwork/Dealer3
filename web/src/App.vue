@@ -40,6 +40,21 @@
 
       <section class="col col-editor">
         <div class="controls">
+          <!-- Where the deals come from. The one control on this row that is
+               about the deals rather than the run: everything beside it means
+               exactly what it meant, the seed included — on Pre-solved it picks
+               a starting position in the library instead of driving a shuffle,
+               so the same seed still gives the same deals. -->
+          <span class="source" role="radiogroup" aria-label="Deal source">
+            <label class="check" title="Shuffle deals here, from the seed. What this page has always done.">
+              <input v-model="dealSource" type="radio" name="deal-source" value="random" />
+              Random deals
+            </label>
+            <label class="check" :title="libraryHint">
+              <input v-model="dealSource" type="radio" name="deal-source" value="library" />
+              Pre-solved deals
+            </label>
+          </span>
           <label>Produce <input v-model.number="produce" class="narrow" type="number" min="1" /></label>
           <label>
             Max generate
@@ -74,6 +89,19 @@
             </select>
           </label>
         </div>
+
+        <!-- Said where it is chosen rather than in the results, because it is
+             a reason to choose differently before pressing Run: a script with
+             no double-dummy question in it downloads 640 KiB and reads none of
+             the answers. Asked of the engine, off the parsed script. -->
+        <p v-if="dealSource === 'library' && pointlessLibrary" class="source-warn">
+          {{ pointlessLibrary }}
+        </p>
+        <p v-else-if="dealSource === 'library'" class="source-note">
+          Deals come from Pavlicek's 10,485,760 solved deals, so tricks(), dds() and par() are
+          lookups rather than searches. The seed picks where in the library to start. A piece is
+          640 KiB and is kept, so only the first run of a region waits for it.
+        </p>
 
         <!-- Tabs, the levelling switch and Run share a row: three things that
              all decide what the pane below shows, and one row rather than two
@@ -128,6 +156,11 @@
                have used. -->
           <button v-if="showProgress" class="cancel" @click="cancel">Cancel</button>
         </div>
+
+        <!-- Not held back the way the bars below are. Fetching is the one part
+             of a run that waits on something outside the tab, and a page that
+             sits still for a second with nothing said reads as broken. -->
+        <p v-if="libraryStatus" class="library-status" aria-live="polite">{{ libraryStatus }}</p>
 
         <!-- Held back for a second, so the common short run does not flash a
              bar up and down. What it costs is that a run finishing at 1.1s
@@ -196,7 +229,7 @@
     :result="result"
     :scenario="selectedFile"
     :engine-ready="engineReady"
-    :params="{ seed, produce, maxGenerate, format }"
+    :params="{ seed, produce, maxGenerate, format, dealSource }"
   />
 </template>
 
@@ -208,7 +241,8 @@ import ScriptParams from '@/components/ScriptParams.vue'
 import ScriptViewer from '@/components/ScriptViewer.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import PrintView from '@/components/PrintView.vue'
-import { ready, generate, version } from '@/lib/engine.js'
+import { ready, generate, usesDoubleDummy, version } from '@/lib/engine.js'
+import { libraryStatusText, pointlessLibraryWarning } from '@/lib/library.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
@@ -250,6 +284,19 @@ const roundRobin = ref(restored?.roundRobin ?? false)
 // truncated run is a worse outcome than a second of waiting.
 const maxGenerate = ref(restored?.maxGenerate ?? 1000000)
 const format = ref(restored?.format || 'oneline')
+
+// Where the deals come from: 'random' shuffles them here, as this page always
+// has; 'library' draws them from the published solved-deal library, where every
+// deal arrives with its double-dummy table and the seed picks a starting
+// position rather than driving a shuffle.
+//
+// Random by default. Pre-solved costs a download and pays for it only when a
+// script asks a double-dummy question, which almost none do.
+const dealSource = ref(restored?.dealSource || 'random')
+
+/// The one line shown while pieces of the library are being fetched, and empty
+/// the rest of the time.
+const libraryStatus = ref('')
 
 // What has been typed into the parameter fields, by parameter number. Empty
 // means "use whatever the script declares", so clearing a field returns to the
@@ -437,6 +484,32 @@ const runHint = computed(() => {
   } and declares no default.`
 })
 
+const libraryHint =
+  'Draw from Pavlicek\u2019s 10,485,760 pre-solved deals, so tricks(), dds() and par() are ' +
+  'lookups rather than searches. The seed picks where in the library to start.'
+
+/// Whether this script asks a double-dummy question at all, as the engine reads
+/// it off the parsed program: true, false, or undefined while the engine is
+/// still loading or the script does not parse.
+///
+/// Not a search for the words. `t = tricks(north, notrump)` mentions one and
+/// `x = t` does not, and a comment mentioning `par` is not a call — which is
+/// why this is asked of the engine rather than answered with a regular
+/// expression here.
+const scriptUsesDoubleDummy = computed(() => {
+  if (!engineReady.value) return undefined
+  try {
+    return usesDoubleDummy(script.value, paramSpecs.value)
+  } catch {
+    // A script the engine cannot even look at is not a script asking for
+    // nothing; say nothing rather than the wrong thing.
+    return undefined
+  }
+})
+
+/// Why pre-solved deals are the wrong choice for this script, if they are.
+const pointlessLibrary = computed(() => pointlessLibraryWarning(scriptUsesDoubleDummy.value))
+
 // Ticked for you the first time a script with hand types appears, and left
 // alone afterwards.
 watch(hasHandTypes, (has) => {
@@ -478,6 +551,7 @@ watch(
     roundRobin,
     maxGenerate,
     format,
+    dealSource,
     selectedFile,
     autoLevel,
     newSeedEachRun,
@@ -493,6 +567,7 @@ watch(
         roundRobin: roundRobin.value,
         maxGenerate: maxGenerate.value,
         format: format.value,
+        dealSource: dealSource.value,
         scenario: selectedFile.value,
         autoLevel: autoLevel.value,
         newSeedEachRun: newSeedEachRun.value,
@@ -550,6 +625,10 @@ async function onDownload(kind) {
         maxGenerate: maxGenerate.value,
         format: 'pbn',
         params: paramSpecs.value,
+        // Saving re-runs the script, so it has to read from the same place the
+        // run on screen did — otherwise the file would hold different deals
+        // from the ones it was saved from.
+        source: dealSource.value,
       })
       downloadText(
         resultFilename(name, seed.value, 'pbn'),
@@ -564,6 +643,7 @@ async function onDownload(kind) {
         maxGenerate: maxGenerate.value,
         format: format.value === 'pbn' ? 'oneline' : format.value,
         params: paramSpecs.value,
+        source: dealSource.value,
       })
       // `printes` first, as it appears on screen: leaving it out would drop
       // what the script printed from the file the user saves.
@@ -632,9 +712,15 @@ async function run() {
       format: format.value,
       params: paramSpecs.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
+      // The deals themselves. Everything above is the same either way, which is
+      // the point of it being a choice of source rather than a second mode.
+      source: dealSource.value,
       signal: abort.signal,
       onProgress: (report) => {
         phases.value = { ...phases.value, [report.phase]: report }
+      },
+      onLibrary: (status) => {
+        libraryStatus.value = libraryStatusText(status)
       },
     })
     if (result.value.leveling) leveling.value = result.value.leveling
@@ -645,6 +731,7 @@ async function run() {
     error.value = e?.cancelled ? '' : e?.message || String(e)
   } finally {
     stopProgress()
+    libraryStatus.value = ''
     abort = null
     running.value = false
   }
@@ -777,6 +864,34 @@ body {
   background: #fff; color: var(--fg-muted); cursor: pointer;
 }
 .cancel:hover { color: #b23b3b; border-color: #d8a9a9; }
+
+/* The deal source, set apart from the numeric fields beside it: it is the one
+   control on the row that changes what a run reads rather than how much of it.
+   The rule after it does that without a second row. */
+.source {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding-right: 10px; border-right: 1px solid var(--line);
+}
+
+/* Both sit under the controls in the space a script would otherwise start in,
+   so they are read before Run rather than after it. */
+.source-note, .source-warn {
+  margin: 6px 0 0; font-size: 11.5px; line-height: 1.45;
+}
+.source-note { color: var(--fg-muted); }
+.source-warn {
+  color: var(--warn-fg);
+  background: var(--warn-subtle);
+  border-left: 3px solid var(--warn);
+  padding: 5px 8px;
+}
+
+/* Shown the moment a fetch starts, where the progress bars are held back for a
+   second: a network wait has nothing else to show for itself. */
+.library-status {
+  margin: 6px 0 2px;
+  font-size: 11px; font-family: var(--mono); color: var(--fg-muted);
+}
 
 /* Between the run row and the editor, so it sits where the wait is felt
    without pushing the script down permanently — it exists only while running. */

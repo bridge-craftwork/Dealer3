@@ -9,7 +9,7 @@
 // Requires a release build of the CLI: ./dev-build.sh build --release
 
 import { createRequire } from 'module'
-import { execFileSync } from 'child_process'
+import { execFileSync, spawnSync } from 'child_process'
 import { writeFileSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, dirname } from 'path'
@@ -182,7 +182,44 @@ for (const c of SUPPLIED) {
   if (!failures) console.log(`  \u2713 ${c.name} (read=${read?.read} produced=${wasm.produced})`)
 }
 
+// The seed's meaning across the two front ends.
+//
+// `record_for_seed` exists so that a page does not work this out for itself. A
+// JavaScript hash would be wrong in the one way nothing catches: the same seed
+// would read different deals in a tab and at a terminal, both runs would look
+// perfectly healthy, and only a comparison like this one would ever say so.
+//
+// The CLI is asked through `--input-deals` with no `--input-offset`, which is
+// what lets the seed choose the starting record; it names the record it chose
+// on stderr, and that is the number the binding has to produce.
+const SEEDS = [0, 1, 2, 42, 1000003, 4294967295]
+const seedScript = join(tmp, 'seed_start.dlr')
+writeFileSync(seedScript, 'condition 1\n')
+
+for (const seed of SEEDS) {
+  const run = spawnSync(CLI,
+    [seedScript, '--input-deals', LIBRARY, '-p', '1', '-s', String(seed), '-q'],
+    { encoding: 'utf8' })
+  const note = (run.stderr || '').match(
+    /seed (\d+) starts this library at record (\d+) of (\d+)/)
+  if (!note) {
+    fail(`seed ${seed}`,
+      `the CLI said nothing about where it started: ${JSON.stringify(run.stderr)}`)
+    continue
+  }
+  const [, said, record, records] = note
+  const fromWasm = w.record_for_seed(seed, Number(records))
+  if (Number(said) !== seed) {
+    fail(`seed ${seed}`, `the CLI reported seed ${said}`)
+  } else if (fromWasm !== Number(record)) {
+    fail(`seed ${seed}`, `cli starts at record ${record}, wasm says ${fromWasm} — `
+      + 'the same seed would read different deals in a browser and at a terminal')
+  } else {
+    console.log(`  \u2713 seed ${seed} starts at record ${record} of ${records} in both`)
+  }
+}
+
 console.log(failures
   ? `\n${failures} mismatch(es) between wasm and the native CLI`
-  : `\nall ${CASES.length + SUPPLIED.length} cases match the native CLI`)
+  : `\nall ${CASES.length + SUPPLIED.length + SEEDS.length} cases match the native CLI`)
 process.exit(failures ? 1 : 0)

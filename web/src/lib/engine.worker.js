@@ -17,6 +17,12 @@
 // worth an await, so they stay on the main thread's own instance.
 
 import init, * as engine from '@/wasm/dealer3_wasm.js'
+import {
+  createLibraryFetcher,
+  dealsToRequest,
+  learnLibrarySize,
+  supplyLibraryPieces,
+} from '@/lib/library.js'
 
 let ready = null
 
@@ -50,6 +56,76 @@ async function bringUp() {
   }
 }
 
+// --- The solved-deal library ----------------------------------------------
+//
+// The fetching lives HERE, in the worker, and not on the main thread, because
+// the wasm `Library` cannot leave the wasm instance that made it. There are two
+// instances — the page's, for the editor's instant calls, and this one, for
+// generating — and a `Library` is a handle into linear memory, not something
+// `postMessage` can clone. The main thread could fetch the bytes and send them
+// across, but only this side can say which URLs are wanted, because that answer
+// comes from `needs()`. Splitting the loop over the two would put a round trip
+// between every ask and its answer to no purpose.
+//
+// So the worker fetches, and the caching is arranged to survive the worker:
+// pieces go into the browser's Cache API, which outlives a `terminate()` — how
+// Cancel works — and a reload. The in-memory map on top of it is per worker and
+// merely saves the cache read. See `library.js`.
+//
+// The `Library` itself is kept between runs, so a second run in the same region
+// of the library fetches nothing at all.
+
+let library = null
+let fetchPiece = null
+let piecesHeld = 0
+
+/// Pieces to hold before releasing them all. Each is 640 KiB of tables inside
+/// the wasm's memory; the fetched bytes are still cached, so releasing costs a
+/// re-supply and not a download.
+const MAX_HELD_PIECES = 8
+
+/// The library, and the fetcher that feeds it, made once per worker.
+function libraryHandle() {
+  if (!library) {
+    library = new engine.Library(engine.rpdd_manifest_url())
+    fetchPiece = createLibraryFetcher({ manifestUrl: library.manifest_url })
+  }
+  return library
+}
+
+/// The deals this run should read, as `.zrd` bytes for `generate_from_deals`.
+///
+/// The order matters and is forced: the manifest says how big the library is,
+/// the size is what the seed is reduced against, and only then is there an
+/// index to say which pieces to fetch.
+async function dealsFromLibrary(options, report) {
+  const lib = libraryHandle()
+  const totalDeals = await learnLibrarySize(lib, fetchPiece, report)
+
+  // The engine's mapping, never one of ours. A JavaScript hash would send the
+  // page to a different deal from the one `dealer -s N --input-deals` reads,
+  // and nothing anywhere would say so — see `record_for_seed`.
+  const firstDeal = engine.record_for_seed(options.seed, totalDeals)
+  const requested = dealsToRequest({
+    produce: options.produce,
+    maxGenerate: options.maxGenerate,
+    totalDeals,
+  })
+
+  const { fetched } = await supplyLibraryPieces(lib, firstDeal, requested, {
+    fetchPiece,
+    onProgress: report,
+  })
+  piecesHeld += fetched
+
+  const zrd = lib.zrd(firstDeal, requested)
+  if (piecesHeld > MAX_HELD_PIECES) {
+    lib.forget_chunks()
+    piecesHeld = 0
+  }
+  return { zrd, info: { firstDeal, totalDeals, requested, fetched } }
+}
+
 self.onmessage = async (event) => {
   const { id, script, options } = event.data || {}
   try {
@@ -74,18 +150,42 @@ self.onmessage = async (event) => {
       self.postMessage({ id, type: 'progress', message })
     }
 
-    const raw = engine.generate(
-      script,
-      options.seed,
-      options.produce,
-      options.maxGenerate,
-      options.format,
-      options.autoLevel,
-      options.roundRobin,
-      options.params || [],
-      onProgress,
-    )
-    self.postMessage({ id, type: 'done', raw, threads: pool.threads })
+    // Two deal sources, one run. `generate_from_deals` is the same engine over
+    // deals it was handed instead of deals it shuffled — the filter, the
+    // statistics, the levelling and the output are all the ones above.
+    let raw
+    let libraryInfo = null
+    if (options.source === 'library') {
+      const { zrd, info } = await dealsFromLibrary(options, (status) =>
+        self.postMessage({ id, type: 'library', status }),
+      )
+      libraryInfo = info
+      raw = engine.generate_from_deals(
+        script,
+        zrd,
+        options.seed,
+        options.produce,
+        options.maxGenerate,
+        options.format,
+        options.autoLevel,
+        options.roundRobin,
+        options.params || [],
+        onProgress,
+      )
+    } else {
+      raw = engine.generate(
+        script,
+        options.seed,
+        options.produce,
+        options.maxGenerate,
+        options.format,
+        options.autoLevel,
+        options.roundRobin,
+        options.params || [],
+        onProgress,
+      )
+    }
+    self.postMessage({ id, type: 'done', raw, threads: pool.threads, library: libraryInfo })
   } catch (e) {
     // `Error` does not survive structured cloning with its message intact in
     // every browser, so send the text.

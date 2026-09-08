@@ -52,6 +52,41 @@ pub fn rpdd_manifest_url() -> String {
     rpdd_reader::RPDD_MANIFEST.to_string()
 }
 
+/// Which record a run's seed starts at, in a library of `records` records.
+///
+/// This is the *whole* of what a page needs to turn its seed box into a
+/// position in the library — and it is deliberately not arithmetic a page may
+/// do for itself. The mapping is [`dealer_run::deal_input::Start::Seed`]'s: one
+/// expansion of `SplitMix64` and one draw of xoshiro256++. A JavaScript hash
+/// that looked every bit as reasonable would land somewhere else, and nothing
+/// would fail — the page and the terminal would simply read different deals
+/// from the same seed, and only someone comparing the two would ever find out.
+///
+/// So there is one implementation with two callers, as with the reader and the
+/// run. `wasm/verify.mjs` checks the agreement rather than trusting it.
+///
+/// `records` is the size of the library being read — [`Library::total_deals`]
+/// for the published one — because the seed names a position in the file it was
+/// given. A partial library answers differently, and correctly so.
+#[wasm_bindgen]
+pub fn record_for_seed(seed: u32, records: u32) -> Result<u32, JsError> {
+    if records == 0 {
+        return Err(JsError::new(
+            "an empty library has no record for a seed to start at",
+        ));
+    }
+    // Fits: `records` is a u32, so the remainder of a division by it is one too.
+    Ok(record_of(seed, records as u64) as u32)
+}
+
+/// The mapping itself, callable from an ordinary test.
+///
+/// Split out for the same reason as [`zrd_bytes`]: a `JsError` in the signature
+/// is a `JsError` a host test cannot handle.
+fn record_of(seed: u32, records: u64) -> u64 {
+    dealer_run::deal_input::Start::Seed(seed).record(records)
+}
+
 /// A solved-deal library, described by a manifest and holding the pieces it has
 /// been given.
 ///
@@ -269,6 +304,52 @@ mod tests {
     fn serving_agrees_with_pairing_the_same_tables_directly() {
         let tables: Vec<u8> = [chunk(0), chunk(1)].concat();
         assert_eq!(served(0, 10), pair(&tables, 0).expect("ten records pair"));
+    }
+
+    /// The record a seed names is the record the reader starts at.
+    ///
+    /// The binding is three lines, so what wants testing is not the arithmetic
+    /// but the tie: the deal a page derives from its seed must be the deal a
+    /// run handed the same seed would begin with. Written against the reader
+    /// rather than against `Start::record` — which the binding calls, and which
+    /// would therefore agree with itself no matter what either of them meant.
+    #[test]
+    fn the_record_a_seed_names_is_where_the_reader_starts() {
+        use dealer_run::deal_input::{Start, Take, Window};
+
+        let (whole, _) = dealer_run::deals_from_bytes(LIBRARY, Window::all())
+            .expect("the fixture is a readable library");
+        let records = whole.len() as u64;
+
+        for seed in [0u32, 1, 2, 42, 1_000_003, u32::MAX] {
+            let record = record_of(seed, records);
+            assert!(record < records, "seed {seed} names a record off the end");
+            let (from_seed, _) = dealer_run::deals_from_bytes(
+                LIBRARY,
+                Window {
+                    start: Start::Seed(seed),
+                    take: Take::AtMost(1),
+                },
+            )
+            .expect("the fixture is a readable library");
+            assert_eq!(
+                from_seed[0].0, whole[record as usize].0,
+                "seed {seed} says record {record}, but the reader starts elsewhere"
+            );
+        }
+    }
+
+    /// Neighbouring seeds must not give neighbouring records. Mixing is the
+    /// reason `-s 1`, `-s 2` and `-s 3` across a lesson set are not three
+    /// adjacent windows of a file that is in generated order.
+    #[test]
+    fn adjacent_seeds_do_not_give_adjacent_records() {
+        let records = 10_485_760;
+        let (one, two) = (record_of(1, records), record_of(2, records));
+        assert!(
+            one.abs_diff(two) > 1_000,
+            "seeds 1 and 2 land at {one} and {two}, which is not a mix"
+        );
     }
 
     /// `Needs` is the protocol, not a failure, and must not reach a page as a

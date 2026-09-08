@@ -41,6 +41,10 @@ export function loadSession() {
       roundRobin: typeof v.roundRobin === 'boolean' ? v.roundRobin : false,
       maxGenerate: Number.isFinite(v.maxGenerate) ? v.maxGenerate : 1000000,
       format: typeof v.format === 'string' ? v.format : 'oneline',
+      // Where the deals came from last time. Anything unrecognised falls back
+      // to random: a stored value that no longer means anything should not
+      // silently start a run by downloading a library.
+      dealSource: v.dealSource === 'library' ? 'library' : 'random',
       scenario: typeof v.scenario === 'string' ? v.scenario : '',
       // Left undefined rather than defaulted, so the caller can tell "never
       // chosen" from "chosen false" — auto-level ticks itself the first time a

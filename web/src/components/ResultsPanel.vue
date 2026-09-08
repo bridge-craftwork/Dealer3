@@ -31,6 +31,16 @@
         <span v-else><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
       </div>
 
+      <!-- What the run READ, when it read rather than dealt. Above everything
+           else because it says what the numbers below were computed over: a run
+           handed forty deals from a library of four thousand produces fewer
+           matches and looks exactly like a selective filter. The CLI writes
+           this to stderr, and a page has no stderr. -->
+      <template v-if="inputReport">
+        <p class="results-note">{{ inputReport.summary }}</p>
+        <p v-for="(w, i) in inputReport.warnings" :key="'in' + i" class="results-warn">{{ w }}</p>
+      </template>
+
       <!-- Not while a round was being dealt: the hand types below say which
            ones ran out, which is the same news with the part that matters in
            it. Two warnings saying it once each read as two problems. -->
@@ -314,6 +324,7 @@ import { ref, computed } from 'vue'
 import DealGrid from '@/components/DealGrid.vue'
 import { parseOnelineDeals } from '@/lib/cardFormatting.js'
 import { formatAverage } from '@/lib/format.js'
+import { describeInput } from '@/lib/library.js'
 import { handTypePalette } from '@/lib/handTypes.js'
 import {
   rowLabels as heatRowLabels,
@@ -340,6 +351,14 @@ defineEmits(['download', 'print'])
 
 // Hands read far more easily than one-line strings, so that is the default.
 const view = ref('grid')
+
+/// What the run read, for a run that read rather than dealt: how many deals
+/// arrived, whether they came with double-dummy tables, and anything the reader
+/// could not make sense of. Null for an ordinary shuffled run, which reads
+/// nothing and has nothing to say.
+const inputReport = computed(() =>
+  props.result?.input ? describeInput(props.result.input, props.result.library) : null,
+)
 
 // The script's hand types, in the order it declares them, which is the order
 // their colours follow.

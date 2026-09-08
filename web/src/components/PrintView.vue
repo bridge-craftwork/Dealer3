@@ -11,6 +11,12 @@
         <div><dt>Max generate</dt><dd>{{ params.maxGenerate.toLocaleString() }}</dd></div>
         <div><dt>Format</dt><dd>{{ params.format }}</dd></div>
         <div class="p-seed"><dt>Seed</dt><dd>{{ params.seed }}</dd></div>
+        <!-- Only when it was not the usual shuffle: a printed set from the
+             solved-deal library is reproducible from the seed the same way, but
+             only if the reader knows which source to reproduce it from. -->
+        <div v-if="params.dealSource === 'library'">
+          <dt>Deals</dt><dd>pre-solved library</dd>
+        </div>
       </dl>
     </header>
 

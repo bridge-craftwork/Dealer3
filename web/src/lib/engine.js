@@ -6,6 +6,7 @@
 
 import init, {
   check_script as wasmCheck,
+  script_uses_double_dummy as wasmUsesDoubleDummy,
   script_params as wasmScriptParams,
   language_info as wasmLanguageInfo,
   version as wasmVersion,
@@ -67,6 +68,13 @@ function runInWorker(script, options) {
       const data = event.data || {}
       // A message from a run that was cancelled and replaced.
       if (data.id !== id) return
+      // Fetching a piece of the solved-deal library: a network wait, where
+      // generating is immediate. Reported from the first byte rather than held
+      // back like the progress bars, because there is nothing else to see.
+      if (data.type === 'library') {
+        options.onLibrary?.(data.status)
+        return
+      }
       if (data.type === 'progress') {
         if (options.onProgress) {
           try {
@@ -77,7 +85,7 @@ function runInWorker(script, options) {
         }
         return
       }
-      if (data.type === 'done') finish(resolve, data.raw)
+      if (data.type === 'done') finish(resolve, data)
       else finish(reject, new Error(data.message || 'the engine failed'))
     }
 
@@ -109,6 +117,12 @@ function runInWorker(script, options) {
         maxGenerate: options.maxGenerate,
         format: options.format,
         autoLevel: options.autoLevel,
+        roundRobin: options.roundRobin,
+        // Where the deals come from: 'random' shuffles from the seed, 'library'
+        // draws from the published solved-deal library, where the seed picks
+        // the starting position instead. The worker does the fetching — see
+        // engine.worker.js for why it cannot be done out here.
+        source: options.source,
         // A plain copy: the caller's array is a Vue ref's, and a reactive
         // proxy cannot be structured-cloned — postMessage fails outright with
         // "[object Object] could not be cloned", which says nothing about
@@ -164,23 +178,35 @@ export async function generate(
     /// A parameter left out here falls back to the script's own `# param`
     /// default, and fails the run if it has none.
     params = [],
+    /// Where the deals come from: `'random'` shuffles them from the seed, as
+    /// this page always has; `'library'` draws them from the published
+    /// solved-deal library, where the seed picks a starting position instead
+    /// and every deal arrives with its double-dummy table.
+    source = 'random',
     /// Called with `{ phase, produced, generated, target }` as the run goes.
     onProgress = null,
+    /// Called with `{ stage, done, total, url }` while pieces of the library
+    /// are being fetched. Only a library run reports this, and it reports it
+    /// before any deal has been looked at.
+    onLibrary = null,
     /// Resolves — or rejects — if the caller abandons the run.
     signal = null,
   } = {},
 ) {
-  const raw = JSON.parse(await runInWorker(script, {
+  const message = await runInWorker(script, {
     seed,
     produce,
     maxGenerate,
     format,
     autoLevel,
     roundRobin,
+    source,
     params,
     onProgress,
+    onLibrary,
     signal,
-  }))
+  })
+  const raw = JSON.parse(message.raw)
   return {
     deals: raw.deals,
     generated: raw.generated,
@@ -210,6 +236,17 @@ export async function generate(
     // rounds, how many deals were left over, and whether the rounds were even
     // or weighted by `HandType_X_Share`.
     roundRobin: raw.round_robin,
+    // What the run read, when it read rather than dealt: how many deals
+    // arrived, how many came with double-dummy tables, what could not be read.
+    // A page has no stderr, and this is the only thing that tells a run over a
+    // short library from a run over all of it — neither `produced` nor
+    // `hitLimit` can, since a run that exhausts its deals has not hit its
+    // budget. Absent for a run that shuffled.
+    input: raw.input || null,
+    // Where in the library this run started, how big the library is and how
+    // many deals were asked for. From the worker rather than the engine: it is
+    // what the page asked for, against which `input.read` is worth reading.
+    library: message.library || null,
     // `deals` is capped by the engine; `produced` counts every match. A script
     // gathering statistics over 50,000 deals returns statistics for all of them
     // and only the first few hundred deals.
@@ -227,6 +264,22 @@ export async function generate(
 export function checkScript(script, params = []) {
   assertReady('checkScript')
   return JSON.parse(wasmCheck(script, params))
+}
+
+/**
+ * Whether anything in the script can reach the double-dummy solver: `true`,
+ * `false`, or `undefined` when the script does not parse, which is not the same
+ * as no.
+ *
+ * The page asks before offering pre-solved deals, since a script that never
+ * calls `tricks()`, `dds()` or `par()` gains nothing from deals that arrive
+ * with the answers. Answered by the engine off the parsed program rather than
+ * by searching the text here: `t = tricks(north, notrump)` mentions one and
+ * `x = t` does not, and a comment mentioning `par` is not a call.
+ */
+export function usesDoubleDummy(script, params = []) {
+  assertReady('usesDoubleDummy')
+  return wasmUsesDoubleDummy(script, params)
 }
 
 /**
