@@ -1502,6 +1502,31 @@ pub fn script_params(script: &str) -> String {
     serde_json::to_string(&result).unwrap_or_default()
 }
 
+/// Whether anything in `script` can reach the double-dummy solver.
+///
+/// `true` when a `tricks`, `dds`, `par` or `trix` — under any of its spellings,
+/// in a condition, an action or a variable either of them reads — is actually
+/// evaluated. The question a page asks with it is whether solved deals are
+/// worth fetching: a script that never asks a double-dummy question gains
+/// nothing from a library that arrives with the answers, and should not be
+/// paying a download for it.
+///
+/// `undefined` when the script does not parse, which is not the same as no. A
+/// page must not tell someone their script wants no double-dummy work when it
+/// has not been able to read the script at all.
+///
+/// Answered by the same [`dealer_run::dd_demand::touches_solver`] the run uses
+/// to decide whether to carry answers with its deals, rather than by looking
+/// for the words: `t = tricks(north, notrump)` mentions one and `x = t` does
+/// not, and a comment mentioning `par` is not a call.
+#[wasm_bindgen]
+pub fn script_uses_double_dummy(script: &str, params: Vec<String>) -> Option<bool> {
+    let params = script_params_from(&params).ok()?;
+    let preprocessed = dealer_parser::preprocess_all(script, &params).ok()?;
+    let program = dealer_parser::parse_program(&preprocessed).ok()?;
+    Some(dealer_run::dd_demand::touches_solver(&program))
+}
+
 /// Engine version, so a page can show which build it is running.
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -1778,5 +1803,59 @@ mod tests {
             expected
         );
         assert_eq!(result["averages"][0]["count"], 10);
+    }
+
+    /// What a page asks before offering to fetch a solved-deal library: does
+    /// this script ask a double-dummy question at all?
+    ///
+    /// Read off the parsed program rather than the text, which is the whole
+    /// reason it is answered here and not in JavaScript — the last two cases
+    /// are ones a search for the words gets wrong in both directions.
+    #[test]
+    fn a_script_says_whether_it_asks_a_double_dummy_question() {
+        let cases: [(&str, Option<bool>, &str); 7] = [
+            (
+                "condition hcp(north) >= 20\n",
+                Some(false),
+                "nothing here reaches the solver",
+            ),
+            (
+                "condition tricks(north, notrump) >= 9\n",
+                Some(true),
+                "a condition that solves",
+            ),
+            (
+                "condition 1\naction printoneline, average \"par\" par(north)\n",
+                Some(true),
+                "an action that solves",
+            ),
+            (
+                "condition 1\naction printoneline, average \"t\" dds(north, notrump)\n",
+                Some(true),
+                "dds under its own spelling",
+            ),
+            (
+                "t = tricks(south, hearts)\ncondition t >= 10\n",
+                Some(true),
+                "through a variable",
+            ),
+            (
+                "# par and tricks are what this script does not do\ncondition hcp(north) >= 4\n",
+                Some(false),
+                "the words in a comment are not calls",
+            ),
+            (
+                "condition hcp(north) >=\n",
+                None,
+                "an unreadable script is not a no",
+            ),
+        ];
+        for (script, expected, why) in cases {
+            assert_eq!(
+                script_uses_double_dummy(script, Vec::new()),
+                expected,
+                "{why}: {script:?}"
+            );
+        }
     }
 }
