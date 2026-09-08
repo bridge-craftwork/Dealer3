@@ -370,12 +370,14 @@ impl Workers {
     /// rather than being looked up in a store keyed by cards (#61).
     fn build_and_test(
         &self,
+        start: usize,
         count: usize,
         build: &(dyn Fn(usize) -> Deal + Sync),
         test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
         harvest: bool,
     ) -> Vec<Tested> {
-        let one = |index: usize| {
+        let one = |offset: usize| {
+            let index = start + offset;
             let deal = build(index);
             let passed = test(index, &deal);
             let known = if harvest {
@@ -400,6 +402,44 @@ impl Workers {
             }
         }
         (0..count).map(one).collect()
+    }
+
+    /// The same, offered to a caller in pieces of `chunk`, with `between`
+    /// called after each piece that is not the last.
+    ///
+    /// `chunk >= count` is the ordinary case and does exactly what
+    /// [`Workers::build_and_test`] does: one map, one vector, straight out of
+    /// the pool, and the loop below never runs. `between` is never called.
+    ///
+    /// It lives here rather than in `run_pass` because of what it cost there.
+    /// Written as `if solving { chunked } else { whole }` in the pass, both
+    /// paths were live in the hottest function in the crate, and a run that
+    /// never solved — which is nearly all of them — paid **2.4%** for the one
+    /// it did not take. The same code with the chunked arm statically dead ran
+    /// **1.9% faster** than the version before any of this, which is the size
+    /// of what inlining and code layout were doing. One call site, always
+    /// taken, is the fix; the branch that chooses is a `chunk` value rather
+    /// than two paths through the caller.
+    ///
+    /// It cannot change what comes out: the work is a map from index to deal,
+    /// collected in the order the indices were drawn, so where the pieces are
+    /// cut changes when the threads are handed their work and nothing else.
+    fn build_and_test_in_chunks(
+        &self,
+        count: usize,
+        chunk: usize,
+        build: &(dyn Fn(usize) -> Deal + Sync),
+        test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
+        harvest: bool,
+        between: &mut dyn FnMut(usize),
+    ) -> Vec<Tested> {
+        let mut built = self.build_and_test(0, chunk.min(count), build, test, harvest);
+        while built.len() < count {
+            between(built.len());
+            let from = built.len();
+            built.extend(self.build_and_test(from, chunk.min(count - from), build, test, harvest));
+        }
+        built
     }
 
     /// Run `warm` over every deal, on the pool.
@@ -901,14 +941,18 @@ fn pass_numbers(
 /// pass takes its batch whole, as it always did.
 const SOLVING_CHUNK: usize = 32;
 
-/// Produced deals between progress reports, once a pass is solving.
+/// Matching deals between progress reports, once a pass is solving.
 ///
 /// The produced loop runs on this thread, and a script whose `average` or whose
-/// action asks a double-dummy question the warm above could not read off the
-/// script solves here, one deal at a time. Counting to eight rather than
-/// reading a clock keeps the report off the per-deal path: the host reads its
-/// own clock and throttles, and it is asked eight times less often than there
-/// are deals.
+/// action asks a double-dummy question the warm could not read off the script
+/// solves here, one deal at a time. Counting to eight rather than reading a
+/// clock keeps the report cheap: the host reads its own clock and throttles,
+/// and is asked eight times less often than there are matching deals.
+///
+/// *Matching* deals, counted after the condition has had its say. Everything
+/// expensive on this thread is downstream of the condition, so a deal it
+/// rejected has nothing to report — and counting those instead put a compare
+/// and a branch on the one path every single deal takes.
 const SOLVING_REPORT_EVERY: usize = 8;
 
 fn run_pass(
@@ -1007,6 +1051,9 @@ fn run_pass(
     let mut produced = 0usize;
     let mut generated = 0usize;
     let mut replayed = 0usize;
+    // Deals that passed the condition, across the pass. Only ever read to space
+    // out progress reports, and only ever touched by a pass that solves.
+    let mut matched_seen = 0usize;
     let mut resumed = opts.replay.is_empty();
     let batch_size = opts.batch;
 
@@ -1063,42 +1110,52 @@ fn run_pass(
         // what comes out — it maps indices to deals and collects them in
         // order — only when the threads are handed their work.
         //
-        // The first call takes the whole batch unless the pass is solving, and
-        // then the loop below never runs and this is what it always was — one
-        // map, one vector, no copy. That is the point of writing it this way
-        // round rather than accumulating into a vector of the batch's size: the
-        // batch is a hundred kilobytes of `Tested`, and moving it twice cost
-        // very nearly one per cent of plain generation.
-        let first = if solving {
-            SOLVING_CHUNK.min(handles.len())
+        // Two paths, and the ordinary one is the single call it always was: one
+        // map, one vector, straight out of the worker pool with nothing copied
+        // and nothing appended. Reporting through a batch belongs to the pass
+        // that needs it, so it lives in `build_in_chunks` and this function is
+        // no bigger on the path almost every run takes.
+        // One call, always taken. Which of the two things it does is a `chunk`
+        // value rather than two paths through this function — see
+        // `Workers::build_and_test_in_chunks`, and the 2.4% that writing it the
+        // other way cost a run that never solves.
+        //
+        // Nothing is observed while a batch is being built, so what the pass
+        // has produced and what it is aiming at cannot move: worked out once,
+        // here, rather than per report.
+        let chunk = if solving {
+            SOLVING_CHUNK
         } else {
             handles.len()
         };
-        let mut built = workers.build_and_test(
-            first,
+        let (done, target) =
+            pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+        // Copies, and they have to be. A closure captures what it reads by
+        // reference, so reading `generated` from inside one takes its address —
+        // and `generated` is incremented once per deal in the loop below, so
+        // that alone moves the pass's hottest counter out of a register and
+        // onto the stack for the whole function. Worth 1.7% of a script with a
+        // substantial condition, and invisible in the source until you look for
+        // it. These are read once each and never written, so the counter itself
+        // stays where it belongs.
+        let batch_generated = generated;
+        let batch_from_stream = from_stream;
+        let phase = opts.phase;
+        let built = workers.build_and_test_in_chunks(
+            handles.len(),
+            chunk,
             &|index| source.build(handles[index]),
             &|index, deal| test(known_at(&carried, index), deal),
             dd_in_play,
+            &mut |built_so_far| {
+                let so_far = if batch_from_stream {
+                    batch_generated + built_so_far
+                } else {
+                    batch_generated
+                };
+                host.progress(phase, done, so_far, target);
+            },
         );
-        while built.len() < handles.len() {
-            // What the chunk just built came to, before asking for another.
-            let (done, target) =
-                pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
-            let so_far = if from_stream {
-                generated + built.len()
-            } else {
-                generated
-            };
-            host.progress(opts.phase, done, so_far, target);
-            let from = built.len();
-            let take = SOLVING_CHUNK.min(handles.len() - from);
-            built.extend(workers.build_and_test(
-                take,
-                &|index| source.build(handles[from + index]),
-                &|index, deal| test(known_at(&carried, from + index), deal),
-                dd_in_play,
-            ));
-        }
 
         // Deals this pass has dealt and tested, counting the batch in hand.
         // Held rather than read off `generated`, which is incremented as the
@@ -1180,15 +1237,6 @@ fn run_pass(
         }
 
         for (index, tested) in built.iter().enumerate() {
-            // The main thread's own solving happens below: an `average` over
-            // `tricks()`, or an action asking for a cell the warm could not
-            // read off the script, is searched here one deal at a time. A run
-            // that never solves evaluates nothing after the `&&`.
-            if solving && index % SOLVING_REPORT_EVERY == 0 {
-                let (done, target) =
-                    pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
-                host.progress(opts.phase, done, dealt, target);
-            }
             let deal = &tested.deal;
             if from_stream {
                 generated += 1;
@@ -1202,6 +1250,26 @@ fn run_pass(
             }
             let observed =
                 accumulator.observe(deal, &variables, point_counts, known_at(&known, index))?;
+            // Where the main thread does its own solving: an `average` over
+            // `tricks()`, or an action asking for a cell the warm could not
+            // read off the script, is searched right here, one deal at a time.
+            //
+            // Below the early-out above, and counting deals that got this far
+            // rather than the batch index, because everything expensive on this
+            // thread is downstream of the condition. A deal the condition threw
+            // away costs nothing to report on — and testing for it up there put
+            // a compare and a branch on the one path every deal takes, and kept
+            // `index` live where it had been dead. That was worth 1.4% of a
+            // run whose condition matches nothing, which is the shape that
+            // shows it.
+            if solving {
+                matched_seen += 1;
+                if matched_seen.is_multiple_of(SOLVING_REPORT_EVERY) {
+                    let (done, target) =
+                        pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+                    host.progress(opts.phase, done, dealt, target);
+                }
+            }
             if from_stream {
                 retained.offer(
                     handles[index],
