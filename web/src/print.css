@@ -103,6 +103,28 @@
   }
   .p-count { text-align: right; width: 3em; }
 
+  /* A two-axis frequency prints as its table of counts, not as bars. Bars can
+     only show one axis, so they would quietly show the row sums — a different
+     and much duller statistic than the one asked for, since the whole point of
+     a second axis is how each row spreads along it.
+
+     No shading. A paper table is read by its numbers, and a grey ramp survives
+     neither a mono printer nor a photocopier. Small and tight instead: this
+     fits a 21x14 grid across a portrait page, which is the shape these usually
+     have. */
+  .p-grid-freq { font-size: 6.5pt; border-collapse: collapse; width: auto; }
+  .p-grid-freq th, .p-grid-freq td {
+    padding: 0.5mm 0.9mm; text-align: right; font-variant-numeric: tabular-nums;
+    width: auto;
+  }
+  .p-grid-freq thead th { border-bottom: 0.3pt solid #999; font-weight: 600; }
+  .p-grid-freq tbody th { font-weight: 600; padding-right: 1.4mm; }
+  .p-grid-freq .p-sum { border-left: 0.3pt solid #ccc; font-weight: 600; }
+  .p-grid-freq tfoot .p-sum { border-left: none; border-top: 0.3pt solid #999; }
+  /* Empty rather than nought: on a sparse grid the zeros are the majority and
+     printing them all buries the shape the table exists to show. */
+  .p-grid-freq .p-zero { color: transparent; }
+
   /* --- deals ------------------------------------------------------------- */
   .p-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6pt; }
   .p-board {
