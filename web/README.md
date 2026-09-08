@@ -332,6 +332,22 @@ a page that fails to load. The deal source is restored the same way, with one
 extra rule: anything but `library` reads back as random deals, so a stored value
 that no longer means anything cannot start a visit by downloading a library.
 
+Whether the scenario list is showing is kept here too, and it is the one setting
+with a right answer for someone who has never chosen: anything that is not a
+stored `false` reads back as open, because the list is how a first visit finds
+something to run. Once closed it stays closed — someone who closed it is editing
+a script, and having to close it again on every reload is the whole complaint.
+
+## Hiding the scenario list
+
+The picker finds a starting point and then costs 260px for as long as the script
+is being edited. **‹** beside the search closes it; what is left is a 28px rail
+labelled *Scenarios*, and the whole rail is the way back. A rail rather than
+nothing at all, because closing it is the only thing that hides it and clicking
+somewhere unmarked is not a way back anyone would find. The two `1fr` columns
+take the 232px between them, so the editor and the results both grow rather than
+a gap being left where the panel was.
+
 ## Editor appearance
 
 The editor is dark (One Dark) on an otherwise light page. Syntax palettes are

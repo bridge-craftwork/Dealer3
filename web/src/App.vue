@@ -33,9 +33,31 @@
       <span v-if="engineVersion" class="bar-version">engine {{ engineVersion }}</span>
     </header>
 
-    <main class="cols">
-      <aside class="col col-picker">
-        <ScenarioPicker :selected="selectedFile" :busy-file="loadingFile" @select="pickScenario" />
+    <main class="cols" :class="{ 'picker-closed': !pickerOpen }">
+      <!-- The scenario list is how you find a starting point, and then it is
+           260px of nothing while you edit. Closing it hands that width to the
+           editor and the results, which share the rest of the row. -->
+      <aside class="col col-picker" :class="{ 'is-closed': !pickerOpen }">
+        <ScenarioPicker
+          v-if="pickerOpen"
+          :selected="selectedFile"
+          :busy-file="loadingFile"
+          @select="pickScenario"
+          @close="pickerOpen = false"
+        />
+        <!-- What is left when it is closed: a labelled rail, not a bare edge.
+             An icon alone would leave the list findable only by whoever hid
+             it, and this is the only way back. -->
+        <button
+          v-else
+          class="picker-open"
+          title="Show the scenario list"
+          aria-expanded="false"
+          @click="pickerOpen = true"
+        >
+          <span aria-hidden="true">›</span>
+          <span class="picker-open-label">Scenarios</span>
+        </button>
       </aside>
 
       <section class="col col-editor">
@@ -409,6 +431,11 @@ const result = ref(null)
 const error = ref('')
 const scriptValid = ref(true)
 const selectedFile = ref(restored?.scenario || '')
+// Whether the scenario list is showing. Open on a first visit — it is how you
+// find something to run — and remembered from then on, because someone who has
+// closed it is editing a script and would have to close it again on every
+// reload otherwise.
+const pickerOpen = ref(restored?.pickerOpen ?? true)
 const loadingFile = ref('')
 const downloading = ref(false)
 
@@ -569,6 +596,7 @@ watch(
     format,
     dealSource,
     selectedFile,
+    pickerOpen,
     autoLevel,
     newSeedEachRun,
     paramValues,
@@ -585,6 +613,7 @@ watch(
         format: format.value,
         dealSource: dealSource.value,
         scenario: selectedFile.value,
+        pickerOpen: pickerOpen.value,
         autoLevel: autoLevel.value,
         newSeedEachRun: newSeedEachRun.value,
         paramValues: paramValues.value,
@@ -822,6 +851,9 @@ body {
 .bar-version { font-size: 11px; color: var(--fg-muted); font-family: var(--mono); }
 
 .cols { display: grid; grid-template-columns: 260px 1fr 1fr; flex: 1; min-height: 0; }
+/* The first column shrinks to the rail; the two `1fr` columns take the 232px
+   it gave up between them, which is the point of closing it. */
+.cols.picker-closed { grid-template-columns: 28px 1fr 1fr; }
 .col { min-width: 0; min-height: 0; }
 .col-picker { border-right: 1px solid var(--line); }
 .col-editor { display: flex; flex-direction: column; padding: 8px; gap: 8px; min-height: 0; }
@@ -988,9 +1020,28 @@ body {
   .progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
 }
 
+/* The rail the closed list leaves behind: the whole column is the way back, so
+   it cannot be missed and does not need aiming at. Vertical, because 28px of
+   width is what was freed and a horizontal label would not fit in it. */
+.picker-open {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 0;
+  border: 0; background: var(--bg-subtle); color: var(--fg-muted);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.picker-open:hover { background: var(--accent-subtle); color: var(--fg); }
+.picker-open-label { writing-mode: vertical-rl; letter-spacing: 0.04em; }
+
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; grid-template-rows: auto 1fr 1fr; }
+  /* Stacked, the list is a row rather than a column, so the closed rail is a
+     strip across the top and its label reads the ordinary way round. */
+  .cols.picker-closed { grid-template-columns: 1fr; }
   .col-picker { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+  .col-picker.is-closed { max-height: none; }
+  .picker-open { height: auto; flex-direction: row; padding: 6px 10px; }
+  .picker-open-label { writing-mode: horizontal-tb; }
   .col-results { border-left: 0; border-top: 1px solid var(--line); }
 }
 </style>

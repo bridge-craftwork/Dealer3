@@ -23,6 +23,7 @@ const session = {
   format: 'printall',
   dealSource: 'library',
   scenario: 'Weak_2_Bids',
+  pickerOpen: true,
   paramValues: { 0: 'west', 1: '15' },
 }
 
@@ -124,6 +125,26 @@ describe('the checkbox settings', () => {
     saveSession({ ...session, autoLevel: false, newSeedEachRun: false })
     expect(loadSession().autoLevel).toBe(false)
     expect(loadSession().newSeedEachRun).toBe(false)
+  })
+
+  // Unlike those two, the scenario list has a right answer for someone who has
+  // never chosen: it is how a first visit finds anything to run. So it defaults
+  // to open rather than to undefined — but a visit that closed it must not have
+  // it re-open on the next load, which is what this pins.
+  it('remember the scenario list being closed', () => {
+    saveSession({ ...session, pickerOpen: false })
+    expect(loadSession().pickerOpen).toBe(false)
+
+    saveSession({ ...session, pickerOpen: true })
+    expect(loadSession().pickerOpen).toBe(true)
+  })
+
+  it('show the scenario list to a session that predates it, or one that says nonsense', () => {
+    const { pickerOpen, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().pickerOpen).toBe(true)
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, pickerOpen: 'shut' }))
+    expect(loadSession().pickerOpen).toBe(true)
   })
 
   it('are undefined when never chosen, which is not the same as false', () => {
