@@ -28,6 +28,27 @@
             + {{ producedSeconds.toFixed(2) }} additional dealing
           </span>
         </span>
+        <!-- Split the same way when the deals were fetched rather than dealt.
+             Getting them is part of the wait and belongs in the total, but on
+             a cold cache the download is most of it — 1.98 sec against 0.22
+             once the pieces are held — and one figure would credit the engine
+             with the network's time, or blame it for it. -->
+        <!-- The split is real but it is detail: most people want to know how
+             long it took, not which half was the network. Behind a hover on a
+             pointer, and a tap where there is none. -->
+        <span
+          v-else-if="librarySplitWorthShowing"
+          class="stats-split-toggle"
+          :title="librarySplitText"
+          role="button"
+          tabindex="0"
+          @click="showLibrarySplit = !showLibrarySplit"
+          @keydown.enter.prevent="showLibrarySplit = !showLibrarySplit"
+          @keydown.space.prevent="showLibrarySplit = !showLibrarySplit"
+        >
+          <strong>{{ result.seconds.toFixed(3) }}</strong> sec
+          <span v-if="showLibrarySplit" class="stats-split">{{ librarySplitText }}</span>
+        </span>
         <span v-else><strong>{{ result.seconds.toFixed(3) }}</strong> sec</span>
       </div>
 
@@ -150,9 +171,14 @@
         <h3>Averages</h3>
         <div class="avg">
           <div v-for="(a, i) in plainAverages" :key="i" class="avg-row">
-            <span class="avg-label">{{ (a.label || 'Average').trim() }}</span>
+            <span class="avg-label" :class="{ 'is-indented': isIndented(a.label) }">{{
+              labelOf(a.label, 'Average') }}</span>
             <span class="avg-bar-track">
-              <span class="avg-bar" :style="{ width: averageBarWidth(a.value) }"></span>
+              <span
+                class="avg-bar"
+                :class="{ 'is-sub': isIndented(a.label) }"
+                :style="{ width: averageBarWidth(a.value) }"
+              ></span>
             </span>
             <span class="avg-value">{{ formatValue(a.value) }}</span>
           </div>
@@ -161,7 +187,7 @@
 
       <!-- frequency "label" (expr, min, max) -->
       <section v-for="(f, i) in result.frequencies" :key="'f' + i" class="block">
-        <h3>{{ (f.label || 'Frequency').trim() }}</h3>
+        <h3 class="freq-title">{{ labelOf(f.label, 'Frequency') }}</h3>
 
         <p v-if="!f.total" class="results-muted">No observations.</p>
 
@@ -182,7 +208,7 @@
           <div v-if="f.grid" class="heat-scroll">
             <table class="heat">
               <caption class="sr-only">
-                Counts by {{ (f.label || 'the two expressions').trim() }}
+                Counts by {{ labelOf(f.label, 'the two expressions').trim() }}
               </caption>
               <thead>
                 <tr>
@@ -324,6 +350,7 @@ import { ref, computed } from 'vue'
 import DealGrid from '@/components/DealGrid.vue'
 import { parseOnelineDeals } from '@/lib/cardFormatting.js'
 import { formatAverage } from '@/lib/format.js'
+import { labelOf, isIndented } from '@/lib/labels.js'
 import { describeInput } from '@/lib/library.js'
 import { handTypePalette } from '@/lib/handTypes.js'
 import {
@@ -572,6 +599,29 @@ function percent(count, total) {
 
 // The grid's arithmetic and its colour ramp, kept in lib so they can be
 // tested without a DOM — see `heatmap.test.js`.
+/**
+ * Is the library half worth breaking out?
+ *
+ * Only when it is a real share of the wait. A run that read its deals in a
+ * millisecond has nothing to explain, and a split reading "0.001 fetching"
+ * is noise dressed as detail.
+ */
+const showLibrarySplit = ref(false)
+
+/** What the two halves were, for the tooltip and for the tap. */
+const librarySplitText = computed(() =>
+  props.result
+    ? `${props.result.librarySeconds.toFixed(3)} fetching the library, ` +
+      `${props.result.engineSeconds.toFixed(3)} running the script`
+    : '',
+)
+
+const librarySplitWorthShowing = computed(
+  () =>
+    props.result?.librarySeconds > 0.02 &&
+    props.result.librarySeconds > props.result.seconds * 0.1,
+)
+
 const gridRowLabels = heatRowLabels
 const gridColumnLabels = heatColumnLabels
 const gridPeak = heatPeak
@@ -615,6 +665,13 @@ const formatValue = formatAverage
 .avg { display: flex; flex-direction: column; gap: 3px; }
 .avg-row { display: grid; grid-template-columns: minmax(6em, 14em) 1fr 5em; align-items: center; gap: 8px; font-size: 12px; }
 .avg-label { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+/* An indented label is aligning itself against its neighbours, which only
+   works if every space is the same width. The interface's own face is
+   proportional, so four spaces there are narrower than four in the terminal
+   the script was written for — and worse, they differ from the four on the
+   line below. Ordinary labels keep the proportional face; only the ones
+   leaning on their indent pay the monospace tax. */
+.avg-label.is-indented { font-family: var(--mono); }
 /* Hand types. Every column but the bar sizes to its own content, so the label
    sits against its bar rather than across a gap of reserved space, and the
    count on the right never has to wrap — the bar gives up the width instead,
@@ -714,6 +771,12 @@ const formatValue = formatAverage
 
 .avg-bar-track { background: var(--bg-subtle); border-radius: 2px; height: 14px; overflow: hidden; }
 .avg-bar { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+/* An indented label is a breakdown of the line above it — that is what the
+   indent is for — so its bar is marked as a part rather than another whole.
+   See `--accent-sub` for why a second hue and not a paler accent. */
+.avg-bar.is-sub { background: var(--accent-sub); }
+.stats-split-toggle { cursor: help; }
+.stats-split-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .avg-value { font-family: var(--mono); text-align: right; }
 
 .freq-outside { font-size: 12px; color: var(--warn-fg); margin: 0 0 6px; }

@@ -155,10 +155,18 @@ self.onmessage = async (event) => {
     // statistics, the levelling and the output are all the ones above.
     let raw
     let libraryInfo = null
+    // Getting the deals is part of the run, so it is part of the time. The
+    // engine only times what it does itself, and for a library run most of the
+    // work happens before it is called: fetching the pieces, and rebuilding
+    // the deals from their indexes. Reporting the engine's figure alone showed
+    // a number that omitted the larger half.
+    let librarySeconds = 0
     if (options.source === 'library') {
+      const startedLibrary = performance.now()
       const { zrd, info } = await dealsFromLibrary(options, (status) =>
         self.postMessage({ id, type: 'library', status }),
       )
+      librarySeconds = (performance.now() - startedLibrary) / 1000
       libraryInfo = info
       raw = engine.generate_from_deals(
         script,
@@ -185,7 +193,14 @@ self.onmessage = async (event) => {
         onProgress,
       )
     }
-    self.postMessage({ id, type: 'done', raw, threads: pool.threads, library: libraryInfo })
+    self.postMessage({
+      id,
+      type: 'done',
+      raw,
+      threads: pool.threads,
+      library: libraryInfo,
+      librarySeconds,
+    })
   } catch (e) {
     // `Error` does not survive structured cloning with its message intact in
     // every browser, so send the text.

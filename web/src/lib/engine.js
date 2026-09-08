@@ -211,7 +211,14 @@ export async function generate(
     deals: raw.deals,
     generated: raw.generated,
     produced: raw.produced,
-    seconds: raw.seconds,
+    // The engine's own time plus what it took to get the deals to it. For a
+    // library run the fetch and the rebuilding from indexes are most of the
+    // work, and they happen before the engine is called — so its figure alone
+    // reports a fraction of the wait and calls it the total.
+    seconds: raw.seconds + (message.librarySeconds || 0),
+    // Kept apart as well, for anyone who wants to know which half was which.
+    engineSeconds: raw.seconds,
+    librarySeconds: message.librarySeconds || 0,
     hitLimit: raw.hit_limit,
     averages: raw.averages,
     frequencies: raw.frequencies,
