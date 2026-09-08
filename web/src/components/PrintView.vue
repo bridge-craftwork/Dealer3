@@ -54,12 +54,49 @@
 
       <template v-for="(f, i) in result.frequencies" :key="'f' + i">
         <h3>{{ (f.label || 'Frequency').trim() }}</h3>
-        <p v-if="f.below || f.above" class="p-outside">
+        <p v-if="!f.grid && (f.below || f.above)" class="p-outside">
           <span v-if="f.below">{{ f.below }} below {{ f.min }}</span>
           <span v-if="f.below && f.above"> · </span>
           <span v-if="f.above">{{ f.above }} above {{ f.max }}</span>
         </p>
-        <table class="p-table p-freq">
+
+        <!-- Two dimensions is a table of counts, not a row of bars. Printing
+             the bars would show only the row sums, which is a different and
+             much less interesting statistic than the one that was asked for:
+             the whole point of a second axis is how the count is spread along
+             it. No shading — a paper table is read by its numbers, and a grey
+             ramp survives neither a mono printer nor a photocopier. -->
+        <table v-if="f.grid" class="p-table p-grid-freq">
+          <thead>
+            <tr>
+              <th></th>
+              <th v-for="label in gridColumnLabels(f.grid)" :key="'c' + label">
+                {{ label }}
+              </th>
+              <th class="p-sum">Sum</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, r) in f.grid.counts" :key="'r' + r">
+              <th>{{ gridRowLabels(f.grid)[r] }}</th>
+              <td v-for="(count, c) in row" :key="'x' + c" :class="{ 'p-zero': !count }">
+                {{ count || '' }}
+              </td>
+              <td class="p-sum">{{ gridRowSum(row) || '' }}</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th class="p-sum">Sum</th>
+              <td v-for="(sum, c) in gridColumnSums(f.grid)" :key="'s' + c" class="p-sum">
+                {{ sum || (isOutlierBucket(c, gridColumnSums(f.grid).length) ? 0 : '') }}
+              </td>
+              <td class="p-sum"></td>
+            </tr>
+          </tfoot>
+        </table>
+
+        <table v-else class="p-table p-freq">
           <tbody>
             <tr v-for="bin in f.bins" :key="bin.value">
               <th>{{ bin.value }}</th>
@@ -114,6 +151,13 @@ import { SUIT_ORDER, SUIT_SYMBOLS, RED_SUITS, parseOnelineDeals } from '@/lib/ca
 import { dlrStreamParser, tokenizeLine } from '@/lib/dlrLanguage.js'
 import { languageInfo, isReady } from '@/lib/engine.js'
 import { formatAverage } from '@/lib/format.js'
+import {
+  rowLabels as gridRowLabels,
+  columnLabels as gridColumnLabels,
+  rowSum as gridRowSum,
+  columnSums as gridColumnSums,
+  isOutlierBucket,
+} from '@/lib/heatmap.js'
 
 const props = defineProps({
   script: { type: String, default: '' },
