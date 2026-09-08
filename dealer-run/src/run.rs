@@ -156,6 +156,28 @@ pub struct LevelingOptions {
     pub min_sample: usize,
     /// Ceiling on what the characterizing pass may produce.
     pub measure_cap: usize,
+    /// Where the characterizing pass's deals come out of.
+    pub measure_deals: MeasureDeals,
+}
+
+/// Which deals a characterizing pass is allowed to look at.
+///
+/// Characterizing and producing are two passes with two different questions,
+/// and a caller that wants to bound them separately has to be able to say so.
+/// A front end where one number does both jobs can only be set for one of them.
+pub enum MeasureDeals {
+    /// Out of the run's `max_generate`: what characterizing deals, the
+    /// producing pass no longer can. The command line's model, where `-g`
+    /// bounds the whole run and `--level-timeout` bounds the pass.
+    Shared,
+    /// Its own allowance, leaving `max_generate` entirely to the producing
+    /// pass.
+    ///
+    /// `usize::MAX` puts no deal ceiling on it at all, which leaves the host's
+    /// clock — [`RunHost::should_stop`] — as the only thing that stops it. That
+    /// is what the browser asks for: a reader there says how many seconds to
+    /// spend characterizing, and the deal limit beside it is about the run.
+    Own(usize),
 }
 
 /// What a run did.
@@ -1413,6 +1435,15 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
     dealer_level::check_leveling_source(&prepared)?;
 
     let mut source = Source::new(opts.deals, opts.seed);
+    // Two limits, two passes, and which one pays for the measuring is the
+    // caller's to say. `Shared` is the command line's arrangement — one budget
+    // across the run — and `Own` hands `max_generate` to the producing pass
+    // whole, so a caller bounding it is bounding the run it asked for and
+    // nothing else.
+    let measure_generate = match leveling.measure_deals {
+        MeasureDeals::Shared => opts.max_generate,
+        MeasureDeals::Own(deals) => deals,
+    };
     let characterizing = run_pass(
         &prepared,
         &mut source,
@@ -1424,7 +1455,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             threads,
             batch,
             produce: leveling.measure_cap,
-            max_generate: opts.max_generate,
+            max_generate: measure_generate,
             until_measured: true,
             // Everything it matches, up to what a run could conceivably want.
             // Not a knob a caller should have to think about: too low only
@@ -1471,8 +1502,15 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
                 threads,
                 batch,
                 produce: opts.produce,
-                // Every pass deals from one budget.
-                max_generate: opts.max_generate.saturating_sub(characterizing.generated),
+                // Under `Shared`, every pass deals from one budget, so what
+                // characterizing spent is gone. Under `Own` it had a budget of
+                // its own and this one is untouched.
+                max_generate: match leveling.measure_deals {
+                    MeasureDeals::Shared => {
+                        opts.max_generate.saturating_sub(characterizing.generated)
+                    }
+                    MeasureDeals::Own(_) => opts.max_generate,
+                },
                 until_measured: false,
                 retain: 0,
                 replay: &characterizing.retained.handles,
@@ -1601,6 +1639,7 @@ condition 1
                 budget: None,
                 min_sample: 50,
                 measure_cap: 2_000_000,
+                measure_deals: MeasureDeals::Shared,
             }),
         }
     }
@@ -1652,6 +1691,60 @@ condition 1
         let counts: Vec<usize> = report.hand_types.iter().map(|(_, n)| *n).collect();
         assert_eq!(counts.iter().filter(|n| **n == 1).count(), 2);
         assert_eq!(counts.iter().filter(|n| **n == 0).count(), 1);
+    }
+
+    /// Run `script` levelled, saying where the characterizing pass's deals come
+    /// from.
+    fn leveled(
+        script: &str,
+        produce: usize,
+        max_generate: usize,
+        measure_deals: MeasureDeals,
+    ) -> RunReport {
+        let mut opts = options(produce, true);
+        opts.max_generate = max_generate;
+        if let Some(leveling) = opts.leveling.as_mut() {
+            leveling.measure_deals = measure_deals;
+        }
+        let mut host = Collector::default();
+        super::run(script, opts, &mut host).expect("run")
+    }
+
+    /// `SKEWED`'s rarest type is about one deal in three hundred, so measuring
+    /// it well needs several hundred thousand deals — far more than this run is
+    /// allowed. Shared, the run's budget stops the pass; the levelling is then
+    /// computed from whatever it managed.
+    #[test]
+    fn a_shared_budget_lets_the_deal_limit_stop_characterizing() {
+        let report = leveled(SKEWED, 5, 60_000, MeasureDeals::Shared);
+        let leveling = report.leveling.expect("levelled");
+        assert!(
+            leveling.characterized <= 60_000,
+            "characterizing dealt {} of a 60,000 budget it was supposed to share",
+            leveling.characterized,
+        );
+        assert!(
+            leveling.characterized + leveling.additional <= 60_000,
+            "the run dealt {} against a 60,000 budget",
+            leveling.characterized + leveling.additional,
+        );
+    }
+
+    /// With an allowance of its own the same pass runs past that limit, because
+    /// the limit was never about it. This is what lets a front end bound the run
+    /// someone asked for without also bounding the measuring that pays for it —
+    /// the browser, where `Max generate` was doing both jobs and cutting the
+    /// measurement short.
+    #[test]
+    fn its_own_budget_lets_characterizing_run_past_the_deal_limit() {
+        let report = leveled(SKEWED, 5, 60_000, MeasureDeals::Own(2_000_000));
+        let leveling = report.leveling.expect("levelled");
+        assert!(
+            leveling.characterized > 60_000,
+            "characterizing stopped at {}, so something still bounds it by the run's budget",
+            leveling.characterized,
+        );
+        assert_eq!(report.produced, 5);
     }
 
     /// The same bands with the middle one asked for three times a round.

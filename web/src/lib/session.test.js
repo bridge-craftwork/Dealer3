@@ -147,6 +147,24 @@ describe('the checkbox settings', () => {
     expect(loadSession().pickerOpen).toBe(true)
   })
 
+  // Kept out of the whitelist, this came back undefined on every load and the
+  // field then refilled itself from the engine's default — so a reader who had
+  // set it to 60 got 20 back on their next visit, silently.
+  it('remember how long to spend characterizing', () => {
+    saveSession({ ...session, measureSeconds: 45 })
+    expect(loadSession().measureSeconds).toBe(45)
+  })
+
+  // Undefined, not a number copied from the engine: whoever has never chosen
+  // gets whatever the engine says its default is, and there is no second copy
+  // of that number to go stale.
+  it('leave the characterizing budget unset when nobody has set one', () => {
+    saveSession(session)
+    expect(loadSession().measureSeconds).toBeUndefined()
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, measureSeconds: 'ages' }))
+    expect(loadSession().measureSeconds).toBeUndefined()
+  })
+
   it('are undefined when never chosen, which is not the same as false', () => {
     // Auto-level ticks itself the first time it sees hand types, and stops
     // doing that once someone has had an opinion. It cannot tell the two apart

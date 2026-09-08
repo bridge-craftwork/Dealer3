@@ -82,7 +82,7 @@ check('a run across the chunk boundary is the library\'s own records, byte for b
 // And the point of emitting .zrd: the existing run reads it unchanged.
 const out = JSON.parse(w.generate_from_deals(
   'condition 1\naction printoneline, average "N HCP" hcp(north)\n',
-  zrd, 1, 40, 1000000, 'oneline', false, false, []))
+  zrd, 1, 40, 1000000, 'oneline', false, false, [], undefined))
 check('the bytes feed generate_from_deals unchanged',
   out.input?.format === 'zrd' && out.input?.read === 5 && out.produced === 5,
   JSON.stringify(out.input))
