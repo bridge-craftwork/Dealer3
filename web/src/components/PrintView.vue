@@ -45,7 +45,7 @@
         <table class="p-table">
           <tbody>
             <tr v-for="(a, i) in result.averages" :key="i">
-              <th>{{ (a.label || 'Average').trim() }}</th>
+              <th>{{ labelOf(a.label, 'Average') }}</th>
               <td>{{ formatValue(a.value) }}</td>
             </tr>
           </tbody>
@@ -53,7 +53,7 @@
       </template>
 
       <template v-for="(f, i) in result.frequencies" :key="'f' + i">
-        <h3>{{ (f.label || 'Frequency').trim() }}</h3>
+        <h3 class="p-freq-title">{{ labelOf(f.label, 'Frequency') }}</h3>
         <p v-if="!f.grid && (f.below || f.above)" class="p-outside">
           <span v-if="f.below">{{ f.below }} below {{ f.min }}</span>
           <span v-if="f.below && f.above"> · </span>
@@ -151,6 +151,7 @@ import { SUIT_ORDER, SUIT_SYMBOLS, RED_SUITS, parseOnelineDeals } from '@/lib/ca
 import { dlrStreamParser, tokenizeLine } from '@/lib/dlrLanguage.js'
 import { languageInfo, isReady } from '@/lib/engine.js'
 import { formatAverage } from '@/lib/format.js'
+import { labelOf } from '@/lib/labels.js'
 import {
   rowLabels as gridRowLabels,
   columnLabels as gridColumnLabels,
