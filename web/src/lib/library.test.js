@@ -7,6 +7,7 @@ import {
   learnLibrarySize,
   libraryStatusText,
   pointlessLibraryWarning,
+  slowRandomWarning,
   supplyLibraryPieces,
 } from './library.js'
 
@@ -257,5 +258,43 @@ describe('pointlessLibraryWarning', () => {
 
   it('says nothing when the script could not be read, which is not a no', () => {
     expect(pointlessLibraryWarning(undefined)).toBe('')
+  })
+})
+
+describe('slowRandomWarning', () => {
+  it('warns when a script that solves is told to shuffle its own deals', () => {
+    const said = slowRandomWarning(true, 200)
+    expect(said).toMatch(/calls tricks\(\), dds\(\) or par\(\)/)
+    expect(said).toMatch(/pre-solved/i)
+  })
+
+  it('says what it costs, not just that it is slower', () => {
+    // "Slower" is not a reason to choose differently; five seconds is. 200
+    // deals at 23 ms each is the arithmetic someone can check.
+    const said = slowRandomWarning(true, 200)
+    expect(said).toMatch(/200 × 23 ms/)
+    expect(said).toMatch(/5 seconds/)
+  })
+
+  it('scales with what was asked for', () => {
+    expect(slowRandomWarning(true, 10000)).toMatch(/4 minutes/)
+  })
+
+  it('says a condition costs more again than a produce count', () => {
+    expect(slowRandomWarning(true, 200)).toMatch(/condition/)
+  })
+
+  it('says nothing when the script asks no double-dummy question', () => {
+    expect(slowRandomWarning(false, 200)).toBe('')
+  })
+
+  it('says nothing when the script could not be read, which is not a yes', () => {
+    expect(slowRandomWarning(undefined, 200)).toBe('')
+  })
+
+  it('still warns when the count is missing, without inventing a time', () => {
+    const said = slowRandomWarning(true, NaN)
+    expect(said).toMatch(/every deal has to be solved here/)
+    expect(said).not.toMatch(/ms/)
   })
 })
