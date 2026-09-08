@@ -7,9 +7,17 @@
 //!
 //! # Threading
 //!
-//! Single-threaded. Shared memory in wasm needs `SharedArrayBuffer`, which needs
-//! COOP/COEP headers. Deal generation is stateless per seed, so a threaded build
-//! would produce identical output, just faster — see `docs/WASM.md`.
+//! Two builds from one source. The ordinary one is single-threaded and stays on
+//! stable; `./build.sh threaded` adds atomics and shared memory and is what the
+//! site ships, because shared memory in wasm is `SharedArrayBuffer` and the site
+//! is served with the COOP/COEP that makes one exist. A page without those
+//! headers still runs the same bundle — it simply deals on one thread.
+//!
+//! Deal generation is stateless per seed, so the thread count changes how long a
+//! run takes and nothing else: the deals, the statistics and the levelling are
+//! identical at any count. Which is what lets [`threads_for`] treat it as a
+//! question of speed alone — and in a browser the answer is usually one thread,
+//! for reasons measured there. See `docs/WASM.md` and `wasm/build.sh`.
 //!
 //! # Determinism
 //!
@@ -419,16 +427,21 @@ fn now_ms() -> f64 {
 /// deals exactly the same deals, which is the property that makes any of this
 /// safe.
 ///
-/// **The site does not ship a threaded build**, but that is a deployment
-/// decision rather than a performance one: a second build to produce, and
-/// COOP/COEP headers to serve.
+/// **The site ships this build.** `.github/workflows/pages.yml` runs
+/// `npm run wasm:threaded` and checks the binary it deployed is the threaded
+/// one, and `web/public/_headers` sends the COOP/COEP it needs.
 ///
-/// It used to be a performance one. Threads made the browser slower — 4M deals
-/// in six seconds on one against 290K on twelve — because a `Deal` was four
-/// `Vec<Card>` allocations and wasm's dlmalloc serialises them, so every worker
-/// queued on the same lock. `Hand` is an inline `[Card; 13]` now, and the shape
-/// reversed: measured 2026-09-05, about 4x on twelve threads, and no cost at
-/// one. `build.sh` carries the numbers.
+/// Starting a pool is not the same as dealing on it: [`threads_for`] decides
+/// that per run, and for most scripts the answer is one thread. wasm's
+/// allocator is a single lock, so threading a filter that allocates per deal is
+/// slower — measured, with the table there. A double-dummy search over shuffled
+/// deals is the case that gains, and the case this was asked for.
+///
+/// Threads used to be worse than that: 4M deals in six seconds on one against
+/// 290K on twelve, because a `Deal` was four `Vec<Card>` allocations and wasm's
+/// dlmalloc serialises them. `Hand` is an inline `[Card; 13]` now, and an
+/// allocation-free filter reaches about 4x on eight threads. `build.sh` carries
+/// the numbers.
 #[cfg(feature = "parallel")]
 #[wasm_bindgen]
 pub fn start_threads(threads: usize) -> js_sys::Promise {
@@ -461,6 +474,19 @@ fn threads_available() -> usize {
 #[wasm_bindgen]
 pub fn measure_budget_seconds() -> f64 {
     MEASURE_BUDGET_MS / 1000.0
+}
+
+/// How many threads one run should use, out of the `pool` the page started.
+///
+/// The reasoning, and the measurements behind it, are at the call site. In
+/// short: wasm's allocator is a single lock, so threading a run that allocates
+/// per deal makes it slower — and only a run that searches for double-dummy
+/// results on deals it shuffled does enough work per deal to be worth it.
+fn threads_for(touches_solver: bool, shuffling: bool, pool: usize) -> usize {
+    match touches_solver && shuffling {
+        true => pool.max(1),
+        false => 1,
+    }
 }
 
 /// Whether this build can use more than one thread at all, so a page can tell
@@ -902,11 +928,53 @@ fn run_script(
                     swap: dealer_core::SwapMode::None,
                 },
             },
-            // Whatever the caller started a pool with, and one if it did not
-            // — see `start_threads`. A thread count cannot change what comes
-            // out, only how long it takes, so a page that cannot spawn any
-            // gets the same deals more slowly.
-            threads: threads_available(),
+            // Threads where they help, and one where they do not.
+            //
+            // A thread count cannot change what comes out, only how long it
+            // takes — so this is free to be a judgement about speed, and it has
+            // to be, because in the browser threads are not always faster.
+            //
+            // wasm's allocator is one dlmalloc behind one lock. Anything a
+            // script allocates per deal is therefore a queue, and every worker
+            // stands in it. Measured in Chromium at twelve threads against one,
+            // 400k deals, deals per second:
+            //
+            //     condition hcp(north) >= 20            2.5M -> 6.4M   2.55x
+            //     ... and controls(north) >= 4          2.8M -> 10.8M  3.82x
+            //     ... and shape(north, any 4333)        2.7M ->  8.8M  3.30x
+            //     x = hcp(north); condition x >= 20     2.1M ->  0.5M  0.26x
+            //     ... and losers(north) <= 5            2.2M ->  0.6M  0.28x
+            //     a real scenario (Jacoby 2NT)          269k ->  105k  0.40x
+            //
+            // The line is not the size of the script: it is whether evaluating
+            // a deal allocates at all. A script with no variables never touches
+            // the per-deal cache and scales; **one** variable assignment makes
+            // it a hash map per deal, and the run collapses to a quarter of
+            // single-threaded. Every scenario anyone actually runs has
+            // variables, so threading them all would make the page slower at
+            // the thing it is for.
+            //
+            // What does pay is a script that reaches the double-dummy solver on
+            // deals it shuffled: ten milliseconds of searching per deal dwarfs
+            // the contention, and that is the case this was asked for — a
+            // 100,000-deal double-dummy run using a twelfth of the machine.
+            // Measured, same session, `tricks(north, notrump)` over 3,000
+            // dealt deals: 321 deals/s on one thread, 522 on four, 537 on
+            // twelve.
+            //
+            // Deals that arrive already solved — the library — are a lookup
+            // rather than a search, so they fall on the other side of the line
+            // with everything else.
+            //
+            // This is a wasm judgement, not the engine's: the command line has
+            // a real allocator and threads everything, as `--threads` says.
+            // When per-deal allocation goes the way `Hand`'s did, this should
+            // become `threads_available()` and the measurements redone.
+            threads: threads_for(
+                dealer_run::dd_demand::touches_solver(&program),
+                has_own_deals,
+                threads_available(),
+            ),
             batch: 0,
             params: params.clone(),
             round_robin,
@@ -2106,5 +2174,33 @@ mod tests {
                 "{why}: {script:?}"
             );
         }
+    }
+
+    /// Threads are for the run that searches, and nothing else.
+    ///
+    /// Not a preference: measured. In wasm every allocation goes through one
+    /// lock, so a filter that allocates per deal — which is every scenario with
+    /// a variable in it — runs at about a quarter speed on twelve threads. A
+    /// double-dummy search on freshly shuffled deals is ten milliseconds of
+    /// work per deal and gains about 1.7x. The call site carries the figures.
+    #[test]
+    fn only_a_search_over_shuffled_deals_is_worth_threading() {
+        assert_eq!(threads_for(true, true, 12), 12, "a search it has to make");
+        assert_eq!(
+            threads_for(false, true, 12),
+            1,
+            "an ordinary filter is slower on twelve than on one"
+        );
+        assert_eq!(
+            threads_for(true, false, 12),
+            1,
+            "supplied deals arrive solved, so there is nothing to search for"
+        );
+        assert_eq!(threads_for(true, true, 1), 1, "no pool, nothing to spread");
+        assert_eq!(
+            threads_for(true, true, 0),
+            1,
+            "a pool of none is still this thread"
+        );
     }
 }
