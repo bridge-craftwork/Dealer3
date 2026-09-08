@@ -21,6 +21,7 @@ const session = {
   roundRobin: false,
   maxGenerate: 100000,
   format: 'printall',
+  dealSource: 'library',
   scenario: 'Weak_2_Bids',
   paramValues: { 0: 'west', 1: '15' },
 }
@@ -37,6 +38,16 @@ describe('saveSession / loadSession', () => {
     const { roundRobin, ...older } = session
     localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
     expect(loadSession().roundRobin).toBe(false)
+  })
+
+  it('reads a session saved before the library existed as random deals', () => {
+    // A session with no opinion must not come back asking to download a
+    // library, and nor must a stored value that no longer means anything.
+    const { dealSource, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().dealSource).toBe('random')
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, dealSource: 'wat' }))
+    expect(loadSession().dealSource).toBe('random')
   })
 
   it('reads a session saved before script parameters existed as none', () => {

@@ -27,6 +27,7 @@ src/
 │   ├── reference.js      shaping the vocabulary into reference sections
 │   ├── guide.js          rendering a docs/ markdown file as a page
 │   ├── engine.worker.js  generation, off the main thread
+│   ├── library.js        the solved-deal library: fetching, caching, wording
 │   └── download.js       saving results as PBN or text
 ├── Reference.vue         the language reference page
 ├── Leveling.vue          the levelling guide, rendered from docs/
@@ -216,6 +217,59 @@ Rolling before rather than after is what made a separate "new seed" button
 unnecessary — there is no other reason to want one. A restored session keeps its
 seed, so a reload reproduces what was there.
 
+## Where the deals come from
+
+A radio pair above the editor, and the only control on that row that is about
+the deals rather than about the run:
+
+**Random deals** shuffles them here, from the seed, as this page always has.
+
+**Pre-solved deals** draws them from
+[Pavlicek's 10,485,760 solved deals](https://github.com/bridge-craftwork/rpdd-library),
+so `tricks()`, `dds()` and `par()` are lookups rather than searches — the
+difference between double-dummy being usable in a tab and not, since a solve is
+about 23ms a deal and a browser has one thread to do it on.
+
+Everything else means what it meant. The seed still reproduces the run; it picks
+where in the library to start instead of driving a shuffle, and **the same seed
+reads the same deals here as `dealer -s N --input-deals rpdd.zrd` does at a
+terminal** — verified against the CLI in `wasm/verify.mjs`, because the page
+does not compute that mapping. It asks the engine
+(`record_for_seed`), which is the mapping the command line reduces `-s` through.
+
+Three things the page says that a terminal would put on stderr:
+
+* **what arrived** — "Read 20,000 deals from the solved-deal library, starting
+  at deal 246,427 of 10,485,760. Every one arrived with its double-dummy
+  table…", with warnings when fewer deals arrived than were asked for, when some
+  came unsolved, or when a run read the whole library and a longer one would
+  start repeating deals;
+* **the fetch**, while it happens, since it is the one part of a run that waits
+  on something outside the tab;
+* **that pre-solved buys this script nothing**, when the script never calls
+  `tricks()`, `dds()` or `par()`. Asked of the engine off the parsed program,
+  not searched for in the text — a comment mentioning `par` is not a call.
+
+### Where the fetching lives, and why
+
+In the **worker**, with the rest of the engine. A `Library` is a handle into one
+wasm instance's linear memory: the page has its own instance for the editor's
+instant calls, and only the worker's can say which URLs a run wants, since that
+answer comes from `needs()`. Fetching on the main thread would put a round trip
+between every ask and its answer for nothing.
+
+Caching is arranged to survive the worker, which Cancel terminates: pieces go
+into the Cache API under `dealer3-library-v1`, and an in-memory map on top of it
+saves the cache read. A piece is immutable — `rpdd-042.zdd` is the same 640 KiB
+for ever — so nothing there expires; the manifest is deliberately not cached.
+After a reload, a repeat run fetches only the manifest.
+
+A run asks for at most 65,536 deals (`MAX_LIBRARY_DEALS`), which is about one
+published piece. That is a download budget rather than arithmetic: a `Max
+generate` of a million would otherwise pull sixteen pieces — ten megabytes — to
+look at twenty deals. A filter more selective than that runs out of deals rather
+than out of matches, and the report above says so.
+
 ## Script parameters
 
 A script using `$0`-`$9` gets a row of fields above the editor, one per
@@ -250,7 +304,9 @@ stored result could silently disagree with the script shown beside it.
 
 Every access is guarded. `localStorage` throws outright in some privacy modes
 rather than returning null, and a corrupt value means "start fresh" rather than
-a page that fails to load.
+a page that fails to load. The deal source is restored the same way, with one
+extra rule: anything but `library` reads back as random deals, so a stored value
+that no longer means anything cannot start a visit by downloading a library.
 
 ## Editor appearance
 
@@ -283,8 +339,10 @@ npm test
 
 Cases covering manifest parsing, the language derivation — tokenizer
 classification, longest-first matching, case-insensitivity, completion shape —
-the reference page's transforms of the vocabulary, and the levelling guide's
-markdown rendering.
+the reference page's transforms of the vocabulary, the levelling guide's
+markdown rendering, and the solved-deal library's half of the page: how much of
+it a run asks for, the ask/supply loop against a stand-in library, both levels of
+the cache, and every line the page says about what came back.
 
 The Vue components are not covered by unit tests; they are exercised by the
 browser smoke checks instead. That division is deliberate: every real bug in
