@@ -324,3 +324,56 @@ export function pointlessLibraryWarning(usesDoubleDummy) {
     'will be faster.'
   )
 }
+
+/// About how long one double-dummy search takes here, in milliseconds.
+///
+/// Measured through `bridge-solver`, which is what `tricks()`, `dds()` and
+/// `par()` reach. Deliberately a round number: it is an order of magnitude for
+/// someone deciding between a download and a wait, not a promise, and it is
+/// five orders of magnitude above what a deal costs otherwise.
+export const SOLVE_MS = 23
+
+/**
+ * What to say to someone who chose random deals for a script that does ask a
+ * double-dummy question — the costly direction, and the one that said nothing.
+ *
+ * The same `usesDoubleDummy` the warning above reads, read the other way. That
+ * warning wastes a 640 KiB download; this one turns a run that would have taken
+ * a moment into one that takes minutes, so it is worth saying what it costs
+ * rather than only that it is slower.
+ *
+ * `produce` is the floor on the number of searches, not the number: a script
+ * whose call is in the condition solves every deal it *generates*, which is far
+ * more. Hence "at least".
+ *
+ * @param {boolean|undefined} usesDoubleDummy from the engine; `undefined` while
+ *   it is loading or the script does not parse, which is not the same as no
+ * @param {number} produce deals the run has been asked for
+ * @returns {string} empty when there is nothing worth saying
+ */
+export function slowRandomWarning(usesDoubleDummy, produce) {
+  if (usesDoubleDummy !== true) return ''
+  const deals = Number.isFinite(produce) && produce > 0 ? Math.floor(produce) : 0
+  const cost = deals ? ` — at least ${deals} × ${SOLVE_MS} ms, so about ${humanSeconds(deals * SOLVE_MS)}` : ''
+  return (
+    `This script calls tricks(), dds() or par(), so every deal has to be solved here` +
+    `${cost}, and more again if the call is in the condition, where every deal ` +
+    `generated is solved rather than every deal produced. Pre-solved deals arrive with ` +
+    `the answers already in them, so the same questions are lookups.`
+  )
+}
+
+/**
+ * A duration in milliseconds, said the way someone waiting would say it.
+ *
+ * @param {number} ms
+ * @returns {string}
+ */
+function humanSeconds(ms) {
+  const seconds = ms / 1000
+  if (seconds < 1) return 'under a second'
+  if (seconds < 90) return `${Math.round(seconds)} seconds`
+  const minutes = seconds / 60
+  if (minutes < 90) return `${Math.round(minutes)} minutes`
+  return `${(minutes / 60).toFixed(1)} hours`
+}

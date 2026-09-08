@@ -24,7 +24,7 @@ use dealer_run::{Phase, Produced, RunHost, RunOptions};
 use std::fs::OpenOptions;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Parser)]
 #[command(name = "dealer")]
@@ -981,6 +981,15 @@ fn report_parameters(script: &str, file: Option<&str>, as_json: bool) -> Result<
 /// Stands in the default column for a parameter that has none.
 const NO_DEFAULT: &str = "(none)";
 
+/// Shortest gap between `-m` lines, for a run too slow to reach the next
+/// 10,000 deals in a reasonable time.
+///
+/// dealer.exe reports every 10,000 deals and could take that for a moment. A
+/// deal that wants a double-dummy table costs about 23 ms, so 10,000 of them is
+/// nearly four minutes with nothing said (#83). Two seconds is often enough to
+/// read as a meter and slow enough that the lines are not the output.
+const PROGRESS_MIN_GAP: Duration = Duration::from_secs(2);
+
 /// `$1`, `$1 and $4`, `$1, $4 and $7`.
 fn and_list(indexes: &[usize]) -> String {
     let names: Vec<String> = indexes.iter().map(|i| format!("${}", i)).collect();
@@ -1765,11 +1774,62 @@ fn main() {
             produced: usize,
             /// The progress meter's last report, in deals.
             last_report: usize,
+            /// And when it went out, measured from `started`, which is the
+            /// other rule the meter answers to — see `PROGRESS_MIN_GAP`.
+            last_line: Duration,
             started: SystemTime,
             timed_out: bool,
         }
 
+        impl Terminal<'_> {
+            /// Print a `-m` line if one is due.
+            ///
+            /// Two rules, whichever comes first. The deal count is dealer.exe's
+            /// and is unchanged: every 10,000 deals. The clock is the second,
+            /// and it exists because 10,000 deals is a moment for an ordinary
+            /// script and nearly four minutes for one that solves a
+            /// double-dummy table per deal (#83). For an ordinary run the
+            /// count always gets there first and nothing about the meter
+            /// changes.
+            fn meter(&mut self, generated: usize) {
+                if !self.args.progress {
+                    return;
+                }
+                // Each pass counts its own deals from zero, so a levelled run's
+                // second pass reads as the count going backwards.
+                if generated < self.last_report {
+                    self.last_report = 0;
+                    self.last_line = Duration::ZERO;
+                }
+                let elapsed = self.started.elapsed().unwrap_or_default();
+                let due = generated - self.last_report >= 10_000
+                    || (generated > self.last_report
+                        && elapsed.saturating_sub(self.last_line) >= PROGRESS_MIN_GAP);
+                if !due {
+                    return;
+                }
+                eprintln!(
+                    "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
+                    generated,
+                    self.produced,
+                    elapsed.as_secs_f64()
+                );
+                self.last_report = generated;
+                self.last_line = elapsed;
+            }
+        }
+
         impl RunHost for Terminal<'_> {
+            fn progress(
+                &mut self,
+                _phase: Phase,
+                _produced: usize,
+                generated: usize,
+                _target: usize,
+            ) {
+                self.meter(generated);
+            }
+
             fn should_stop(
                 &mut self,
                 phase: Phase,
@@ -1777,14 +1837,7 @@ fn main() {
                 generated: usize,
                 _target: usize,
             ) -> bool {
-                if self.args.progress && generated - self.last_report >= 10_000 {
-                    let elapsed = self.started.elapsed().unwrap_or_default().as_secs_f64();
-                    eprintln!(
-                        "Generated: {} hands, Produced: {} hands, Time: {:.1}s",
-                        generated, self.produced, elapsed
-                    );
-                    self.last_report = generated;
-                }
+                self.meter(generated);
                 let elapsed = self.started.elapsed().unwrap_or_default().as_secs();
                 if let Some(limit) = self.args.timeout {
                     if elapsed >= limit {
@@ -1880,6 +1933,7 @@ fn main() {
             printed_deals: Vec::new(),
             produced: 0,
             last_report: 0,
+            last_line: Duration::ZERO,
             started: start_time,
             timed_out: false,
         };

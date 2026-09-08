@@ -129,6 +129,12 @@
         <p v-if="dealSource === 'library' && pointlessLibrary" class="source-warn">
           {{ pointlessLibrary }}
         </p>
+        <!-- The same question read the other way, and the expensive direction:
+             a script that does ask for double-dummy work, told to shuffle its
+             own deals, solves every one of them here. -->
+        <p v-else-if="dealSource === 'random' && slowRandom" class="source-warn">
+          {{ slowRandom }}
+        </p>
         <p v-else-if="dealSource === 'library'" class="source-note">
           Deals come from Pavlicek's 10,485,760 solved deals, so tricks(), dds() and par() are
           lookups rather than searches. The seed picks where in the library to start. A piece is
@@ -274,7 +280,7 @@ import ScriptViewer from '@/components/ScriptViewer.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import PrintView from '@/components/PrintView.vue'
 import { ready, generate, usesDoubleDummy, version } from '@/lib/engine.js'
-import { libraryStatusText, pointlessLibraryWarning } from '@/lib/library.js'
+import { libraryStatusText, pointlessLibraryWarning, slowRandomWarning } from '@/lib/library.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
@@ -415,9 +421,18 @@ const progressBars = computed(() =>
             'the deal limit or the time budget will stop it first. ' +
             'The levelling still works; its rarest rate is just less well known.'
           : '',
-        count: target
-          ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
-          : p.produced.toLocaleString(),
+        // Deals looked at, beside deals kept. The bar counts what came out,
+        // and for most scripts that climbs steadily enough to be the whole
+        // story. For one that solves a double-dummy table per deal it does
+        // not: a batch is dealt and tested before any of it is handed over, so
+        // the bar can sit at zero for a long time while the run is working
+        // hard. This is the number that moves meanwhile, and it is what `-m`
+        // prints in the terminal for the same reason.
+        count:
+          (target
+            ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
+            : p.produced.toLocaleString()) +
+          (p.generated > 0 ? ` · ${p.generated.toLocaleString()} dealt` : ''),
       }
     }),
 )
@@ -552,6 +567,12 @@ const scriptUsesDoubleDummy = computed(() => {
 
 /// Why pre-solved deals are the wrong choice for this script, if they are.
 const pointlessLibrary = computed(() => pointlessLibraryWarning(scriptUsesDoubleDummy.value))
+
+/// And the other way: why random deals are the expensive choice for a script
+/// that does ask a double-dummy question. The same answer read the other way,
+/// and the costlier of the two mistakes — the first wastes a download, this one
+/// turns a run that would have taken a moment into one that takes minutes.
+const slowRandom = computed(() => slowRandomWarning(scriptUsesDoubleDummy.value, produce.value))
 
 // Ticked for you the first time a script with hand types appears, and left
 // alone afterwards.
