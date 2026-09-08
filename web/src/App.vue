@@ -31,6 +31,18 @@
         rel="noopener noreferrer"
       >Feedback &amp; issues</a>
       <span v-if="engineVersion" class="bar-version">engine {{ engineVersion }}</span>
+      <!-- The pool the engine brought up, which is what every run deals on.
+           Shown rather than logged: a page that fell back to one thread looks
+           exactly like a slow scenario, and that is how the first threaded
+           build shipped serial without anyone noticing. `one thread` is
+           marked, because on this site it means the headers are not arriving
+           rather than that the browser cannot. -->
+      <span
+        v-if="threads"
+        class="bar-version bar-threads"
+        :class="{ lonely: threads.threads < 2 }"
+        :title="threadsHint"
+      >{{ threads.threads }} {{ threads.threads === 1 ? 'thread' : 'threads' }}</span>
     </header>
 
     <main class="cols" :class="{ 'picker-closed': !pickerOpen }">
@@ -303,6 +315,7 @@ import {
   usesDoubleDummy,
   version,
   defaultMeasureSeconds,
+  poolInfo,
 } from '@/lib/engine.js'
 import { libraryStatusText, pointlessLibraryWarning, slowRandomWarning } from '@/lib/library.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
@@ -377,6 +390,28 @@ function onParams({ specs, missing }) {
 
 const engineReady = ref(false)
 const engineVersion = ref('')
+/// `{ threads, why, supported }` from the worker, once it has brought the pool
+/// up. Null until then.
+const threads = ref(null)
+
+const threadsHint = computed(() => {
+  const info = threads.value
+  if (!info) return ''
+  if (info.threads > 1) {
+    return (
+      `Every run deals on all ${info.threads} threads. On a machine this size that is about ` +
+      'four times faster on a bare filter and six on a real scenario. The deals are not ' +
+      'affected: a thread count changes how long a run takes and nothing else.'
+    )
+  }
+  if (!info.supported) {
+    return 'This engine was built without a thread pool, so it deals on one thread.'
+  }
+  return (
+    `No thread pool: ${info.why}. Every run deals on one thread, which on this machine is ` +
+    'about four to six times slower than it needs to be. The deals themselves are the same.'
+  )
+})
 const running = ref(false)
 
 // --- Progress -------------------------------------------------------------
@@ -637,6 +672,9 @@ onMounted(async () => {
   engineVersion.value = version()
   // Only when nothing was restored and nothing typed: whoever set it meant it.
   if (measureSeconds.value == null) measureSeconds.value = defaultMeasureSeconds()
+  // Brings the generating worker up as a side effect, so the first Run does not
+  // also pay for loading the engine a second time.
+  threads.value = await poolInfo()
 })
 
 // Persist the editor's contents and the parameters beside them. Debounced
@@ -914,6 +952,10 @@ body {
 .bar-link { font-size: 12px; color: var(--accent); text-decoration: none; }
 .bar-link:hover { text-decoration: underline; }
 .bar-version { font-size: 11px; color: var(--fg-muted); font-family: var(--mono); }
+/* Beside the version, and marked when it says one: on this site one thread
+   means the headers are not arriving, not that the browser cannot. */
+.bar-threads { border-left: 1px solid var(--line); padding-left: 10px; }
+.bar-threads.lonely { color: var(--warn-fg); }
 
 .cols { display: grid; grid-template-columns: 260px 1fr 1fr; flex: 1; min-height: 0; }
 /* The first column shrinks to the rail; the two `1fr` columns take the 232px

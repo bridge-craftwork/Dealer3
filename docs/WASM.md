@@ -61,6 +61,8 @@ cover this build too: it is the same generator.
 | `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
 | `measure_budget_seconds()` | number | The default `measure_seconds`, so a page's field can show the engine's own number |
+| `supports_threads()` | bool | Whether this build can deal on more than one thread at all |
+| `start_threads(n)` | Promise | Threaded build only: start the pool. Needs a cross-origin isolated page |
 | `version()` | string | Engine version |
 
 ### `generate`
@@ -386,21 +388,90 @@ so the web editor and the VS Code extension share one definition.
 
 ## Threading
 
-The current build is **single-threaded**. Shared memory in wasm requires
-`SharedArrayBuffer`, which requires `COOP`/`COEP` response headers:
+Two builds from one source:
+
+| | `./build.sh web` | `./build.sh threaded` |
+|---|---|---|
+| Toolchain | stable | a pinned nightly with `rust-src` |
+| Memory | ordinary | shared, `+atomics` |
+| Exports | — | `start_threads(n)` |
+| Used by | `npm run wasm`, local development | **the deployed site** |
+
+**The site ships the threaded build.** `.github/workflows/pages.yml` runs
+`npm run wasm:threaded` and then reads the binary it is about to deploy —
+`npm run check:threaded`, which looks for shared memory and a `start_threads`
+export — because a single-threaded bundle there would work, deal the same
+deals, and use one core of however many. That is a failure nothing else can see.
+
+Shared memory in wasm *is* `SharedArrayBuffer`, which a browser only provides to
+a cross-origin isolated page:
 
 ```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-**GitHub Pages cannot set custom headers, so a threaded build cannot be hosted
-there.** Cloudflare Pages can, via a `_headers` file.
+`web/public/_headers` sends both. **GitHub Pages cannot set custom headers**,
+which is why the site is on Cloudflare Pages.
 
-Deal generation is stateless per seed, so a threaded build produces *identical*
-output — only faster. Any threaded build should feature-detect
-`SharedArrayBuffer` and fall back to single-threaded rather than failing, so the
-page still works where the headers are absent.
+### One build, not two
+
+A threaded module carries shared memory whether or not the page it lands on has
+`SharedArrayBuffer`, so the question was whether it would refuse to instantiate
+where there is none — a page that fails to start, which is worse than a slow
+one. It does not. On a page served *without* COOP/COEP, in Chromium 149:
+`SharedArrayBuffer` is undefined, `crossOriginIsolated` is false,
+`new WebAssembly.Memory({shared: true})` succeeds anyway, the module
+instantiates, the pool is refused even when twelve threads are asked for, and
+the run produces the same 200 deals with the same SHA-256 on one thread.
+
+So one bundle serves everyone. `engine.worker.js` asks for a pool only when
+`crossOriginIsolated`, and carries on when it cannot start one. iOS and iPadOS
+have had `SharedArrayBuffer` under COOP/COEP since Safari 15.2; WebKit scaled
+much as Chromium does when it was last measured, though not on this build.
+
+### What threads buy, and what they cannot change
+
+A thread count changes how long a run takes and nothing else: generation is
+stateless per seed, so the deals, the statistics and the levelling are identical
+at any count — verified against the single-threaded browser build and the Node
+build, byte for byte.
+
+**Every run deals on the whole pool.** Chromium 149 on an M4 Pro (8 performance
++ 4 efficiency cores), cross-origin isolated, median of three, deals per second:
+
+| script | 1 | 2 | 4 | 8 | 12 | vs one |
+|---|---|---|---|---|---|---|
+| `condition hcp(north) >= 20` | 2.79M | 4.94M | 8.02M | 10.74M | 11.41M | **4.08x** |
+| `x = hcp(north)` then `condition x >= 20` | 2.26M | 4.12M | 6.11M | 7.46M | 8.32M | **3.67x** |
+| Jacoby 2NT, a real scenario | 350k | 722k | 1.30M | 2.13M | 2.40M | **6.85x** |
+| `tricks()` over shuffled deals | 78.3 | 132.2 | 193.1 | 227.2 | 229.8 | **2.93x** |
+
+The single-threaded build managed 2.66M on the first of those in the same
+session, so the atomics cost nothing at one thread — if anything the wrong way
+round, by about the noise.
+
+Sublinear, and flattening past eight — four of the twelve cores are efficiency
+cores. The scenario scales best of the four, which is the happy shape: it is the
+thing the page is actually for, and it does the most work per deal short of
+solving. The double-dummy run flattens earliest, its solver having threads of
+its own to contend with.
+
+### There used to be a rule here, and there is not any more
+
+Until #88 the engine used the pool only for a script that reached the solver
+over deals it shuffled, and dealt everything else on one thread. That was not a
+preference: **wasm's allocator is a single dlmalloc behind a single lock**, so
+anything a script allocated per deal became a queue every worker stood in. One
+variable assignment was a hash map per deal, and twelve threads then ran that
+script at 0.27x of one — slower for having more.
+
+#88 stopped building that cache per deal. The same script now runs at 3.67x, the
+Jacoby scenario at 6.85x, and nothing in the table loses. So the rule had
+nothing left to protect and it is gone, along with the comments explaining it: a
+stale account of a restriction that no longer exists is worse than none.
+
+`wasm/build.sh` carries the history of why threading used to be worse still.
 
 ## Verifying against the CLI
 

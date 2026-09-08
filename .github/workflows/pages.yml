@@ -47,6 +47,59 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
+      # The site ships the THREADED wasm build, and that needs a nightly with
+      # `rust-src`: wasm threads mean atomics and shared memory, which means
+      # rebuilding the standard library, which is `-Z build-std`. Everything
+      # else here stays on stable.
+      #
+      # The version is read out of `wasm/build.sh` rather than written again
+      # here, because the two must be the same one — `build.sh` explains which
+      # nightly and why (wasm-bindgen wants a `__wasm_init_tls` that newer LLVM
+      # no longer emits). A bump there moves this with it.
+      #
+      # Failing here fails the deploy, which is the point: there is no fallback
+      # to the single-threaded build, because a deploy that quietly shipped the
+      # wrong bundle would look and behave exactly like a working one, four
+      # times slower.
+      - name: Install the pinned nightly the threaded build needs
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^THREADED_TOOLCHAIN=//p' wasm/build.sh)
+          test -n "$toolchain" || {
+            echo "wasm/build.sh no longer names a THREADED_TOOLCHAIN." >&2
+            exit 1
+          }
+          echo "Threaded build toolchain: $toolchain"
+          rustup toolchain install "$toolchain" --profile minimal \
+              --component rust-src --target wasm32-unknown-unknown
+
+      # The `wasm-bindgen` BINARY and the `wasm-bindgen` CRATE share a private
+      # format and must be the same version, or the build dies at the bindgen
+      # step with "a different bindgen format than this binary" — naming neither
+      # of the two versions. `build.sh` refuses to guess; this is where the
+      # runner gets the right one.
+      #
+      # The version is resolved from the lockfile rather than written here, so a
+      # `cargo update` cannot leave the two disagreeing. Locally `wasm-pack`
+      # fetches the matching binary into its own cache and `build.sh` finds it
+      # there; a runner has neither, hence this.
+      - name: Install the wasm-bindgen that matches the crate
+        working-directory: wasm
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"/\1/p;}' Cargo.lock)
+          test -n "$version" || {
+            echo "Cargo.lock names no wasm-bindgen, so nothing can be matched to it." >&2
+            exit 1
+          }
+          echo "The crate wants wasm-bindgen $version"
+          archive="wasm-bindgen-$version-x86_64-unknown-linux-musl"
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$archive.tar.gz" \
+            | tar -xz --strip-components=1 -C "$HOME/.cargo/bin" "$archive/wasm-bindgen"
+          wasm-bindgen --version
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: wasm
@@ -75,9 +128,14 @@ jobs:
 
       # Before the site build: Vite bundles the generated module as an asset, so
       # it has to exist on disk first.
-      - name: Build the WebAssembly bundle
+      #
+      # `wasm:threaded`, not `wasm`. The two produce the same deals and the
+      # threaded one is about four times faster on a machine with cores to
+      # spare; `web/public/_headers` sends the COOP/COEP it needs, which is why
+      # this site is on Cloudflare Pages at all.
+      - name: Build the WebAssembly bundle (threaded)
         working-directory: web
-        run: npm run wasm
+        run: npm run wasm:threaded
 
       - name: Run the site tests
         working-directory: web
@@ -86,6 +144,14 @@ jobs:
       - name: Build the site
         working-directory: web
         run: npm run build
+
+      # The one failure nothing else here can see: a single-threaded bundle
+      # works, deals the same deals, and uses one core of twelve. It is read out
+      # of the binary — shared memory, and a `start_threads` export — so a
+      # reverted script or a stale artefact cannot get past it.
+      - name: The shipped bundle is the threaded one
+        working-directory: web
+        run: npm run check:threaded
 
       # A missing wasm asset produces a page that loads, shows the editor, and
       # then fails to generate anything — so fail here instead of shipping it.
@@ -96,12 +162,15 @@ jobs:
           ls dist/assets/*.wasm
           ls dist/assets/*.js
           # _headers is copied verbatim out of public/; without it the COOP/COEP
-          # a threaded build will need would silently not be sent.
+          # the threaded build needs would silently not be sent, and every run
+          # would fall back to one thread.
           test -f dist/_headers
+          grep -q 'Cross-Origin-Embedder-Policy' dist/_headers
+          grep -q 'Cross-Origin-Opener-Policy' dist/_headers
           du -sh dist
 
       # Cloudflare Pages is the only host. GitHub Pages was dropped: it cannot
-      # send the COOP/COEP headers a threaded wasm build will need, so it would
+      # send the COOP/COEP headers the threaded wasm build needs, so it would
       # have served a second copy that quietly diverged the moment threading
       # landed — and its deploy job being `needs: build` meant a Cloudflare
       # credential problem blocked it anyway.

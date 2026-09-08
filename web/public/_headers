@@ -10,14 +10,19 @@
   Referrer-Policy: no-referrer
 
 # COOP/COEP are what `SharedArrayBuffer` needs, and `SharedArrayBuffer` is what a
-# threaded wasm build needs. The current build is single-threaded and does not
-# require these, but they are set now because they are the reason this site is on
-# Cloudflare Pages rather than GitHub Pages, which cannot send custom headers.
+# threaded wasm build needs. **The site ships the threaded build**, so these are
+# load-bearing rather than set ahead of time, and they are the reason this site
+# is on Cloudflare Pages rather than GitHub Pages, which cannot send custom
+# headers. Without them every run silently falls back to one thread — which the
+# page says out loud, beside the engine version.
 #
 # They are not free: `require-corp` blocks cross-origin subresources that do not
-# opt in via CORP/CORS. Everything this page loads is same-origin except the PBS
-# manifest and scripts, which come from raw.githubusercontent.com over CORS and
-# are therefore unaffected.
+# opt in via CORP/CORS. Everything this page loads is same-origin except what
+# comes from raw.githubusercontent.com — the PBS scenario manifest and its .dlr
+# scripts, and the solved-deal library's manifest and .zdd chunks. All of them
+# arrive with `access-control-allow-origin: *` and
+# `cross-origin-resource-policy: cross-origin`, so `fetch` in its default CORS
+# mode is unaffected. Verified live under these headers, not assumed.
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
 
