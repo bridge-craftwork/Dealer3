@@ -55,21 +55,27 @@
               Pre-solved deals
             </label>
           </span>
-          <label>Produce <input v-model.number="produce" class="narrow" type="number" min="1" /></label>
+          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
           <label>
             Max generate
             <!-- `min` must be a multiple of `step`, or the browser snaps to the
                  sequence min + n*step. With min=1 step=1000 the only valid
                  values were 1, 1001, 2001…, so 500000 stepped up to 500001 and
                  down to 499001. A zero is rejected at run time instead. -->
-            <input v-model.number="maxGenerate" type="number" min="0" :step="generateStep" />
+            <input
+              v-model.number="maxGenerate"
+              class="num-generate"
+              type="number"
+              min="0"
+              :step="generateStep"
+            />
           </label>
           <!-- After the two limits, because on Random it is a field to read
                rather than set: it says which run this was, for quoting or
                coming back to. -->
           <label>
             Seed
-            <input v-model.number="seed" type="number" min="0" max="4294967295" />
+            <input v-model.number="seed" class="num-seed" type="number" min="0" max="4294967295" />
           </label>
           <!-- Rolled *before* the run and written into the field beside it, so
                the seed on screen is still the seed that produced what is shown.
@@ -807,13 +813,24 @@ body {
   font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
-/* Wide enough for a ten-digit seed, which is the longest thing any of them
-   holds. Produce is a board count and never needs half of that. */
-.controls input[type="number"] { width: 7em; }
-/* Two digits narrower than the seed's seven ems, which is sized for a
-   ten-figure seed. A board count is two or three digits nearly always, and the
-   spinner takes a good part of a small box. */
-.controls input.narrow { width: 4.5em; }
+/* Numeric fields sized for the values they actually hold.
+   A number input draws its spinner INSIDE its own box, and the box also carries
+   the field's padding and border, so the digits are clipped well before the
+   border is reached. The old widths were set by eye against that and both came
+   up short: `Produce` at 4.5em showed `2000(` for 20000, and the 7em the other
+   two shared runs out around eight digits, two short of a ten-figure seed.
+   So the width is stated as what it has to hold rather than as a round number:
+   `--num-digits` of text, plus `--num-chrome` for everything the browser draws
+   around it. */
+.controls { --num-chrome: 2.6em; }
+.controls input[type="number"] { width: calc(var(--num-digits, 8) * 1ch + var(--num-chrome)); }
+/* A board count. Seven digits is a million boards — far past anything anyone
+   asks a browser for, and still the narrowest of the three. */
+.controls input.num-produce { --num-digits: 7; }
+/* Up to 10,000,000, which the field's own arrows will walk it to. */
+.controls input.num-generate { --num-digits: 8; }
+/* A u32: 4294967295, and the widest thing on the row. */
+.controls input.num-seed { --num-digits: 10; }
 .check {
   display: inline-flex;
   align-items: center;
