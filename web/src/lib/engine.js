@@ -9,6 +9,7 @@ import init, {
   script_uses_double_dummy as wasmUsesDoubleDummy,
   script_params as wasmScriptParams,
   language_info as wasmLanguageInfo,
+  measure_budget_seconds as wasmMeasureBudgetSeconds,
   version as wasmVersion,
 } from '@/wasm/dealer3_wasm.js'
 
@@ -118,6 +119,10 @@ function runInWorker(script, options) {
         format: options.format,
         autoLevel: options.autoLevel,
         roundRobin: options.roundRobin,
+        // Seconds to spend characterizing, which is a limit on the pass the
+        // reader did not ask for. Deliberately not `maxGenerate`: that bounds
+        // the run they did ask for, and one number cannot be set for both.
+        measureSeconds: options.measureSeconds,
         // Where the deals come from: 'random' shuffles from the seed, 'library'
         // draws from the published solved-deal library, where the seed picks
         // the starting position instead. The worker does the fetching — see
@@ -174,6 +179,12 @@ export async function generate(
     /// Divide `produce` among the script's `HandType_` variables — one of each
     /// per round — instead of taking deals as they come.
     roundRobin = false,
+    /// How long `autoLevel` may spend characterizing the scenario, in seconds.
+    /// The engine's own default when this is left out. Nothing else bounds that
+    /// pass when the page is shuffling its own deals — `maxGenerate` is the
+    /// budget for the run that was asked for, and used to cut the measuring
+    /// short with seconds of the clock still unspent.
+    measureSeconds = undefined,
     /// What to put where `$0`-`$9` stand, in `--param`'s own `N=TEXT` spelling.
     /// A parameter left out here falls back to the script's own `# param`
     /// default, and fails the run if it has none.
@@ -200,6 +211,7 @@ export async function generate(
     format,
     autoLevel,
     roundRobin,
+    measureSeconds,
     source,
     params,
     onProgress,
@@ -330,4 +342,16 @@ export function languageInfo() {
 
 export function version() {
   return wasmVersion()
+}
+
+/**
+ * How long the engine will characterize a scenario when nobody says otherwise,
+ * in seconds.
+ *
+ * Asked of the engine rather than written down here, so the number in the
+ * page's field is the number the engine would have used.
+ */
+export function defaultMeasureSeconds() {
+  assertReady('defaultMeasureSeconds')
+  return wasmMeasureBudgetSeconds()
 }

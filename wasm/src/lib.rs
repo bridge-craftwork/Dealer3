@@ -453,6 +453,16 @@ fn threads_available() -> usize {
     }
 }
 
+/// How long characterizing runs when a caller does not say, in seconds.
+///
+/// Exported so a page can show the number in a field rather than keeping a copy
+/// of it: two defaults that were meant to be the same one drift, and the drift
+/// shows up as a page whose control disagrees with the engine it drives.
+#[wasm_bindgen]
+pub fn measure_budget_seconds() -> f64 {
+    MEASURE_BUDGET_MS / 1000.0
+}
+
 /// Whether this build can use more than one thread at all, so a page can tell
 /// the difference between "not built for it" and "the browser refused".
 #[wasm_bindgen]
@@ -470,8 +480,11 @@ struct Page<'a> {
     progress: &'a Progress,
     /// When the characterizing pass must stop, whatever it has managed.
     deadline: f64,
-    /// Deals it may take, which is the other thing that can stop it short.
-    max_generate: usize,
+    /// Deals the characterizing pass may take. `usize::MAX` when the page is
+    /// shuffling its own, where the clock above is the only limit; the run's
+    /// own budget when the deals were supplied, since a finite pile bounds
+    /// itself whatever the clock says.
+    measure_generate: usize,
     /// Deals to hand back, capped: a large `produce` used to gather statistics
     /// does not have to ship every deal to JS. Left empty altogether under
     /// `Format::None`, which is the whole point of that format.
@@ -506,6 +519,10 @@ impl Page<'_> {
     /// sets the ceiling, and the rate so far projects it — `seen` sightings in
     /// this much of the budget will be about `seen / spent` in all of it.
     ///
+    /// For a page shuffling its own deals there is only the clock, since
+    /// `measure_generate` is then unbounded: `Max generate` bounds the run and
+    /// stopped bounding this pass, which is what it was never asked to do.
+    ///
     /// Rough on purpose, and it firms up within the first moment. A bar drawn
     /// against 2,000 that ends at 61 looks broken; the same bar with the mark
     /// at 63 says the run is doing what it can and will not reach the goal,
@@ -514,7 +531,7 @@ impl Page<'_> {
         if seen == 0 || generated == 0 {
             return goal;
         }
-        let by_deals = seen as f64 * self.max_generate as f64 / generated as f64;
+        let by_deals = seen as f64 * self.measure_generate as f64 / generated as f64;
         let spent = (now_ms() - self.characterizing_started).max(1.0);
         let budget = (self.deadline - self.characterizing_started).max(1.0);
         let by_clock = seen as f64 * budget / spent;
@@ -619,6 +636,11 @@ impl RunHost for Page<'_> {
 /// average and 6/1/5/4/4 without anything having gone wrong, where a round is
 /// four. Refused alongside `auto_level`, which asks for the same thing the
 /// other way.
+/// `measure_seconds` is how long characterizing may take, and it is the only
+/// thing that stops it: `max_generate` bounds the run that was asked for, not
+/// the measuring that pays for it. Left out — `undefined` or `null` — it takes
+/// [`MEASURE_BUDGET_MS`]. The command line spells the same thing
+/// `--level-timeout`.
 // The argument list is the JS calling convention: wasm_bindgen exports these
 // positionally, and folding them into a settings object would move the naming
 // out of the type system and into a hand-written cast on both sides.
@@ -633,6 +655,7 @@ pub fn generate(
     auto_level: bool,
     round_robin: bool,
     params: Vec<String>,
+    measure_seconds: Option<f64>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
     run_script(
@@ -644,6 +667,7 @@ pub fn generate(
         auto_level,
         round_robin,
         &params,
+        measure_seconds,
         on_progress,
         DealSource::Shuffled,
     )
@@ -680,6 +704,10 @@ pub fn generate(
 /// `predeal` is refused rather than ignored: it arranges cards into deals this
 /// program shuffles, and there is nothing for it to do to deals that arrived
 /// already dealt. The command line refuses the same combination.
+///
+/// `measure_seconds` bounds characterizing as it does in [`generate`], but here
+/// the deals bound it too: a supplied pile is finite, so both passes share it
+/// and whichever limit arrives first stops the pass.
 #[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn generate_from_deals(
@@ -692,6 +720,7 @@ pub fn generate_from_deals(
     auto_level: bool,
     round_robin: bool,
     params: Vec<String>,
+    measure_seconds: Option<f64>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
     // One decoder, two front ends. Anything read here that the command line
@@ -713,6 +742,7 @@ pub fn generate_from_deals(
         auto_level,
         round_robin,
         &params,
+        measure_seconds,
         on_progress,
         DealSource::Supplied {
             deals: supplied,
@@ -740,6 +770,7 @@ fn run_script(
     auto_level: bool,
     round_robin: bool,
     params: &[String],
+    measure_seconds: Option<f64>,
     on_progress: Option<js_sys::Function>,
     source: DealSource,
 ) -> Result<String, String> {
@@ -770,6 +801,10 @@ fn run_script(
             (Some(deals), Some(summary))
         }
     };
+    // Whether this run is dealing its own cards rather than reading cards it
+    // was handed. It decides what may bound the characterizing pass, so it is
+    // read here, before `given` is moved into the options below.
+    let has_own_deals = given.is_none();
 
     // Settings that affect how a deal is labelled rather than which deals are
     // produced, and the predeal the run starts from.
@@ -819,10 +854,22 @@ fn run_script(
         }
     }
 
+    // How long the reader is prepared to spend characterizing, in seconds, or
+    // the default when they have not said. Clamped: a page that dealt for an
+    // hour because a field held 3600 would be indistinguishable from one that
+    // had hung, and a budget under a second cannot measure anything.
+    let measure_budget_ms = measure_seconds
+        .filter(|s| s.is_finite())
+        .map(|s| (s * 1000.0).clamp(1_000.0, MAX_MEASURE_BUDGET_MS))
+        .unwrap_or(MEASURE_BUDGET_MS);
+
     let mut page = Page {
         progress: &progress,
-        deadline: started + MEASURE_BUDGET_MS,
-        max_generate,
+        deadline: started + measure_budget_ms,
+        measure_generate: match has_own_deals {
+            true => usize::MAX,
+            false => max_generate,
+        },
         held: Vec::new(),
         collects_deals: format.collects_deals(),
         kept: 0,
@@ -876,7 +923,27 @@ fn run_script(
                 // teach nothing. The count it managed comes back instead, so
                 // the page can say how well the keeps are pinned down.
                 min_sample: MIN_BROWSER_SAMPLE,
-                measure_cap: max_generate,
+                // Matching deals the pass may produce, as `--level-measure`
+                // means at the terminal and with its default. A ceiling, not a
+                // target: measuring stops as soon as the rarest category is
+                // worth dividing by, and on the scenarios that need levelling
+                // the clock below arrives long before this does.
+                measure_cap: MEASURE_PRODUCE_CAP,
+                // Characterizing gets its own deal allowance, so `Max generate`
+                // bounds the run the reader asked for and nothing else. It had
+                // been doing both jobs, and the deal cap was cutting the
+                // measuring short with seconds of the budget still unspent.
+                //
+                // `usize::MAX` when this page shuffles its own deals: nothing
+                // but the clock above stops the pass, which is what "spend up
+                // to N seconds working this out" means. Supplied deals are a
+                // finite pile rather than a tap, so there the run's budget is
+                // the honest bound and both passes share it, exactly as the
+                // command line does.
+                measure_deals: match has_own_deals {
+                    true => dealer_run::MeasureDeals::Own(usize::MAX),
+                    false => dealer_run::MeasureDeals::Shared,
+                },
             }),
         },
         &mut page,
@@ -1123,13 +1190,35 @@ impl Progress {
     }
 }
 
-/// How long the browser will go on characterizing a scenario.
+/// How long the browser will go on characterizing a scenario, unless the caller
+/// says otherwise.
 ///
 /// A page blocks while it deals, so this is a clock rather than a deal count —
 /// which is also what lets one number serve every scenario. Falling short of
 /// the goal is not an error: the count reached comes back and the panel says
 /// what it was.
-const MEASURE_BUDGET_MS: f64 = 6_000.0;
+///
+/// Twenty seconds, not the six it was. Six was chosen when the deal cap was
+/// stopping the pass first anyway, so the clock rarely got to say anything;
+/// with the cap gone and threads under it, six seconds of a scenario the weight
+/// of Jacoby 2NT still measures its rarest type barely a hundred times, which is
+/// a ±10% rate to divide by. This is the default rather than the limit — the
+/// page offers a field, and the command line has `--level-timeout`.
+const MEASURE_BUDGET_MS: f64 = 20_000.0;
+
+/// Matching deals the characterizing pass may produce before it gives up.
+///
+/// `--level-measure`'s default, so the two front ends stop for the same reasons
+/// and at the same places. It is the loosest of the three limits on that pass —
+/// the rarest category being measured well enough stops it first on a scenario
+/// worth levelling, and the clock stops it first on one that is not.
+const MEASURE_PRODUCE_CAP: usize = 2_000_000;
+
+/// The longest a caller may ask for.
+///
+/// The page blocks a worker for the whole of it and can only stop by being
+/// terminated, so a mistyped field must not be able to buy an afternoon of it.
+const MAX_MEASURE_BUDGET_MS: f64 = 300_000.0;
 
 /// Fewest sightings of a type the browser will divide by.
 ///
@@ -1655,6 +1744,7 @@ mod tests {
             false,
             &[],
             None,
+            None,
             DealSource::Supplied {
                 deals: supplied,
                 report,
@@ -1848,6 +1938,7 @@ mod tests {
             false,
             false,
             &[],
+            None,
             None,
             DealSource::Shuffled,
         )

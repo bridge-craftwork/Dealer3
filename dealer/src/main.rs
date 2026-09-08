@@ -1969,6 +1969,14 @@ fn main() {
                         budget: args.level_budget,
                         min_sample: MIN_HAND_TYPE_SAMPLE,
                         measure_cap: args.level_measure,
+                        // `-g` bounds the run, both passes together, as it
+                        // always has here. The characterizing pass has two
+                        // limits of its own — `--level-measure` for what it
+                        // produces and `--level-timeout` for how long it may
+                        // take — so nothing is asking `-g` to do a second job.
+                        // A browser has no switches, which is why it asks for
+                        // its own allowance instead.
+                        measure_deals: dealer_run::MeasureDeals::Shared,
                     }
                 }),
                 round_robin: args.round_robin,

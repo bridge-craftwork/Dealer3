@@ -51,8 +51,8 @@ cover this build too: it is the same generator.
 
 | Export | Returns | Notes |
 |---|---|---|
-| `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9` |
-| `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
+| `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, measure_seconds, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9`; `measure_seconds` bounds levelling's characterizing pass |
+| `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, measure_seconds, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
 | `new Library(manifestUrl)` | object | The published solved-deal library, fetched a piece at a time; see below |
 | `rpdd_manifest_url()` | string | The manifest of the library we host, for `new Library(...)` |
 | `record_for_seed(seed, records)` | number | Which record a run's seed starts at — the CLI's own mapping, not a page's |
@@ -60,6 +60,7 @@ cover this build too: it is the same generator.
 | `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
 | `script_params(script)` | JSON | What the script says about its own `$0`-`$9` |
 | `language_info()` | JSON | Full vocabulary for completion and hover |
+| `measure_budget_seconds()` | number | The default `measure_seconds`, so a page's field can show the engine's own number |
 | `version()` | string | Engine version |
 
 ### `generate`
@@ -111,6 +112,18 @@ filter must not be able to hang it. **Surface `hit_limit`** rather than silently
 showing a short result — it distinguishes "no more matches exist" from "ran out
 of budget".
 
+`max_generate` bounds **the run that was asked for, and not the characterizing
+pass that a levelled run makes first**. That pass is bounded by
+`measure_seconds` — seconds, `undefined` for the engine's own default, and
+`measure_budget_seconds()` says what that default is so a page need not keep a
+second copy of it. Deals are the wrong currency for it: how many deals a sighting
+of the rarest hand type costs is precisely what the pass exists to find out. The
+command line spells the same limit `--level-timeout`.
+
+The exception is `generate_from_deals`, where the deals are a finite pile rather
+than a tap: there both passes share `max_generate` as the command line does, and
+whichever of the two limits arrives first stops the measuring.
+
 At most `MAX_RETURNED_DEALS` (500) deals are returned, since a script may ask for
 tens of thousands to build a histogram and a page cannot show them all.
 Statistics still accumulate over every matching deal, so `produced` can exceed
@@ -129,7 +142,7 @@ names a file — JS does that and passes the bytes:
 const bytes = new Uint8Array(await (await fetch("/library.zrd")).arrayBuffer())
 const result = JSON.parse(w.generate_from_deals(
   "condition hcp(north) >= 15\n", bytes, 1, 40, 1000000, "oneline",
-  false, false, [], null))
+  false, false, [], null, null))
 console.log(result.input)
 // { format: "zrd", read: 10, solved: 10, unsolved: 0,
 //   separators: 0, skipped: [], skipped_count: 0, notes: [] }

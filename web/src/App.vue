@@ -181,6 +181,24 @@
             Auto-level
           </label>
 
+          <!-- Levelling's own limit, and only shown while levelling is on:
+               characterizing is a pass nobody asked for, and how long to spend
+               on it is the one thing worth saying about it. Seconds rather than
+               deals, because how many deals a sighting costs is exactly what
+               the pass is there to find out — and because Max generate, which
+               used to stop this pass as well, is about the run instead. -->
+          <label v-if="autoLevel && levelBoxLive" :title="measureHint">
+            Characterize
+            <input
+              v-model.number="measureSeconds"
+              class="num-measure"
+              type="number"
+              min="1"
+              max="300"
+              step="5"
+            />s
+          </label>
+
           <button
             class="run"
             :disabled="!engineReady || running || !scriptValid || paramsMissing.length > 0"
@@ -279,7 +297,13 @@ import ScriptParams from '@/components/ScriptParams.vue'
 import ScriptViewer from '@/components/ScriptViewer.vue'
 import ResultsPanel from '@/components/ResultsPanel.vue'
 import PrintView from '@/components/PrintView.vue'
-import { ready, generate, usesDoubleDummy, version } from '@/lib/engine.js'
+import {
+  ready,
+  generate,
+  usesDoubleDummy,
+  version,
+  defaultMeasureSeconds,
+} from '@/lib/engine.js'
 import { libraryStatusText, pointlessLibraryWarning, slowRandomWarning } from '@/lib/library.js'
 import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
@@ -462,6 +486,11 @@ const autoLevel = ref(restored?.autoLevel ?? false)
 // Off by default: a run that changes its own seed cannot be repeated by
 // pressing Run again, which is the first thing anyone tries.
 const newSeedEachRun = ref(restored?.newSeedEachRun ?? false)
+// Seconds to spend characterizing a scenario before levelling it. `null` until
+// the engine is loaded and says what its own default is — kept in one place
+// rather than written down twice, since a field disagreeing with the engine it
+// drives is worse than no field.
+const measureSeconds = ref(restored?.measureSeconds ?? null)
 const autoLevelTouched = ref(restored?.autoLevel != null)
 const editorTab = ref('script')
 
@@ -536,6 +565,11 @@ const runHint = computed(() => {
   } and declares no default.`
 })
 
+const measureHint =
+  'How long to spend measuring how often each hand type comes up, before dealing the levelled ' +
+  'scenario. Longer pins the keeps down better; the panel says what the measurement was worth. ' +
+  'Max generate does not bound this — it is the budget for the run you asked for.'
+
 const formatHint = computed(() =>
   format.value === 'none'
     ? 'Statistics only: the engine collects no deals, so nothing is rendered, shipped or laid out. Averages, frequencies and the counts are all still measured over every deal produced.'
@@ -601,6 +635,8 @@ onMounted(async () => {
   await ready()
   engineReady.value = true
   engineVersion.value = version()
+  // Only when nothing was restored and nothing typed: whoever set it meant it.
+  if (measureSeconds.value == null) measureSeconds.value = defaultMeasureSeconds()
 })
 
 // Persist the editor's contents and the parameters beside them. Debounced
@@ -619,6 +655,7 @@ watch(
     selectedFile,
     pickerOpen,
     autoLevel,
+    measureSeconds,
     newSeedEachRun,
     paramValues,
   ],
@@ -636,6 +673,7 @@ watch(
         scenario: selectedFile.value,
         pickerOpen: pickerOpen.value,
         autoLevel: autoLevel.value,
+        measureSeconds: measureSeconds.value,
         newSeedEachRun: newSeedEachRun.value,
         paramValues: paramValues.value,
       })
@@ -753,6 +791,9 @@ async function run() {
     ['Produce', produce.value],
     ['Max generate', maxGenerate.value],
   ]
+  // Only when it is going to be used. A cleared field on a run that levels
+  // nothing is not a mistake worth stopping for.
+  if (autoLevel.value && levelBoxLive.value) limits.push(['Characterize', measureSeconds.value])
   for (const [name, value] of limits) {
     if (!Number.isFinite(value) || value < 1) {
       error.value = `${name} must be at least 1.`
@@ -788,6 +829,9 @@ async function run() {
       format: format.value,
       params: paramSpecs.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
+      // Left out while the field is still empty, so the engine's own default
+      // applies rather than a zero.
+      measureSeconds: measureSeconds.value ?? undefined,
       // The deals themselves. Everything above is the same either way, which is
       // the point of it being a choice of source rather than a second mode.
       source: dealSource.value,
@@ -931,6 +975,12 @@ body {
 }
 /* Run to the far right, whichever line it ends up on. */
 .run-row > .run { margin-left: auto; }
+
+/* The characterizing budget sits on this row rather than among the controls
+   above, so it inherits none of their sizing. Three digits: 300s is the most
+   the engine accepts. */
+.run-row label { font-size: 0.82rem; white-space: nowrap; }
+.run-row input.num-measure { width: calc(3ch + 2.6em); }
 
 .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
 .tabs button {

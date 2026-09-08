@@ -132,6 +132,7 @@ self.onmessage = async (event) => {
     // Loaded once per worker, and a worker outlives any single run — so the
     // thread pool is started once too, not per run.
     if (!ready) ready = bringUp()
+
     const pool = await ready
     // Once per worker, not per run: a page that quietly fell back to one thread
     // looks exactly like a slow scenario, which is how the first threaded build
@@ -178,6 +179,7 @@ self.onmessage = async (event) => {
         options.autoLevel,
         options.roundRobin,
         options.params || [],
+        options.measureSeconds,
         onProgress,
       )
     } else {
@@ -190,6 +192,7 @@ self.onmessage = async (event) => {
         options.autoLevel,
         options.roundRobin,
         options.params || [],
+        options.measureSeconds,
         onProgress,
       )
     }
