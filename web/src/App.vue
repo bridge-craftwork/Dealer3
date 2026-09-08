@@ -749,6 +749,17 @@ async function run() {
   /* The share nature offers, against the accent's levelled share. Warm against
      cool, and far enough from both to be told apart by anyone who cannot. */
   --natural: #d98324;
+  /* A statistic whose label indents itself is a breakdown of the one above.
+     A different hue rather than a lighter accent: a tint pale enough to read
+     as subordinate came to 2.3:1 against the track, under the 3:1 a graphical
+     object wants, and darkening it until it passed left it indistinguishable
+     from the accent. This is 4.6:1 on the track and a different family from
+     both the accent and `--natural`.
+
+     The colour is reinforcement, not the signal — the indented label already
+     says which line these belong to, so nothing is lost by a reader who
+     cannot tell the two hues apart. */
+  --accent-sub: #7a5cc4;
   --accent-subtle: #e4eefa;
   --danger: #b3261e;
   --warn: #b8860b;
