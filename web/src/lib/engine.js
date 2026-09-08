@@ -109,6 +109,7 @@ function runInWorker(script, options) {
         maxGenerate: options.maxGenerate,
         format: options.format,
         autoLevel: options.autoLevel,
+        roundRobin: options.roundRobin,
         // A plain copy: the caller's array is a Vue ref's, and a reactive
         // proxy cannot be structured-cloned — postMessage fails outright with
         // "[object Object] could not be cloned", which says nothing about
