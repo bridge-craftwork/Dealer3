@@ -281,6 +281,35 @@ pub trait RunHost {
     ) {
     }
 
+    /// How far a pass has got, offered from inside a batch. It cannot stop
+    /// anything.
+    ///
+    /// [`RunHost::should_stop`] is offered once per batch, and a batch is at
+    /// least 1024 deals. That is often enough while a deal costs a few hundred
+    /// nanoseconds and useless when it costs twenty-three milliseconds: one
+    /// batch of a script that wants a double-dummy table is tens of seconds, so
+    /// a page that paints from `should_stop` alone shows nothing at all and
+    /// reads as hung rather than busy (#83).
+    ///
+    /// Reporting-only on purpose. Offering `should_stop` more often would let a
+    /// run end where it previously would not — and a characterizing pass that
+    /// stops sooner measures less, which changes the keeps a levelled run deals
+    /// with. A report has no such power, so where it is offered is free to
+    /// follow where the time goes.
+    ///
+    /// It carries exactly what `should_stop` carries, so a host already
+    /// painting a bar has only to paint it from here as well. The numbers mean
+    /// what they mean there: for a characterizing pass, sightings of the
+    /// scarcest category against the goal; otherwise produced deals against
+    /// what was asked for.
+    ///
+    /// `generated` is the one that differs, and only ever upwards: it counts
+    /// the batch in hand as it is dealt and tested, where a pass's own count
+    /// only counts the deals it went on to walk. A pass that reaches its
+    /// `produce` half way through a batch dealt the whole of it, and a report
+    /// that shrank back to the walked count would be a meter running backwards.
+    fn progress(&mut self, _phase: Phase, _produced: usize, _generated: usize, _target: usize) {}
+
     /// A deal the producing pass is handing over.
     fn produced(&mut self, deal: &Produced) -> Result<(), String>;
 }
@@ -842,6 +871,46 @@ fn known_at(known: &[dealer_dds::DealTricks], index: usize) -> &dealer_dds::Deal
     known.get(index).unwrap_or(&dealer_dds::NOTHING_KNOWN)
 }
 
+/// How far a pass has got, and towards what.
+///
+/// A characterizing pass counts sightings of the scarcest category towards
+/// [`dealer_level::MEASURE_GOAL`]; every other pass counts produced deals
+/// towards what was asked for. Written once because four call sites now ask —
+/// `should_stop`, `pass_finished` and the two [`RunHost::progress`] reports
+/// inside a batch — and a bar jumps if any of them disagrees.
+fn pass_numbers(
+    until_measured: bool,
+    accumulator: &RunAccumulator,
+    produced: usize,
+    produce: usize,
+) -> (usize, usize) {
+    if until_measured {
+        (accumulator.rarest_measured(), dealer_level::MEASURE_GOAL)
+    } else {
+        (produced, produce)
+    }
+}
+
+/// Deals a solving pass builds, tests or warms between progress reports.
+///
+/// Chosen against the clock rather than the cache: a deal needing a
+/// double-dummy table costs about 23 ms, so this is a couple of hundred
+/// milliseconds of work spread over whatever threads there are — often enough
+/// to look alive, rare enough that dispatching the chunk is never the expensive
+/// part. It is only ever used by a pass that reaches the solver; an ordinary
+/// pass takes its batch whole, as it always did.
+const SOLVING_CHUNK: usize = 32;
+
+/// Produced deals between progress reports, once a pass is solving.
+///
+/// The produced loop runs on this thread, and a script whose `average` or whose
+/// action asks a double-dummy question the warm above could not read off the
+/// script solves here, one deal at a time. Counting to eight rather than
+/// reading a clock keeps the report off the per-deal path: the host reads its
+/// own clock and throttles, and it is asked eight times less often than there
+/// are deals.
+const SOLVING_REPORT_EVERY: usize = 8;
+
 fn run_pass(
     script: &str,
     source: &mut Source,
@@ -874,7 +943,20 @@ fn run_pass(
     // Whether any answer worth carrying can exist at all: the script reaches
     // the solver somewhere, or the deals arrived from a file that had already
     // been solved.
-    let dd_in_play = crate::dd_demand::touches_solver(&program) || source.carries_tables();
+    let asks_solver = crate::dd_demand::touches_solver(&program);
+    let arrives_solved = source.carries_tables();
+    let dd_in_play = asks_solver || arrives_solved;
+    // Whether this pass can actually be *slow*: it asks the solver something
+    // and the deals did not arrive with the answers already in them. That is
+    // what the progress reports below are gated on, and the gate is the whole
+    // of how they are kept off the hot path — a plain deal is a couple of
+    // hundred nanoseconds, so a run that never solves must pay one boolean per
+    // batch and one predictable branch per deal, and no clock read anywhere.
+    //
+    // A file that carried tables for only some of its deals falls on the fast
+    // side and reports once a batch, as before. That is the old behaviour for a
+    // case that is not slow enough to need better.
+    let solving = asks_solver && !arrives_solved;
     if let Some(plan) = opts.round_robin {
         accumulator = accumulator.with_round_robin(plan.clone());
     }
@@ -974,12 +1056,60 @@ fn run_pass(
         // and asking the condition about it. Which of the two costs more is the
         // script's business — a shuffle is about a microsecond, a `tricks()`
         // condition is ten milliseconds — so they travel together.
-        let built = workers.build_and_test(
-            handles.len(),
+        //
+        // Taken whole unless the pass is solving, and then a chunk at a time so
+        // that a caller answering to a clock hears from the run inside a batch
+        // rather than only at the end of one. Splitting the map cannot change
+        // what comes out — it maps indices to deals and collects them in
+        // order — only when the threads are handed their work.
+        //
+        // The first call takes the whole batch unless the pass is solving, and
+        // then the loop below never runs and this is what it always was — one
+        // map, one vector, no copy. That is the point of writing it this way
+        // round rather than accumulating into a vector of the batch's size: the
+        // batch is a hundred kilobytes of `Tested`, and moving it twice cost
+        // very nearly one per cent of plain generation.
+        let first = if solving {
+            SOLVING_CHUNK.min(handles.len())
+        } else {
+            handles.len()
+        };
+        let mut built = workers.build_and_test(
+            first,
             &|index| source.build(handles[index]),
             &|index, deal| test(known_at(&carried, index), deal),
             dd_in_play,
         );
+        while built.len() < handles.len() {
+            // What the chunk just built came to, before asking for another.
+            let (done, target) =
+                pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+            let so_far = if from_stream {
+                generated + built.len()
+            } else {
+                generated
+            };
+            host.progress(opts.phase, done, so_far, target);
+            let from = built.len();
+            let take = SOLVING_CHUNK.min(handles.len() - from);
+            built.extend(workers.build_and_test(
+                take,
+                &|index| source.build(handles[from + index]),
+                &|index, deal| test(known_at(&carried, from + index), deal),
+                dd_in_play,
+            ));
+        }
+
+        // Deals this pass has dealt and tested, counting the batch in hand.
+        // Held rather than read off `generated`, which is incremented as the
+        // loop below walks the batch: a report that said "sixty-four dealt"
+        // while the batch was being solved and "one dealt" a moment later, as
+        // the walk began, would be a meter running backwards.
+        let dealt = if from_stream {
+            generated + built.len()
+        } else {
+            generated
+        };
 
         // A supplied deal's own answers, plus whatever testing it worked out.
         // From here on this is the deal's double-dummy knowledge, and it is the
@@ -1029,15 +1159,36 @@ fn run_pass(
                 .map(|(index, _)| index)
                 .collect();
             if wanted.len() > 1 {
-                let deals: Vec<&Deal> = wanted.iter().map(|index| &built[*index].deal).collect();
-                let warmed = workers.warm_each(&deals, &|deal| dd_demand.warm(deal));
-                for (index, warmed) in wanted.into_iter().zip(warmed) {
-                    known[index].merge(&warmed);
+                // A chunk at a time while the pass is solving, for the reason
+                // the building above is: this is where a whole batch's
+                // seventeen seconds go, and a bar that only moves afterwards
+                // has not moved at all.
+                let step = if solving { SOLVING_CHUNK } else { wanted.len() };
+                for chunk in wanted.chunks(step.max(1)) {
+                    let deals: Vec<&Deal> = chunk.iter().map(|index| &built[*index].deal).collect();
+                    let warmed = workers.warm_each(&deals, &|deal| dd_demand.warm(deal));
+                    for (index, warmed) in chunk.iter().zip(warmed) {
+                        known[*index].merge(&warmed);
+                    }
+                    if solving {
+                        let (done, target) =
+                            pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+                        host.progress(opts.phase, done, dealt, target);
+                    }
                 }
             }
         }
 
         for (index, tested) in built.iter().enumerate() {
+            // The main thread's own solving happens below: an `average` over
+            // `tricks()`, or an action asking for a cell the warm could not
+            // read off the script, is searched here one deal at a time. A run
+            // that never solves evaluates nothing after the `&&`.
+            if solving && index % SOLVING_REPORT_EVERY == 0 {
+                let (done, target) =
+                    pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+                host.progress(opts.phase, done, dealt, target);
+            }
             let deal = &tested.deal;
             if from_stream {
                 generated += 1;
@@ -1088,37 +1239,14 @@ fn run_pass(
                 break 'passing;
             }
         }
-        if host.should_stop(
-            opts.phase,
-            if opts.until_measured {
-                accumulator.rarest_measured()
-            } else {
-                produced
-            },
-            generated,
-            if opts.until_measured {
-                dealer_level::MEASURE_GOAL
-            } else {
-                opts.produce
-            },
-        ) {
+        let (done, target) =
+            pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+        if host.should_stop(opts.phase, done, generated, target) {
             break;
         }
     }
-    host.pass_finished(
-        opts.phase,
-        if opts.until_measured {
-            accumulator.rarest_measured()
-        } else {
-            produced
-        },
-        generated,
-        if opts.until_measured {
-            dealer_level::MEASURE_GOAL
-        } else {
-            opts.produce
-        },
-    );
+    let (done, target) = pass_numbers(opts.until_measured, &accumulator, produced, opts.produce);
+    host.pass_finished(opts.phase, done, generated, target);
 
     let measurement = accumulator.measurement(generated);
     let hand_types: Vec<(String, usize)> = accumulator
@@ -1809,5 +1937,186 @@ action average \"strong\" 100 * HandType_Strong
             .plans
             .iter()
             .all(|p| p.keep > 0.0 && p.keep <= 1.0));
+    }
+
+    /// A host that listens to everything, and remembers what it heard.
+    ///
+    /// The same collector underneath, so a test can compare a run that was
+    /// listened to against one that was not and be comparing the run rather
+    /// than two different front ends.
+    #[derive(Default)]
+    struct Listener {
+        collector: Collector,
+        /// Every `progress` report, as (generated, produced).
+        reports: Vec<(usize, usize)>,
+        /// Where every `should_stop` offer fell, so a test can say a report
+        /// arrived somewhere an offer to stop did not.
+        stop_offers: Vec<usize>,
+    }
+
+    impl RunHost for Listener {
+        fn should_stop(&mut self, _: Phase, _: usize, generated: usize, _: usize) -> bool {
+            self.stop_offers.push(generated);
+            false
+        }
+        fn progress(&mut self, _: Phase, produced: usize, generated: usize, _: usize) {
+            self.reports.push((generated, produced));
+        }
+        fn pass_finished(&mut self, phase: Phase, a: usize, b: usize, c: usize) {
+            self.collector.pass_finished(phase, a, b, c);
+        }
+        fn produced(&mut self, produced: &Produced) -> Result<(), String> {
+            self.collector.produced(produced)
+        }
+    }
+
+    /// A condition that solves, so every deal the pass tests costs a search.
+    const SOLVING_CONDITION: &str = "condition tricks(north, notrump) >= 6\n";
+
+    /// An action that solves, so every deal the pass *produces* costs one.
+    const SOLVING_ACTION: &str = "condition 1\naction average \"nt\" tricks(north, notrump)\n";
+
+    /// Small enough to finish in a test, big enough to span more than one chunk.
+    fn solving_options(produce: usize) -> RunOptions {
+        RunOptions {
+            threads: 0,
+            batch: SOLVING_CHUNK * 2,
+            ..options(produce, false)
+        }
+    }
+
+    /// The whole point of the hook: a pass that solves says something before
+    /// its batch is over. `should_stop` is offered once a batch, and asking it
+    /// more often was not the answer because it can end a run (#83).
+    #[test]
+    fn a_solving_condition_reports_inside_its_batch() {
+        let mut host = Listener::default();
+        super::run(SOLVING_CONDITION, solving_options(1), &mut host).expect("run");
+        // The batch is two chunks, so the first report lands halfway through
+        // it — before the batch has been tested, and long before the offer to
+        // stop that used to be the only word a caller got.
+        assert!(
+            host.reports
+                .iter()
+                .any(|(generated, _)| *generated == SOLVING_CHUNK),
+            "nothing reported part-way through the first batch: {:?}",
+            host.reports
+        );
+        assert!(
+            host.stop_offers
+                .iter()
+                .all(|offer| *offer >= SOLVING_CHUNK * 2),
+            "an offer to stop arrived inside a batch: {:?}",
+            host.stop_offers
+        );
+    }
+
+    /// The same for the other place the time goes: solving a batch's produced
+    /// deals on the pool, which is where a table-shaped action spends it.
+    #[test]
+    fn a_solving_action_reports_while_it_warms() {
+        let batch = SOLVING_CHUNK * 4;
+        let mut host = Listener::default();
+        let opts = RunOptions {
+            batch,
+            ..solving_options(batch)
+        };
+        super::run(SOLVING_ACTION, opts, &mut host).expect("run");
+        // Warming happens with the batch dealt and nothing produced yet, so its
+        // reports are the ones saying every deal dealt and none produced. Four
+        // chunks give four of them, and the produced loop's first report says
+        // the same thing, so five. Warming the batch in one go would give that
+        // one report and no more — which is what "the bar moves only once the
+        // solving is over" looks like from here.
+        let while_warming = host
+            .reports
+            .iter()
+            .filter(|(generated, produced)| *generated == batch && *produced == 0)
+            .count();
+        assert!(
+            host.reports
+                .windows(2)
+                .all(|pair| pair[1].0 >= pair[0].0 && pair[1].1 >= pair[0].1),
+            "a report went backwards: {:?}",
+            host.reports
+        );
+        assert!(
+            while_warming >= 3,
+            "the batch's solving went unreported until it was over: {:?}",
+            host.reports
+        );
+    }
+
+    /// A run that never reaches the solver is not reported on inside a batch at
+    /// all — that gate is how this stays off the hot path. It still gets the
+    /// one offer a batch it always had.
+    #[test]
+    fn a_plain_run_is_not_reported_on_inside_its_batch() {
+        let mut host = Listener::default();
+        super::run(LADDER, solving_options(40), &mut host).expect("run");
+        assert!(
+            host.reports.is_empty(),
+            "a run that never solves paid for reports it could not need: {:?}",
+            host.reports
+        );
+        assert_eq!(host.collector.deals.len(), 40, "and it still dealt");
+    }
+
+    /// Listening changes nothing: same deals, same counts, same statistics.
+    /// That is the whole claim of a hook that cannot stop anything.
+    #[test]
+    fn listening_changes_nothing_about_what_a_run_produces() {
+        for script in [LADDER, SOLVING_CONDITION, SOLVING_ACTION] {
+            let mut deaf = Collector::default();
+            let quiet = super::run(script, solving_options(20), &mut deaf).expect("run");
+            let mut keen = Listener::default();
+            let loud = super::run(script, solving_options(20), &mut keen).expect("run");
+            assert_eq!(quiet.produced, loud.produced, "produced differed");
+            assert_eq!(quiet.generated, loud.generated, "generated differed");
+            assert_eq!(quiet.hand_types, loud.hand_types, "hand types differed");
+            assert_eq!(
+                format!("{:?}", quiet.stats),
+                format!("{:?}", loud.stats),
+                "statistics differed"
+            );
+            assert_eq!(
+                deaf.deals.len(),
+                keen.collector.deals.len(),
+                "a different number of deals came out"
+            );
+            assert!(
+                deaf.deals
+                    .iter()
+                    .zip(&keen.collector.deals)
+                    .all(|(a, b)| a == b),
+                "the deals or their order differed"
+            );
+            assert_eq!(deaf.phases, keen.collector.phases, "the passes differed");
+        }
+    }
+
+    /// And for a levelled run, where a stop in the wrong place would change no
+    /// deal but would change what the keeps were measured over.
+    #[test]
+    fn listening_changes_nothing_about_a_levelled_run() {
+        let mut deaf = Collector::default();
+        let quiet = super::run(LADDER, options(60, true), &mut deaf).expect("run");
+        let mut keen = Listener::default();
+        let loud = super::run(LADDER, options(60, true), &mut keen).expect("run");
+        let (a, b) = (
+            quiet.leveling.expect("levelled"),
+            loud.leveling.expect("levelled"),
+        );
+        assert_eq!(a.script, b.script, "the levelled scenario differed");
+        assert_eq!(
+            a.measured.counts, b.measured.counts,
+            "the measurement differed"
+        );
+        assert_eq!(a.characterized, b.characterized, "characterizing differed");
+        assert!(deaf
+            .deals
+            .iter()
+            .zip(&keen.collector.deals)
+            .all(|(x, y)| x == y));
     }
 }

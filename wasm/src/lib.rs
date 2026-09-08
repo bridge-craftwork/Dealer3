@@ -520,16 +520,13 @@ impl Page<'_> {
         let by_clock = seen as f64 * budget / spent;
         (by_deals.min(by_clock).round() as usize).clamp(seen.max(1), goal)
     }
-}
 
-impl RunHost for Page<'_> {
-    fn should_stop(
-        &mut self,
-        phase: Phase,
-        produced: usize,
-        generated: usize,
-        target: usize,
-    ) -> bool {
+    /// Offer the bar a report, throttled by [`Progress`] itself.
+    ///
+    /// Shared by the two hooks that paint: the offer to stop that ends a batch,
+    /// and the reports the engine makes from inside one. They must draw the
+    /// same bar, so they go through the same place.
+    fn paint(&self, phase: Phase, produced: usize, generated: usize, target: usize) {
         let expected = if phase == Phase::Characterizing {
             self.reachable(produced, generated, target)
         } else {
@@ -537,6 +534,34 @@ impl RunHost for Page<'_> {
         };
         self.progress
             .report(phase, produced, generated, target, expected, false);
+    }
+}
+
+impl RunHost for Page<'_> {
+    /// Paint the bar, and nothing else.
+    ///
+    /// The engine offers this from inside a batch — between the chunks a
+    /// solving pass builds its deals in, while it solves the ones that matched,
+    /// and as it hands them over. That is the whole of what a script calling
+    /// `tricks()` on shuffled deals needs to stop looking hung: a batch is at
+    /// least 1024 deals, and at 23 ms a deal the offer to stop that ends one
+    /// arrives half a minute late (#83).
+    ///
+    /// The clock that stops a characterizing pass is deliberately not read
+    /// here. Stopping is `should_stop`'s, still once a batch, so a levelled run
+    /// stops exactly where it did.
+    fn progress(&mut self, phase: Phase, produced: usize, generated: usize, target: usize) {
+        self.paint(phase, produced, generated, target);
+    }
+
+    fn should_stop(
+        &mut self,
+        phase: Phase,
+        produced: usize,
+        generated: usize,
+        target: usize,
+    ) -> bool {
+        self.paint(phase, produced, generated, target);
         if phase == Phase::Characterizing && now_ms() >= self.deadline {
             self.ran_out = true;
             return true;

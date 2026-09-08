@@ -415,9 +415,18 @@ const progressBars = computed(() =>
             'the deal limit or the time budget will stop it first. ' +
             'The levelling still works; its rarest rate is just less well known.'
           : '',
-        count: target
-          ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
-          : p.produced.toLocaleString(),
+        // Deals looked at, beside deals kept. The bar counts what came out,
+        // and for most scripts that climbs steadily enough to be the whole
+        // story. For one that solves a double-dummy table per deal it does
+        // not: a batch is dealt and tested before any of it is handed over, so
+        // the bar can sit at zero for a long time while the run is working
+        // hard. This is the number that moves meanwhile, and it is what `-m`
+        // prints in the terminal for the same reason.
+        count:
+          (target
+            ? `${p.produced.toLocaleString()} / ${target.toLocaleString()}`
+            : p.produced.toLocaleString()) +
+          (p.generated > 0 ? ` · ${p.generated.toLocaleString()} dealt` : ''),
       }
     }),
 )
