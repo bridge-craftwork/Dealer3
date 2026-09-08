@@ -164,6 +164,30 @@ The grid only applies to the one-line format: `printall` is already a visual
 layout and PBN is a record format, so those offer Text instead rather than an
 empty grid.
 
+**None is an engine setting, not a display one.** A run gathering statistics —
+HCP against tricks is the case that asked for it — never looks at a hand, so
+`None` stops the engine collecting them: no deal is cloned, none is rendered,
+nothing is serialised out of the worker and nothing is laid out. Over 100,000
+library deals the command line's equivalent measures 0.31s against 0.09s, and
+7.6 MB of output against 742 bytes. The counts, averages, frequencies, the input
+report and the script's own `printes` output are all exactly what the same run
+produces in any other format — `none` decides what is written, never what is
+computed.
+
+The consequences are said rather than left to be discovered. The Hands/Text
+toggle goes, because there is nothing to toggle between; **Save PBN** is
+disabled with a reason, since saving re-runs the script and a PBN of a run that
+kept no deals would mean dealing the whole thing again — the expensive half of
+what `None` was picked to avoid; **Save text** stays and writes the statistics,
+built from the result on screen rather than by re-running; **Save PDF** stays
+and gives the script and the statistics without boards.
+
+The command line spells the same thing `-f none`. That is a new *value* for
+`-f`, not a remapped switch — `-f` is dealer3's own, since the original picks a
+format with an `action` statement — so nothing a dealer.exe script or command
+line means has changed. `--interleave` is refused alongside it rather than
+holding every produced deal for a reordering that is never printed.
+
 `cardFormatting.js` is vendored from `Bridge-Classroom/src/utils/cardFormatting.js`.
 Its `HandDisplay.vue` was **not**: at 521 lines it is built for an interactive
 table — clickable cards, a selector popup, per-card marks, dynamic fit — and

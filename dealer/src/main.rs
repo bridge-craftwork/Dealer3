@@ -48,7 +48,12 @@ struct Args {
     #[arg(short = 's', long = "seed")]
     seed: Option<u32>,
 
-    /// Output format (defaults to printall, or value from input file if not specified)
+    /// Output format: printall, printew, printns, printpbn, printcompact,
+    /// printoneline, or none (defaults to printall, or the value from the input
+    /// file). `none` writes no deals at all and keeps the statistics, for a run
+    /// that only wants its `average` and `frequency` results — nothing is
+    /// rendered, so a hundred thousand boards cost nothing to not print. The
+    /// script's own `printes`, `printrpt` and `print(...)` output is unaffected.
     #[arg(short = 'f', long = "format")]
     format: Option<OutputFormat>,
 
@@ -332,6 +337,18 @@ enum OutputFormat {
     PrintPBN,
     PrintCompact,
     PrintOneLine,
+    /// No deals at all: the statistics, and nothing else.
+    ///
+    /// A run that only wants its `average` and `frequency` results never looks
+    /// at a hand, and rendering a hundred thousand boards to throw them away is
+    /// work nobody asked for. Nothing is rendered and, under `--interleave`,
+    /// nothing is held either.
+    ///
+    /// A new *value* for `-f`, not a remapped switch: `-f` is dealer3's own —
+    /// the original picks a format with an `action` statement — so nothing a
+    /// dealer.exe script or command line means changes. The browser offers the
+    /// same choice in its format list, where there is no `-q` to reach for.
+    None,
 }
 
 impl std::str::FromStr for OutputFormat {
@@ -345,8 +362,9 @@ impl std::str::FromStr for OutputFormat {
             "printpbn" | "pbn" => Ok(OutputFormat::PrintPBN),
             "printcompact" | "compact" => Ok(OutputFormat::PrintCompact),
             "printoneline" | "oneline" => Ok(OutputFormat::PrintOneLine),
+            "none" => Ok(OutputFormat::None),
             _ => Err(format!(
-                "Invalid format '{}'. Valid options: printall, printew, printns, printpbn, printcompact, printoneline",
+                "Invalid format '{}'. Valid options: printall, printew, printns, printpbn, printcompact, printoneline, none",
                 s
             )),
         }
@@ -659,6 +677,10 @@ fn render_board(
         ),
         OutputFormat::PrintCompact => format_printcompact(deal),
         OutputFormat::PrintOneLine => format_oneline(deal),
+        // Never reached: `print_deals` is false under `none`, so no caller gets
+        // this far. Empty rather than a panic, so a mistake here would cost a
+        // missing board rather than an aborted run.
+        OutputFormat::None => String::new(),
     }
 }
 
@@ -1444,8 +1466,22 @@ fn main() {
 
         // `printall` is the default *action*, so naming an action list without
         // a printing one replaces it. `-f` on the command line still asks for
-        // deals explicitly and wins.
-        let print_deals = !measuring_only || args.format.is_some();
+        // deals explicitly and wins — except `-f none`, which is the one value
+        // that asks for the opposite.
+        let print_deals =
+            output_format != OutputFormat::None && (!measuring_only || args.format.is_some());
+
+        // `--interleave` orders the deals on their way out, and under `none`
+        // there is no way out: it would hold every produced deal for a
+        // reordering that is never printed. Refused rather than swallowed, for
+        // the same reason `--interleave` is refused during `--write-leveled`.
+        if args.interleave && output_format == OutputFormat::None {
+            eprintln!(
+                "Error: --interleave orders the deals as they are written out, and -f none \
+                 writes none.\n       Drop one of the two."
+            );
+            std::process::exit(1);
+        }
 
         let dealer_position = args.dealer.or(dealer_from_input);
 

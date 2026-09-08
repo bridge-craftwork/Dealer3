@@ -55,7 +55,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 |---|---|---|---|---|---|
 | `-u` | Upper-case the honour cards in output | ✅ | ✅ | — | Accepted and ignored, because it does nothing in dealer.exe either: `-u` sets a flag read only by the `representation` macro in `dealer.c`, and that macro is never invoked — every output path uses `ucrep` directly. Verified; the reference binary's output is byte-identical with and without it. dealer3's honours are upper case too, so the switch is accepted rather than refused and a command line carrying it still runs. `-v` says so. |
 | `--interleave` | Order the output so each hand type appears before any repeats | ✅ | — | — | Needs `HandType_*` variables to classify against. Rare types are spread across the run rather than exhausted early. See `docs/leveling-guide.md`. |
-| `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. |
+| `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. `-f none` writes no deals and keeps the statistics, for a run that only wants its `average` and `frequency` results. |
 | `-d`, `--dealer` | Dealer position | ✅ | — | — | The original uses the `dealer` statement, which dealer3 also accepts. |
 | `--vulnerable` | Vulnerability | ✅ | — | ⚠️ -P sets vulnerability for par | Long form only. `-v` is verbose, as in the original — this was the 0.2.0 breaking change. |
 | `-v`, `--verbose` | Toggle the closing statistics | ✅ | ✅ | ✅ |  |

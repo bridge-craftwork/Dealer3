@@ -86,12 +86,16 @@
             <input v-model="newSeedEachRun" type="checkbox" />
             Random
           </label>
-          <label>
+          <!-- `None` is not a way of hiding the deals: the engine stops
+               collecting them, so a statistics run does not build, ship and
+               lay out hands nobody is going to look at. -->
+          <label :title="formatHint">
             Format
             <select v-model="format">
               <option value="oneline">One line</option>
               <option value="printall">Print all</option>
               <option value="pbn">PBN</option>
+              <option value="none">None — statistics only</option>
             </select>
           </label>
         </div>
@@ -490,6 +494,12 @@ const runHint = computed(() => {
   } and declares no default.`
 })
 
+const formatHint = computed(() =>
+  format.value === 'none'
+    ? 'Statistics only: the engine collects no deals, so nothing is rendered, shipped or laid out. Averages, frequencies and the counts are all still measured over every deal produced.'
+    : 'How each produced deal is written out. None keeps the statistics and collects no deals at all, which is what a run gathering numbers wants.',
+)
+
 const libraryHint =
   'Draw from Pavlicek\u2019s 10,485,760 pre-solved deals, so tricks(), dds() and par() are ' +
   'lookups rather than searches. The seed picks where in the library to start.'
@@ -641,6 +651,16 @@ async function onDownload(kind) {
         pbn.deals.join('\n') + '\n',
         'application/x-pbn',
       )
+    } else if (format.value === 'none') {
+      // Nothing was collected, so there is nothing to re-run FOR: the
+      // statistics on screen are the whole of what a text file would hold.
+      // Re-running would deal the hundred thousand again to arrive at numbers
+      // already in hand, which is the expensive half of what None was picked to
+      // avoid. Written from the result instead.
+      const shown = result.value
+      if (!shown) return
+      const printed = shown.printes ? shown.printes + '\n' : ''
+      downloadText(resultFilename(name, seed.value, 'txt'), printed + statisticsText(shown))
     } else {
       const text = await generate(script.value, {
         seed: seed.value,

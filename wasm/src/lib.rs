@@ -45,6 +45,19 @@ enum Format {
     PrintAll,
     /// Full PBN, suitable for saving and opening elsewhere.
     Pbn,
+    /// No deals at all: the statistics, and nothing else.
+    ///
+    /// A run gathering numbers — the HCP-against-tricks cross-tabulation is the
+    /// case that asked for this — never looks at a hand. Every other format
+    /// holds deals as they are produced and renders each to a string, which is
+    /// then serialised, posted across from the worker, parsed again and laid
+    /// out as bridge diagrams nobody reads. This one holds none of them.
+    ///
+    /// The command line spells it `-f none`, and means the same thing. That is
+    /// a new *value* for `-f` rather than a remapped switch — `-f` is dealer3's
+    /// own, since the original picks a format with an `action` statement — so
+    /// the compatibility rule is untouched and the two front ends agree.
+    None,
 }
 
 impl Format {
@@ -53,11 +66,21 @@ impl Format {
             "oneline" | "printoneline" => Ok(Format::OneLine),
             "printall" | "all" => Ok(Format::PrintAll),
             "pbn" | "printpbn" => Ok(Format::Pbn),
+            "none" => Ok(Format::None),
             other => Err(format!(
-                "Unknown format '{}'. Use 'oneline', 'printall' or 'pbn'.",
+                "Unknown format '{}'. Use 'oneline', 'printall', 'pbn' or 'none'.",
                 other
             )),
         }
+    }
+
+    /// Whether a produced deal is worth holding on to at all.
+    ///
+    /// The one thing that separates `None` from the rest, and it is asked
+    /// before a deal is cloned rather than after it has been rendered: holding
+    /// the deal is most of the cost and rendering it is the remainder.
+    fn collects_deals(self) -> bool {
+        self != Format::None
     }
 
     fn render(
@@ -85,6 +108,10 @@ impl Format {
                     ..Default::default()
                 },
             ),
+            // Never reached: nothing is held under `None`, so there is nothing
+            // to render. Empty rather than a panic, so a mistake here would
+            // cost a missing deal rather than a dead page.
+            Format::None => String::new(),
         }
     }
 }
@@ -211,6 +238,14 @@ struct LevelingResult {
 #[derive(Serialize)]
 struct GenerateResult {
     deals: Vec<String>,
+    /// Whether the format asked for renders deals at all.
+    ///
+    /// False only under `none`, and it travels with the result rather than
+    /// being read off whatever the format control says now: changing the
+    /// dropdown without pressing Run again must not make the page describe the
+    /// result on screen as something it is not. An empty `deals` cannot say
+    /// this on its own — a run that matched nothing has one too.
+    renders_deals: bool,
     /// Deals examined, including those the filter rejected.
     generated: usize,
     /// Deals that matched.
@@ -438,8 +473,18 @@ struct Page<'a> {
     /// Deals it may take, which is the other thing that can stop it short.
     max_generate: usize,
     /// Deals to hand back, capped: a large `produce` used to gather statistics
-    /// does not have to ship every deal to JS.
+    /// does not have to ship every deal to JS. Left empty altogether under
+    /// `Format::None`, which is the whole point of that format.
     held: Vec<(Option<usize>, Deal)>,
+    /// Whether the chosen format has any use for a deal. False only under
+    /// `Format::None`, and then nothing is cloned, rendered or shipped.
+    collects_deals: bool,
+    /// Produced deals whose output has been taken, which is what the cap counts.
+    ///
+    /// Not `held.len()`: under `Format::None` nothing lands in `held`, and the
+    /// cap still has to hold for `printed` — otherwise a script with a
+    /// `printes` statement would build one string per deal over the whole run.
+    kept: usize,
     /// Everything the script's `printes` and `printrpt` statements wrote,
     /// capped alongside the deals so the two stay in step.
     printed: String,
@@ -511,16 +556,26 @@ impl RunHost for Page<'_> {
     }
 
     fn produced(&mut self, deal: &Produced) -> Result<(), String> {
-        if self.held.len() >= MAX_RETURNED_DEALS {
+        if self.kept >= MAX_RETURNED_DEALS {
             return Ok(());
         }
+        self.kept += 1;
+        // What the script itself wrote, whatever the format. `printes` and
+        // `printrpt` are statements the script ran, not a rendering of a deal,
+        // so a format that shows no hands must not quietly turn them off. Both
+        // cost nothing at all when the script declares none, which is nearly
+        // every script.
         for row in deal.rows()?.printed {
             self.printed.push(' ');
             self.printed.push_str(&row);
             self.printed.push('\n');
         }
         self.printed.push_str(&deal.printes()?);
-        self.held.push((deal.hand_type, deal.deal.clone()));
+        // The deal itself, which `Format::None` has no use for: no clone here,
+        // no render after the run, and nothing to serialise across to the page.
+        if self.collects_deals {
+            self.held.push((deal.hand_type, deal.deal.clone()));
+        }
         Ok(())
     }
 }
@@ -744,6 +799,8 @@ fn run_script(
         deadline: started + MEASURE_BUDGET_MS,
         max_generate,
         held: Vec::new(),
+        collects_deals: format.collects_deals(),
+        kept: 0,
         printed: String::new(),
         ran_out: false,
         characterizing_started: started,
@@ -910,6 +967,7 @@ fn run_script(
 
     let result = GenerateResult {
         deals,
+        renders_deals: format.collects_deals(),
         deal_types,
         generated: report.generated,
         produced: report.produced,
@@ -1555,6 +1613,11 @@ mod tests {
 
     /// Run a script over supplied bytes, as the page would.
     fn over(deals: &[u8], script: &str) -> Result<serde_json::Value, String> {
+        over_as(deals, script, "oneline")
+    }
+
+    /// The same, in a named format — which is the only thing `none` changes.
+    fn over_as(deals: &[u8], script: &str, format: &str) -> Result<serde_json::Value, String> {
         let (supplied, report) =
             dealer_run::deals_from_bytes(deals, dealer_run::deal_input::Window::all())?;
         let json = run_script(
@@ -1562,7 +1625,7 @@ mod tests {
             1,
             1000,
             1_000_000,
-            "oneline",
+            format,
             false,
             false,
             &[],
@@ -1803,6 +1866,76 @@ mod tests {
             expected
         );
         assert_eq!(result["averages"][0]["count"], 10);
+    }
+
+    /// A script that asks for every kind of statistic there is, so that "the
+    /// numbers are untouched" is a claim about all of them.
+    const EVERY_STATISTIC: &str = "condition 1\n\
+         action printoneline,\n\
+         average \"N HCP\" hcp(north),\n\
+         frequency \"N HCP\" (hcp(north), 0, 20)\n";
+
+    #[test]
+    fn none_keeps_every_statistic_and_not_one_deal() {
+        let shown = over_as(LIBRARY, EVERY_STATISTIC, "oneline").expect("one line runs");
+        let quiet = over_as(LIBRARY, EVERY_STATISTIC, "none").expect("none runs");
+
+        // The run itself is untouched: the same deals looked at, the same deals
+        // matched, and the same numbers over them. `none` decides what is
+        // written out, never what is generated or measured.
+        assert_eq!(quiet["generated"], shown["generated"]);
+        assert_eq!(quiet["produced"], shown["produced"]);
+        assert_eq!(quiet["averages"], shown["averages"]);
+        assert_eq!(quiet["frequencies"], shown["frequencies"]);
+        assert_eq!(quiet["hand_types"], shown["hand_types"]);
+        // The page has no stderr, so the input report is the only thing that
+        // says what a run over a library actually read. It must survive too.
+        assert_eq!(quiet["input"], shown["input"]);
+
+        // And nothing whatever is held or rendered.
+        assert_eq!(shown["deals"].as_array().map(Vec::len), Some(10));
+        assert_eq!(
+            quiet["deals"].as_array().map(Vec::len),
+            Some(0),
+            "none holds no deals"
+        );
+        assert_eq!(quiet["deal_types"].as_array().map(Vec::len), Some(0));
+
+        // Said in the result rather than inferred from an empty list: a run
+        // that matched nothing has an empty list too, and the page has to tell
+        // the two apart to say the right thing about either.
+        assert_eq!(shown["renders_deals"], true);
+        assert_eq!(quiet["renders_deals"], false);
+    }
+
+    #[test]
+    fn none_still_writes_what_the_script_itself_printed() {
+        // `printes` is a statement the script ran, not a rendering of a deal.
+        // A format that shows no hands must not quietly stop it, or a script
+        // whose whole output is its own `printes` line would come back blank.
+        let script = "condition 1\naction printes(\"N=\", hcp(north), \\n)\n";
+        let quiet = over_as(LIBRARY, script, "none").expect("none runs");
+        let shown = over_as(LIBRARY, script, "oneline").expect("one line runs");
+
+        assert_eq!(quiet["printes"], shown["printes"]);
+        assert!(
+            quiet["printes"]
+                .as_str()
+                .is_some_and(|s| s.lines().count() == 10),
+            "one line per deal, as the terminal would have written it: {}",
+            quiet["printes"]
+        );
+    }
+
+    #[test]
+    fn an_unknown_format_names_the_ones_that_exist() {
+        let error = over_as(LIBRARY, "condition 1\n", "hands").expect_err("no such format");
+        for offered in ["oneline", "printall", "pbn", "none"] {
+            assert!(
+                error.contains(offered),
+                "the refusal should offer {offered}: {error}"
+            );
+        }
     }
 
     /// What a page asks before offering to fetch a solved-deal library: does
