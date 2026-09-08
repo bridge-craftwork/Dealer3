@@ -287,26 +287,49 @@
         </template>
       </section>
 
-      <section v-if="result.deals.length" class="block">
+      <!-- Kept on screen when the run collected nothing, rather than dropped:
+           an absent section reads as "no matches", which is a different thing
+           and the one people act on. -->
+      <section v-if="result.deals.length || !dealsRendered" class="block">
         <div class="deals-head">
           <h3>Deals</h3>
           <div class="deals-tools">
-            <div class="toggle" role="group" aria-label="Deal view">
+            <!-- Two views of the same deals, and no deals to view. -->
+            <div v-if="dealsRendered" class="toggle" role="group" aria-label="Deal view">
               <button :class="{ on: view === 'grid' }" @click="view = 'grid'">Hands</button>
               <button :class="{ on: view === 'text' }" @click="view = 'text'">Text</button>
             </div>
-            <button class="dl" :disabled="downloading" @click="$emit('download', 'pbn')">
+            <!-- Saving re-runs the script, so a PBN of a run that kept no deals
+                 would mean dealing the whole thing again — the expensive half
+                 of what None was picked to avoid. Disabled and explained,
+                 rather than offered and quietly costly. -->
+            <button
+              class="dl"
+              :disabled="downloading || !dealsRendered"
+              :title="pbnHint"
+              @click="$emit('download', 'pbn')"
+            >
               Save PBN
             </button>
-            <button class="dl" @click="$emit('download', 'text')">Save text</button>
+            <!-- Still worth having: under None it saves the statistics, which
+                 is the whole of what the run produced. -->
+            <button class="dl" :title="textHint" @click="$emit('download', 'text')">
+              Save text
+            </button>
             <!-- The browser's own print pipeline: a PDF with selectable text and
                  a live link back, which is the point — the script is meant to be
                  copied out of it. -->
-            <button class="dl" @click="$emit('print')">Save PDF</button>
+            <button class="dl" :title="pdfHint" @click="$emit('print')">Save PDF</button>
           </div>
         </div>
 
-        <p v-if="view === 'grid' && !parsedDeals.length" class="results-muted">
+        <p v-if="!dealsRendered" class="results-muted">
+          Format is <strong>None</strong>, so this run collected no deals: nothing was rendered
+          and there is no hand record to show or save. Everything above was measured over all
+          {{ result.produced.toLocaleString() }} of them. Choose One line, Print all or PBN, and
+          run again, to see the hands.
+        </p>
+        <p v-else-if="view === 'grid' && !parsedDeals.length" class="results-muted">
           This output format cannot be shown as hands. Switch to Text, or generate with the
           one-line format.
         </p>
@@ -378,6 +401,35 @@ defineEmits(['download', 'print'])
 
 // Hands read far more easily than one-line strings, so that is the default.
 const view = ref('grid')
+
+/// Whether this run collected deals at all.
+///
+/// Read off the RESULT, not off the format control: someone who changes the
+/// dropdown without pressing Run again is still looking at the previous run,
+/// and the page must go on describing that one correctly. An empty `deals`
+/// cannot answer it either — a run that matched nothing has one too, and that
+/// is the case this section already had words for.
+///
+/// Defaults to true for anything without the field, which keeps an older stored
+/// or replayed result reading as it always did.
+const dealsRendered = computed(() => props.result?.dealsRendered !== false)
+
+const pbnHint = computed(() =>
+  dealsRendered.value
+    ? 'Save every deal this run produced as a PBN file.'
+    : 'Format is None, so this run kept no deals — and saving would deal them all again. ' +
+      'Choose another format and run it.',
+)
+const textHint = computed(() =>
+  dealsRendered.value
+    ? 'Save the deals and the statistics as a text file.'
+    : 'Save the statistics as a text file. This run kept no deals to go with them.',
+)
+const pdfHint = computed(() =>
+  dealsRendered.value
+    ? 'Open the print dialog, from which "Save as PDF" gives the script, the statistics and the first boards.'
+    : 'Open the print dialog. This run kept no deals, so the document is the script and the statistics.',
+)
 
 /// What the run read, for a run that read rather than dealt: how many deals
 /// arrived, whether they came with double-dummy tables, and anything the reader

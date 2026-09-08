@@ -33,9 +33,31 @@
       <span v-if="engineVersion" class="bar-version">engine {{ engineVersion }}</span>
     </header>
 
-    <main class="cols">
-      <aside class="col col-picker">
-        <ScenarioPicker :selected="selectedFile" :busy-file="loadingFile" @select="pickScenario" />
+    <main class="cols" :class="{ 'picker-closed': !pickerOpen }">
+      <!-- The scenario list is how you find a starting point, and then it is
+           260px of nothing while you edit. Closing it hands that width to the
+           editor and the results, which share the rest of the row. -->
+      <aside class="col col-picker" :class="{ 'is-closed': !pickerOpen }">
+        <ScenarioPicker
+          v-if="pickerOpen"
+          :selected="selectedFile"
+          :busy-file="loadingFile"
+          @select="pickScenario"
+          @close="pickerOpen = false"
+        />
+        <!-- What is left when it is closed: a labelled rail, not a bare edge.
+             An icon alone would leave the list findable only by whoever hid
+             it, and this is the only way back. -->
+        <button
+          v-else
+          class="picker-open"
+          title="Show the scenario list"
+          aria-expanded="false"
+          @click="pickerOpen = true"
+        >
+          <span aria-hidden="true">›</span>
+          <span class="picker-open-label">Scenarios</span>
+        </button>
       </aside>
 
       <section class="col col-editor">
@@ -55,21 +77,27 @@
               Pre-solved deals
             </label>
           </span>
-          <label>Produce <input v-model.number="produce" class="narrow" type="number" min="1" /></label>
+          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
           <label>
             Max generate
             <!-- `min` must be a multiple of `step`, or the browser snaps to the
                  sequence min + n*step. With min=1 step=1000 the only valid
                  values were 1, 1001, 2001…, so 500000 stepped up to 500001 and
                  down to 499001. A zero is rejected at run time instead. -->
-            <input v-model.number="maxGenerate" type="number" min="0" :step="generateStep" />
+            <input
+              v-model.number="maxGenerate"
+              class="num-generate"
+              type="number"
+              min="0"
+              :step="generateStep"
+            />
           </label>
           <!-- After the two limits, because on Random it is a field to read
                rather than set: it says which run this was, for quoting or
                coming back to. -->
           <label>
             Seed
-            <input v-model.number="seed" type="number" min="0" max="4294967295" />
+            <input v-model.number="seed" class="num-seed" type="number" min="0" max="4294967295" />
           </label>
           <!-- Rolled *before* the run and written into the field beside it, so
                the seed on screen is still the seed that produced what is shown.
@@ -80,12 +108,16 @@
             <input v-model="newSeedEachRun" type="checkbox" />
             Random
           </label>
-          <label>
+          <!-- `None` is not a way of hiding the deals: the engine stops
+               collecting them, so a statistics run does not build, ship and
+               lay out hands nobody is going to look at. -->
+          <label :title="formatHint">
             Format
             <select v-model="format">
               <option value="oneline">One line</option>
               <option value="printall">Print all</option>
               <option value="pbn">PBN</option>
+              <option value="none">None — statistics only</option>
             </select>
           </label>
         </div>
@@ -399,6 +431,11 @@ const result = ref(null)
 const error = ref('')
 const scriptValid = ref(true)
 const selectedFile = ref(restored?.scenario || '')
+// Whether the scenario list is showing. Open on a first visit — it is how you
+// find something to run — and remembered from then on, because someone who has
+// closed it is editing a script and would have to close it again on every
+// reload otherwise.
+const pickerOpen = ref(restored?.pickerOpen ?? true)
 const loadingFile = ref('')
 const downloading = ref(false)
 
@@ -484,6 +521,12 @@ const runHint = computed(() => {
   } and declares no default.`
 })
 
+const formatHint = computed(() =>
+  format.value === 'none'
+    ? 'Statistics only: the engine collects no deals, so nothing is rendered, shipped or laid out. Averages, frequencies and the counts are all still measured over every deal produced.'
+    : 'How each produced deal is written out. None keeps the statistics and collects no deals at all, which is what a run gathering numbers wants.',
+)
+
 const libraryHint =
   'Draw from Pavlicek\u2019s 10,485,760 pre-solved deals, so tricks(), dds() and par() are ' +
   'lookups rather than searches. The seed picks where in the library to start.'
@@ -553,6 +596,7 @@ watch(
     format,
     dealSource,
     selectedFile,
+    pickerOpen,
     autoLevel,
     newSeedEachRun,
     paramValues,
@@ -569,6 +613,7 @@ watch(
         format: format.value,
         dealSource: dealSource.value,
         scenario: selectedFile.value,
+        pickerOpen: pickerOpen.value,
         autoLevel: autoLevel.value,
         newSeedEachRun: newSeedEachRun.value,
         paramValues: paramValues.value,
@@ -635,6 +680,16 @@ async function onDownload(kind) {
         pbn.deals.join('\n') + '\n',
         'application/x-pbn',
       )
+    } else if (format.value === 'none') {
+      // Nothing was collected, so there is nothing to re-run FOR: the
+      // statistics on screen are the whole of what a text file would hold.
+      // Re-running would deal the hundred thousand again to arrive at numbers
+      // already in hand, which is the expensive half of what None was picked to
+      // avoid. Written from the result instead.
+      const shown = result.value
+      if (!shown) return
+      const printed = shown.printes ? shown.printes + '\n' : ''
+      downloadText(resultFilename(name, seed.value, 'txt'), printed + statisticsText(shown))
     } else {
       const text = await generate(script.value, {
         seed: seed.value,
@@ -796,6 +851,9 @@ body {
 .bar-version { font-size: 11px; color: var(--fg-muted); font-family: var(--mono); }
 
 .cols { display: grid; grid-template-columns: 260px 1fr 1fr; flex: 1; min-height: 0; }
+/* The first column shrinks to the rail; the two `1fr` columns take the 232px
+   it gave up between them, which is the point of closing it. */
+.cols.picker-closed { grid-template-columns: 28px 1fr 1fr; }
 .col { min-width: 0; min-height: 0; }
 .col-picker { border-right: 1px solid var(--line); }
 .col-editor { display: flex; flex-direction: column; padding: 8px; gap: 8px; min-height: 0; }
@@ -807,13 +865,24 @@ body {
   font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
-/* Wide enough for a ten-digit seed, which is the longest thing any of them
-   holds. Produce is a board count and never needs half of that. */
-.controls input[type="number"] { width: 7em; }
-/* Two digits narrower than the seed's seven ems, which is sized for a
-   ten-figure seed. A board count is two or three digits nearly always, and the
-   spinner takes a good part of a small box. */
-.controls input.narrow { width: 4.5em; }
+/* Numeric fields sized for the values they actually hold.
+   A number input draws its spinner INSIDE its own box, and the box also carries
+   the field's padding and border, so the digits are clipped well before the
+   border is reached. The old widths were set by eye against that and both came
+   up short: `Produce` at 4.5em showed `2000(` for 20000, and the 7em the other
+   two shared runs out around eight digits, two short of a ten-figure seed.
+   So the width is stated as what it has to hold rather than as a round number:
+   `--num-digits` of text, plus `--num-chrome` for everything the browser draws
+   around it. */
+.controls { --num-chrome: 2.6em; }
+.controls input[type="number"] { width: calc(var(--num-digits, 8) * 1ch + var(--num-chrome)); }
+/* A board count. Seven digits is a million boards — far past anything anyone
+   asks a browser for, and still the narrowest of the three. */
+.controls input.num-produce { --num-digits: 7; }
+/* Up to 10,000,000, which the field's own arrows will walk it to. */
+.controls input.num-generate { --num-digits: 8; }
+/* A u32: 4294967295, and the widest thing on the row. */
+.controls input.num-seed { --num-digits: 10; }
 .check {
   display: inline-flex;
   align-items: center;
@@ -951,9 +1020,28 @@ body {
   .progress-fill.indeterminate { animation: none; width: 100%; opacity: 0.4; }
 }
 
+/* The rail the closed list leaves behind: the whole column is the way back, so
+   it cannot be missed and does not need aiming at. Vertical, because 28px of
+   width is what was freed and a horizontal label would not fit in it. */
+.picker-open {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 10px 0;
+  border: 0; background: var(--bg-subtle); color: var(--fg-muted);
+  font: inherit; font-size: 12px; cursor: pointer;
+}
+.picker-open:hover { background: var(--accent-subtle); color: var(--fg); }
+.picker-open-label { writing-mode: vertical-rl; letter-spacing: 0.04em; }
+
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; grid-template-rows: auto 1fr 1fr; }
+  /* Stacked, the list is a row rather than a column, so the closed rail is a
+     strip across the top and its label reads the ordinary way round. */
+  .cols.picker-closed { grid-template-columns: 1fr; }
   .col-picker { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+  .col-picker.is-closed { max-height: none; }
+  .picker-open { height: auto; flex-direction: row; padding: 6px 10px; }
+  .picker-open-label { writing-mode: horizontal-tb; }
   .col-results { border-left: 0; border-top: 1px solid var(--line); }
 }
 </style>

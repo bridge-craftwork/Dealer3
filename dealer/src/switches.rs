@@ -349,7 +349,11 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         what: "Output format",
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Absent,
-        note: Some("The original selects a format with an `action` statement instead."),
+        note: Some(
+            "The original selects a format with an `action` statement instead. `-f none` writes \
+             no deals and keeps the statistics, for a run that only wants its `average` and \
+             `frequency` results.",
+        ),
     },
     SwitchRow {
         short: "-d",

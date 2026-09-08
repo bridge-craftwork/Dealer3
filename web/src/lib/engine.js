@@ -254,10 +254,18 @@ export async function generate(
     // many deals were asked for. From the worker rather than the engine: it is
     // what the page asked for, against which `input.read` is worth reading.
     library: message.library || null,
+    // Whether the format asked for renders deals at all: false only under
+    // `none`, which keeps the statistics and collects no hands. It travels with
+    // the result rather than being read off the format control, so changing
+    // that control without running again cannot make the page describe what is
+    // on screen as something else. An empty `deals` cannot say it — a run that
+    // matched nothing has one too.
+    dealsRendered: raw.renders_deals,
     // `deals` is capped by the engine; `produced` counts every match. A script
     // gathering statistics over 50,000 deals returns statistics for all of them
-    // and only the first few hundred deals.
-    dealsTruncated: raw.produced > raw.deals.length,
+    // and only the first few hundred deals. Under `none` there is no
+    // truncation to report: nothing was going to be shown in the first place.
+    dealsTruncated: raw.renders_deals && raw.produced > raw.deals.length,
   }
 }
 

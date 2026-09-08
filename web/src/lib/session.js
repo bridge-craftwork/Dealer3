@@ -46,6 +46,10 @@ export function loadSession() {
       // silently start a run by downloading a library.
       dealSource: v.dealSource === 'library' ? 'library' : 'random',
       scenario: typeof v.scenario === 'string' ? v.scenario : '',
+      // Whether the scenario list is showing. Open unless it was explicitly
+      // closed: the list is how a first visit finds anything to run, and a
+      // stored value that is not a boolean says nothing about that.
+      pickerOpen: typeof v.pickerOpen === 'boolean' ? v.pickerOpen : true,
       // Left undefined rather than defaulted, so the caller can tell "never
       // chosen" from "chosen false" — auto-level ticks itself the first time a
       // script names hand types, and only until someone has had an opinion.

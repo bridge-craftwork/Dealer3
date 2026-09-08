@@ -9,6 +9,15 @@
         aria-label="Search scenarios"
       />
       <button class="picker-refresh" :disabled="loading" title="Reload the list" @click="load">↻</button>
+      <!-- Beside the search rather than in the page header: it belongs to this
+           panel, and the panel is what it acts on. -->
+      <button
+        class="picker-close"
+        title="Hide the scenario list, and give the width to the editor"
+        aria-label="Hide the scenario list"
+        aria-expanded="true"
+        @click="$emit('close')"
+      >‹</button>
     </div>
 
     <p v-if="loading" class="picker-muted">Loading scenarios…</p>
@@ -71,7 +80,7 @@ const props = defineProps({
   // Shown as loading while the parent fetches its script.
   busyFile: { type: String, default: '' },
 })
-defineEmits(['select'])
+defineEmits(['select', 'close'])
 
 const sections = ref([])
 const loading = ref(false)
@@ -151,6 +160,14 @@ watch(
   background: var(--bg-subtle); color: var(--fg); cursor: pointer;
 }
 .picker-refresh:disabled { opacity: 0.5; cursor: default; }
+/* Same chrome as Reload, and next to it: two small things this panel does to
+   itself, neither of them about a scenario. */
+.picker-close {
+  padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px;
+  background: var(--bg-subtle); color: var(--fg-muted); cursor: pointer;
+  font: inherit; line-height: 1;
+}
+.picker-close:hover { color: var(--fg); }
 .picker-tree { overflow-y: auto; flex: 1; min-height: 0; }
 .picker-muted { padding: 12px; color: var(--fg-muted); font-size: 13px; }
 .picker-error { padding: 12px; color: var(--danger); font-size: 13px; }
