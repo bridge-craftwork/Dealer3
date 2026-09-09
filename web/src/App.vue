@@ -1067,20 +1067,33 @@ body {
 /* The gear sits with Run, not adrift at the far edge: `margin-left: auto` on
    Run pushes everything before it left, so placing this immediately before Run
    keeps the pair together however wide the row gets. */
+/* Sized and bordered like Cancel, because it is that kind of control: a
+   secondary button on the Run row. It first shipped with `var(--border)` and
+   `var(--bg-raised)`, neither of which this file defines — and an undefined
+   `var()` inside the `border` shorthand makes the whole declaration invalid,
+   which resolves to `border-style: none`. So it had no border, no background
+   and no box at all, and nothing anywhere reported a problem.
+
+   The row is `align-items: end`, so what makes this look level with its
+   neighbours is its box height matching theirs rather than any alignment
+   property. 4 + 4 padding, 16px glyph and 2px border is 26px, against Run's
+   ~26 and Cancel's ~28. */
 .settings-toggle {
-  font-size: 1rem; line-height: 1; padding: 5px 9px; cursor: pointer;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--bg-raised); color: var(--fg-muted);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 32px;
+  padding: 4px 9px; font-size: 16px; line-height: 1; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; color: var(--fg-muted);
 }
-.settings-toggle:hover { color: var(--fg); }
+.settings-toggle:hover { color: var(--fg); border-color: var(--fg-muted); }
 /* Open is a state, not a hover: with the panel below, the button has to say
    which of the two it is, or the only way to tell is to look away from it. */
-.settings-toggle.on { color: var(--fg); border-color: var(--accent); background: var(--bg); }
+.settings-toggle.on { color: var(--accent); border-color: var(--accent); }
 
 .settings-panel {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
   padding: 8px 10px; margin: 0 0 6px;
-  border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised);
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg-subtle);
 }
 .settings-panel label { font-size: 0.82rem; white-space: nowrap; }
 /* Wraps onto its own line rather than sitting in the flow of controls: it is a
