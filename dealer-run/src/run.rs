@@ -32,7 +32,7 @@ use dealer_core::{
     generate_deal_from_seed, generate_deal_from_seed_no_predeal, Deal, FastDealConfig,
     FastDealGenerator, SwapMode,
 };
-use dealer_eval::EvalError;
+use dealer_eval::{EvalError, VarCache};
 
 /// Which pass a progress report belongs to.
 ///
@@ -336,6 +336,20 @@ pub trait RunHost {
     fn produced(&mut self, deal: &Produced) -> Result<(), String>;
 }
 
+/// What one batch of dealing and testing is: how many deals, how many of them
+/// at a time, and how many variables a deal's scratch may have to hold.
+///
+/// Three numbers rather than three arguments, and the third is the odd one:
+/// it is not about the work but about the scratch that does it — zero means no
+/// script variable is ever cached, so nothing in a batch ever allocates and
+/// rayon is left to split it however it likes. See [`Workers::build_and_test`].
+#[derive(Clone, Copy)]
+struct Batch {
+    count: usize,
+    chunk: usize,
+    variables: usize,
+}
+
 /// The engine's threads, and how it maps work over a batch.
 ///
 /// A pool of its own where one can be had: rayon's global pool can only be
@@ -390,18 +404,26 @@ impl Workers {
     /// `tricks()` in a condition reaches the action that asks the same
     /// question later on the main thread: the answer travels with its deal
     /// rather than being looked up in a store keyed by cards (#61).
-    fn build_and_test(
+    ///
+    /// `test` is handed the scratch its context is built in, one per worker
+    /// rather than one per deal. A context that makes its own allocates the
+    /// moment a script mentions a variable, and on wasm — one dlmalloc behind
+    /// one lock — that allocation is what turned twelve threads into a
+    /// slow-down (#86). Emptied here, between the deal that was tested and the
+    /// next one, which is what a deal boundary means.
+    fn build_and_test<'v>(
         &self,
         start: usize,
         count: usize,
+        variables: usize,
         build: &(dyn Fn(usize) -> Deal + Sync),
-        test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
+        test: &(dyn Fn(usize, &Deal, &VarCache<'v>) -> Result<bool, EvalError> + Sync),
         harvest: bool,
     ) -> Vec<Tested> {
-        let one = |offset: usize| {
+        let one = |cache: &mut VarCache<'v>, offset: usize| {
             let index = start + offset;
             let deal = build(index);
-            let passed = test(index, &deal);
+            let passed = test(index, &deal, cache.start_deal());
             let known = if harvest {
                 dealer_dds::learned(&deal)
             } else {
@@ -416,14 +438,51 @@ impl Workers {
         #[cfg(feature = "parallel")]
         {
             use rayon::prelude::*;
+            // `map_init` rather than `map`: rayon calls the initialiser once
+            // per piece of work it splits off, not once per item, so a piece
+            // builds one scratch and every deal in it re-uses that.
+            //
+            // With `with_min_len` to say how small a piece may get, and that is
+            // not a detail. Rayon splits adaptively: every steal lets it halve
+            // again, and deals are cheap enough that twelve workers steal
+            // constantly — measured on wasm, an unbounded split cut a batch of
+            // 2,400 into pieces of one or two, so a scratch was built about as
+            // often as a context used to be and the allocation came straight
+            // back: a one-variable script ran at 2.5M deals/s on twelve threads
+            // with no floor and 8.1M with one. Eight pieces per worker is
+            // enough to keep them fed — a batch's deals all cost the same, and
+            // the one pass whose deals do not comes through here 32 at a time,
+            // where this works out at 1.
+            let floor = || {
+                if variables == 0 {
+                    // Nothing is ever put in the scratch, so it never
+                    // allocates, so there is nothing to spread — and rayon's
+                    // own splitting balances a batch better than any floor. A
+                    // bare condition measured 29% slower on twelve wasm threads
+                    // with a floor it had no use for.
+                    return 1;
+                }
+                (count / (rayon::current_num_threads() * 8)).max(1)
+            };
             if let Some(pool) = &self.pool {
-                return pool.install(|| (0..count).into_par_iter().map(one).collect());
+                return pool.install(|| {
+                    (0..count)
+                        .into_par_iter()
+                        .with_min_len(floor())
+                        .map_init(VarCache::new, one)
+                        .collect()
+                });
             }
             if self.global {
-                return (0..count).into_par_iter().map(one).collect();
+                return (0..count)
+                    .into_par_iter()
+                    .with_min_len(floor())
+                    .map_init(VarCache::new, one)
+                    .collect();
             }
         }
-        (0..count).map(one).collect()
+        let mut cache = VarCache::new();
+        (0..count).map(|offset| one(&mut cache, offset)).collect()
     }
 
     /// The same, offered to a caller in pieces of `chunk`, with `between`
@@ -446,20 +505,31 @@ impl Workers {
     /// It cannot change what comes out: the work is a map from index to deal,
     /// collected in the order the indices were drawn, so where the pieces are
     /// cut changes when the threads are handed their work and nothing else.
-    fn build_and_test_in_chunks(
+    fn build_and_test_in_chunks<'v>(
         &self,
-        count: usize,
-        chunk: usize,
+        batch: Batch,
         build: &(dyn Fn(usize) -> Deal + Sync),
-        test: &(dyn Fn(usize, &Deal) -> Result<bool, EvalError> + Sync),
+        test: &(dyn Fn(usize, &Deal, &VarCache<'v>) -> Result<bool, EvalError> + Sync),
         harvest: bool,
         between: &mut dyn FnMut(usize),
     ) -> Vec<Tested> {
-        let mut built = self.build_and_test(0, chunk.min(count), build, test, harvest);
+        let Batch {
+            count,
+            chunk,
+            variables,
+        } = batch;
+        let mut built = self.build_and_test(0, chunk.min(count), variables, build, test, harvest);
         while built.len() < count {
             between(built.len());
             let from = built.len();
-            built.extend(self.build_and_test(from, chunk.min(count - from), build, test, harvest));
+            built.extend(self.build_and_test(
+                from,
+                chunk.min(count - from),
+                variables,
+                build,
+                test,
+                harvest,
+            ));
         }
         built
     }
@@ -511,6 +581,14 @@ pub struct Produced<'a> {
     /// categories do not cover every deal it produces.
     pub hand_type: Option<usize>,
     variables: &'a dealer_eval::Variables<'a>,
+    /// Scratch for the contexts this deal's reports are evaluated in.
+    ///
+    /// One per produced deal rather than one per context: a produced deal is
+    /// rare next to a generated one — a characterizing pass emits none at all —
+    /// so this is not the allocation #86 is about, and holding it here means
+    /// `printes` and `printrpt` over the same deal work a variable out once
+    /// between them.
+    cache: dealer_eval::VarCache<'a>,
     point_counts: Option<&'a dealer_eval::PointCounts>,
     reports: &'a Reports,
     vulnerability: dealer_core::Vulnerability,
@@ -539,19 +617,24 @@ pub struct Rows {
     pub csv: Vec<String>,
 }
 
-impl Produced<'_> {
+impl<'a> Produced<'a> {
     /// A fresh context over this deal, for a caller's own per-deal work.
     ///
     /// Fresh rather than shared for the reason contexts are built where they
     /// are everywhere else: where their boundaries fall is what a `rnd()` in
-    /// one draws against a `rnd()` in another.
-    pub fn context(&self) -> dealer_eval::EvalContext<'_> {
+    /// one draws against a `rnd()` in another. That is the `rnd()` stream,
+    /// which is still one per context. The variable values are this deal's
+    /// scratch, shared with every other context over the same deal — which
+    /// cannot move a `rnd()`, since a variable that can reach one is never
+    /// cached at all.
+    pub fn context(&self) -> dealer_eval::EvalContext<'_, 'a> {
         dealer_eval::EvalContext::for_deal(
             self.deal,
             self.variables,
             self.point_counts,
             self.vulnerability,
             self.dd_tricks,
+            &self.cache,
         )
     }
 
@@ -953,6 +1036,38 @@ fn pass_numbers(
     }
 }
 
+/// The condition, ready to be evaluated over a deal on any worker.
+///
+/// A function rather than a closure written where it is used, because the
+/// scratch's lifetime has to be *named*. `VarCache` is invariant in the
+/// lifetime of the names it caches, so a closure parameter written
+/// `cache: &VarCache` binds that lifetime higher-ranked along with the
+/// reference's — and a cache good for every lifetime is one whose script has to
+/// live for `'static`. Naming it here binds it to the script and leaves only
+/// the borrow itself per-call, which is what a worker lending its scratch one
+/// deal at a time needs.
+fn condition_tester<'v>(
+    constraint: Option<&'v dealer_parser::Expr>,
+    variables: &'v dealer_eval::Variables<'v>,
+    point_counts: Option<&'v dealer_eval::PointCounts>,
+    vulnerability: dealer_core::Vulnerability,
+) -> impl Fn(&dealer_dds::DealTricks, &Deal, &VarCache<'v>) -> Result<bool, EvalError> + Sync {
+    move |known: &dealer_dds::DealTricks, deal: &Deal, cache: &VarCache<'v>| match constraint {
+        Some(expr) => {
+            let ctx = dealer_eval::EvalContext::for_deal(
+                deal,
+                variables,
+                point_counts,
+                vulnerability,
+                known,
+                cache,
+            );
+            dealer_eval::eval(expr, &ctx).map(|value| value != 0)
+        }
+        None => Ok(true),
+    }
+}
+
 /// Deals a solving pass builds, tests or warms between progress reports.
 ///
 /// Chosen against the clock rather than the cache: a deal needing a
@@ -1054,21 +1169,17 @@ fn run_pass(
     // `index` is into the batch's handles, which is how a deal's table is found:
     // a supplied deal may have arrived already solved, and the condition should
     // read that rather than search for what the file already knew.
-    let test = |known: &dealer_dds::DealTricks, deal: &Deal| match constraint {
-        Some(expr) => {
-            let ctx = dealer_eval::EvalContext::for_deal(
-                deal,
-                &variables,
-                point_counts,
-                opts.vulnerability,
-                known,
-            );
-            dealer_eval::eval(expr, &ctx).map(|value| value != 0)
-        }
-        None => Ok(true),
-    };
+    // `cache` is the worker's scratch, emptied for this deal by
+    // `Workers::build_and_test` — see [`dealer_eval::VarCache`] for why holding
+    // one per worker rather than building one per context is the whole point.
+    let test = condition_tester(constraint, &variables, point_counts, opts.vulnerability);
 
     let workers = Workers::new(opts.threads);
+    // This thread's scratch for the contexts a produced deal is classified and
+    // counted in. One for the pass, not one per deal: `observe` empties it for
+    // each deal it is given, which is the only way to get at it. See
+    // [`dealer_eval::VarCache`].
+    let mut record_cache = VarCache::new();
     let mut retained = Retained::new(opts.retain);
     let mut produced = 0usize;
     let mut generated = 0usize;
@@ -1164,10 +1275,13 @@ fn run_pass(
         let batch_from_stream = from_stream;
         let phase = opts.phase;
         let built = workers.build_and_test_in_chunks(
-            handles.len(),
-            chunk,
+            Batch {
+                count: handles.len(),
+                chunk,
+                variables: variables.len(),
+            },
             &|index| source.build(handles[index]),
-            &|index, deal| test(known_at(&carried, index), deal),
+            &|index, deal, cache| test(known_at(&carried, index), deal, cache),
             dd_in_play,
             &mut |built_so_far| {
                 let so_far = if batch_from_stream {
@@ -1270,8 +1384,13 @@ fn run_pass(
             if !matched {
                 continue;
             }
-            let observed =
-                accumulator.observe(deal, &variables, point_counts, known_at(&known, index))?;
+            let observed = accumulator.observe(
+                deal,
+                &variables,
+                point_counts,
+                known_at(&known, index),
+                &mut record_cache,
+            )?;
             // Where the main thread does its own solving: an `average` over
             // `tricks()`, or an action asking for a cell the warm could not
             // read off the script, is searched right here, one deal at a time.
@@ -1312,6 +1431,7 @@ fn run_pass(
                     deal,
                     hand_type,
                     variables: &variables,
+                    cache: dealer_eval::VarCache::new(),
                     point_counts,
                     reports: &reports,
                     vulnerability: opts.vulnerability,
