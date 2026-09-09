@@ -10,6 +10,19 @@
 //! for this.
 
 use dealer_core::Deal;
+use std::sync::{Mutex, MutexGuard};
+
+/// `dealer_dds::searches()` is one counter for the process, and cargo runs
+/// these tests on threads of the same process — so a bracket around one test
+/// counts another's searches too. Every test here takes this first.
+///
+/// Found the hard way: adding a third test made an existing one fail while
+/// each passed alone.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+fn alone() -> MutexGuard<'static, ()> {
+    ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
+}
 use dealer_run::{Deals, Produced, RunHost, RunOptions};
 
 /// Keeps what `printrpt` rendered, which is where the trick counts appear.
@@ -68,6 +81,7 @@ fn run(deals: Vec<dealer_run::run::SolvedDeal>) -> (Vec<String>, usize) {
 
 #[test]
 fn a_supplied_table_is_read_rather_than_solved() {
+    let _alone = alone();
     let deals = deals();
 
     // Solved straight through `bridge_solver`, so these searches are not
@@ -112,6 +126,7 @@ fn a_supplied_table_is_read_rather_than_solved() {
 /// must cost one search, not two.
 #[test]
 fn an_answer_found_testing_a_deal_is_not_searched_for_again() {
+    let _alone = alone();
     const DEALS: usize = 16;
 
     let before = dealer_dds::searches();
@@ -145,5 +160,59 @@ fn an_answer_found_testing_a_deal_is_not_searched_for_again() {
         DEALS,
         "one search a deal: {searched} means the answer was found {} times over",
         searched as f64 / DEALS as f64
+    );
+}
+
+/// A run asking for a few deals must not solve a batch of them.
+///
+/// The batch is at least 1024 deals and 200 a thread, which is right when a
+/// deal costs a microsecond and absurd when it costs twenty milliseconds: a
+/// `produce 5` used to solve two thousand four hundred boards to hand back
+/// five. Nothing in the output says so — the five are correct either way — so
+/// the witness is the search counter.
+#[test]
+fn a_small_run_does_not_solve_a_whole_batch() {
+    let _alone = alone();
+    struct Sink;
+    impl RunHost for Sink {
+        fn produced(&mut self, _: &Produced) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    // The action solves, so every deal taken needs one answer and no deal
+    // beyond the target needs any.
+    let script = "condition 1\naction average \"t\" tricks(north, notrump)\n";
+    let before = dealer_dds::searches();
+    let report = dealer_run::run(
+        script,
+        RunOptions {
+            vulnerability: dealer_core::Vulnerability::None,
+            seed: 1,
+            produce: 4,
+            max_generate: 1_000_000,
+            deals: Deals::Shuffled {
+                predeal: dealer_core::FastDealConfig::new(),
+                swap: dealer_core::SwapMode::None,
+            },
+            leveling: None,
+            round_robin: false,
+            threads: 1,
+            batch: 0,
+            params: Default::default(),
+        },
+        &mut Sink,
+    )
+    .expect("run");
+    let searched = dealer_dds::searches() - before;
+
+    assert_eq!(
+        report.produced, 4,
+        "the run should still produce what it was asked for"
+    );
+    assert!(
+        searched <= 16,
+        "asking for 4 deals searched {searched} times — a batch's worth rather \
+         than a run's"
     );
 }

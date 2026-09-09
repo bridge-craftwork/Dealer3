@@ -1343,6 +1343,26 @@ fn run_pass(
         // read. That exclusion is invisible in the output, since the solver
         // agrees with what is already known, so it shows up only as time.
         if !dd_demand.is_none() {
+            // Only as many as this pass can still use. A batch is at least
+            // 1024 deals and 200 a thread, so a run asking for a hundred builds
+            // two thousand four hundred — fine when a deal costs a microsecond,
+            // and the difference between two seconds and twenty when each one
+            // is a double-dummy search. The deals past the target are never
+            // walked, so solving them buys nothing at all.
+            //
+            // Only a plain producing pass has a target to count against.
+            // Characterizing runs until it has seen enough or the clock stops
+            // it. And a round robin turns matches away when their round is
+            // full, so `produced` is behind the number of matches this batch
+            // will walk — capping by it would leave the rest to be solved one
+            // at a time on this thread, which is slower than solving too many
+            // on the pool.
+            let counts_every_match = !opts.until_measured && opts.round_robin.is_none();
+            let still_wanted = if counts_every_match {
+                opts.produce.saturating_sub(produced)
+            } else {
+                usize::MAX
+            };
             let wanted: Vec<usize> = built
                 .iter()
                 .enumerate()
@@ -1350,6 +1370,7 @@ fn run_pass(
                     matches!(tested.passed, Ok(true)) && !dd_demand.satisfied_by(&known[*index])
                 })
                 .map(|(index, _)| index)
+                .take(still_wanted)
                 .collect();
             if wanted.len() > 1 {
                 // A chunk at a time while the pass is solving, for the reason
@@ -1488,12 +1509,42 @@ fn run_pass(
 ///
 /// With `produce` at zero nothing is dealt from the levelling, which is what a
 /// caller writing the scenario out and stopping there wants.
+/// Does this script's condition reach the solver, so far as can be told before
+/// the run proper parses it?
+///
+/// Only the batch size depends on this, and only as a choice between two
+/// reasonable sizes — so a script that will not parse answers `false` and takes
+/// the ordinary batch. The parse that matters happens below and reports the
+/// error properly; failing here would report it twice, in the wrong words.
+fn condition_solves(script: &str, params: &dealer_parser::ScriptParams) -> bool {
+    dealer_parser::preprocess_all(script, params)
+        .ok()
+        .and_then(|text| dealer_parser::parse_program(&text).ok())
+        .is_some_and(|program| crate::dd_demand::condition_touches_solver(&program))
+}
+
 pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<RunReport, RunError> {
     let threads = resolve_threads(opts.threads);
     // Enough work per hand-off that the hand-off is not the expensive part, and
     // little enough that a caller answering to a clock is asked often.
+    //
+    // Both halves of that assume a deal is cheap. When the *condition* solves,
+    // one is about five orders of magnitude dearer — hundreds of nanoseconds
+    // becomes tens of milliseconds — and a batch sized for the cheap case
+    // solves two thousand four hundred deals to answer `produce 5`. The
+    // handles are drawn before any of them is tested, so the surplus cannot be
+    // abandoned once enough have matched: that would skip deals the next batch
+    // should have seen, and change which deals a seed produces.
+    //
+    // So the batch is drawn small instead. At tens of milliseconds a deal the
+    // hand-off is free by comparison, and a selective filter simply takes more
+    // batches — each one still spread across every thread.
     let batch = if opts.batch == 0 {
-        (200 * threads).clamp(1024, 65_536)
+        if condition_solves(script, &opts.params) {
+            (2 * threads).clamp(16, 256)
+        } else {
+            (200 * threads).clamp(1024, 65_536)
+        }
     } else {
         opts.batch
     };
