@@ -1,9 +1,14 @@
 // The one shape a run is described in.
 //
-// The engine takes this (`run_json`), and the same shape is meant to carry a
-// share link's payload, an export file and a demo's manifest entry. One
-// definition, so adding a setting is one edit and a version bump rather than
-// four edits kept in step by hand.
+// The engine takes this (`run_json`). A share link, an export file and a demo's
+// manifest entry describe more than the engine does — which deal source to draw
+// from, whether to roll a fresh seed each run — so a saved document is this
+// plus those, and projects back down to this by dropping them. The engine
+// refuses fields it does not know, deliberately, so a document must be narrowed
+// before it is run rather than passed through whole.
+//
+// Defining both here is what keeps them from drifting: a document's engine half
+// is not a copy of this shape, it is this shape.
 //
 // It replaced ten positional arguments across the wasm boundary. JavaScript had
 // no types to check there: `produce` and `maxGenerate` are both numbers,

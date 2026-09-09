@@ -644,9 +644,17 @@ const ENVELOPE_VERSION: u32 = 1;
 /// disagree. Those are the two failures that actually happen here, and neither
 /// was catchable before.
 ///
-/// The same shape is the share link's payload, the export file and a demo's
-/// manifest entry, so a setting is added once rather than in four places kept
-/// in step by hand.
+/// This is the **engine's** half of a run. A share link, an export file and a
+/// demo's manifest entry describe more than the engine does — which deal source
+/// to draw from, whether to roll a fresh seed each time — and those are the
+/// caller's business, not this one's. A document carrying them projects down to
+/// this by dropping them, so the two cannot drift: the engine's part of a saved
+/// run is literally this struct.
+///
+/// In particular the engine takes a **definite** seed. A run whose seed the
+/// engine invented would not be reproducible and the report does not say which
+/// one it used, so "roll a new one each time" is resolved by whoever is
+/// driving, before the call.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 struct RunEnvelope {

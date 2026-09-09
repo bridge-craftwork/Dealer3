@@ -100,8 +100,15 @@ list there was no name to misspell, and with a permissive parse there would be
 no complaint — the run would take a default and return numbers for a run nobody
 asked for. `"autolevel"` gets an error naming `autolevel`.
 
-This is the same envelope intended for share links, export files and bundled
-demo scripts, so a new setting is added in one place rather than four.
+**The seed is a definite number.** "Roll a new one each run" is resolved by
+whoever is driving, before the call: a run whose seed the engine invented would
+not be reproducible, and the report does not say which one it used.
+
+This is the **engine's** half of a run. A share link, an export file or a demo
+entry describes more — which deal source to draw from, whether to reseed each
+run — and those are the caller's business. A saved document is this plus those,
+and narrows to this by dropping them; since unknown fields are refused, a
+document cannot be handed to `run_json` whole.
 
 ### `generate`
 
