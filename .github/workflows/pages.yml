@@ -4,11 +4,13 @@ on:
   push:
     branches: [main]
     paths:
-      - 'dealer-core/**'
-      - 'dealer-parser/**'
-      - 'dealer-eval/**'
-      - 'dealer-pbn/**'
-      - 'dealer-dds/**'
+      # Every workspace crate, by glob rather than by name. The list used to be
+      # written out, and it was missing `dealer-run` — the crate that owns the
+      # generate loop, and so the one the site depends on most. An engine change
+      # would pass CI, merge, and never reach the site; the deploy was not
+      # failing, it was not running, which is far quieter. A glob cannot fall
+      # behind a crate nobody remembered to add.
+      - 'dealer*/**'
       - 'wasm/**'
       - 'web/**'
       - 'Cargo.toml'
