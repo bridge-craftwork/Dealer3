@@ -24,6 +24,7 @@ const session = {
   dealSource: 'library',
   scenario: 'Weak_2_Bids',
   pickerOpen: true,
+  settingsOpen: false,
   paramValues: { 0: 'west', 1: '15' },
 }
 
@@ -31,6 +32,15 @@ describe('saveSession / loadSession', () => {
   it('round-trips a session', () => {
     saveSession(session)
     expect(loadSession()).toEqual(session)
+  })
+
+  it('reads a session saved before the settings panel existed as closed', () => {
+    // The panel exists to get these controls off the screen. A session from
+    // before it must not arrive with it open, which would undo the change for
+    // everyone who was already using the page.
+    const { settingsOpen, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().settingsOpen).toBe(false)
   })
 
   it('reads a session saved before round robin existed as off', () => {
