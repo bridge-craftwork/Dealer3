@@ -355,7 +355,7 @@ because only one of them can be the target mix.
 
 ## In the browser
 
-At <https://dealer.bridge-classroom.org>.
+At <https://bridge-craftwork.com/dealer3/>.
 
 **Auto-level** is a checkbox in the row above the editor, beside Run.
 

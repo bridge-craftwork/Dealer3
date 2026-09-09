@@ -13,7 +13,7 @@ makes it portable.
 [`docs/leveling-guide.md`](leveling-guide.md) is the shorter companion — the
 `HandType_` convention, the switches, the browser's Auto-level box, and the
 sample size that matters more than any of them. It is also on the site at
-<https://dealer.bridge-classroom.org/leveling.html>.
+<https://bridge-craftwork.com/dealer3/leveling.html>.
 
 ## The two ways to flip a coin
 
