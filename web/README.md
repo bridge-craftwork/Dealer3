@@ -144,9 +144,22 @@ npx wrangler pages deploy
 ```
 
 Cloudflare Pages, not GitHub Pages: only Cloudflare can send the COOP/COEP
-headers a threaded wasm build will need, and `public/_headers` already sets
-them. Hosting on both would have meant a second copy that quietly diverged the
-moment threading landed.
+headers the threaded wasm build needs, and `public/_headers` sets them. Hosting
+on both would have meant a second copy that quietly diverged the moment
+threading landed.
+
+**The deploy builds the threaded engine** — `npm run wasm:threaded`, one bundle
+for everyone — and then reads the binary it is about to ship to check that is
+what it got (`npm run check:threaded`). A single-threaded bundle here would
+work, deal the same deals and use one core of however many, which is the sort of
+mistake that survives for months. The page also shows the size of its thread
+pool beside the engine version, for the same reason.
+
+**Every run deals on the whole pool** — about 4x on a bare filter and 6.9x on a
+real scenario, on a twelve-core machine. There used to be a rule that threaded
+only double-dummy runs, because wasm's allocator is one lock and a script that
+allocated per deal ran *slower* on twelve threads than on one; #88 removed that
+allocation and the rule with it. `docs/WASM.md` has the measurements.
 
 `.github/workflows/pages.yml` redeploys on every push to `main` that touches the
 engine or the site. It fails loudly when the Cloudflare credential is missing

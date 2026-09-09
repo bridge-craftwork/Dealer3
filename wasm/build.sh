@@ -18,54 +18,53 @@
 # One build for everyone, not two with detection. A threads build carries shared
 # memory, and the question was whether a browser without `SharedArrayBuffer`
 # would refuse to instantiate it — which would be worse than being slow.
-# Measured, not assumed: on a page served WITHOUT COOP/COEP, in Chromium 153 and
-# in WebKit 26.6, `SharedArrayBuffer` is undefined and
-# `new WebAssembly.Memory({shared: true})` succeeds anyway. The module loads,
-# `crossOriginIsolated` is false, the pool is not started, and the run produces
-# the same deals on one thread. So the bundle degrades rather than failing, and
-# a second build with detection would buy nothing.
+# Measured, not assumed: on a page served WITHOUT COOP/COEP, in Chromium 149,
+# `SharedArrayBuffer` is undefined and `new WebAssembly.Memory({shared: true})`
+# succeeds anyway. The module loads, `crossOriginIsolated` is false, the pool is
+# not started even though twelve threads were asked for, and the run produces
+# the same 200 deals with the same hash on one thread — 1.06s against 0.21s. So
+# the bundle degrades rather than failing, and a second build with detection
+# would buy nothing.
 #
 # It used to be slower, and dramatically: 4M deals in six seconds on one thread
 # against 290K on twelve, getting worse with every thread added. That was the
-# allocator. A `Deal` was four `Vec<Card>` allocations and wasm's dlmalloc
-# serialises them, so every worker queued on the same lock. This comment used
-# to end "Allocation-free dealing comes first"; that landed, and the shape
-# reversed.
+# allocator. A `Deal` was four `Vec<Card>` allocations and an `EvalContext` a
+# hash map per deal, and wasm's dlmalloc serialises them, so every worker queued
+# on the same lock. Both are gone — an inline `[Card; 13]` and one scratch lent
+# to a deal's contexts — and the shape reversed.
 #
-# Measured 2026-09-08 in Chromium 153 on an M4 Pro (8 performance + 4 efficiency
-# cores), `condition hcp(north) >= 20`, 16M-deal budget, median of three:
+# Measured 2026-09-08 in Chromium 149 on an M4 Pro (8 performance + 4 efficiency
+# cores), cross-origin isolated, median of three, deals per second:
 #
-#     threads   1      2      4      6      8     12
-#     M deals/s 2.83   4.73   8.05  10.14  11.80  11.12
-#     vs one    1.00x  1.67x  2.85x  3.58x  4.17x  3.93x
+#     threads                            1      2      4      8     12
+#     condition hcp(north) >= 20      2.79M  4.94M  8.02M 10.74M 11.41M   4.08x
+#     x = hcp(north); condition x>=20 2.26M  4.12M  6.11M  7.46M  8.32M   3.67x
+#     Jacoby 2NT, a real scenario      350k   722k  1.30M  2.13M  2.40M   6.85x
+#     tricks() over shuffled deals     78.3  132.2  193.1  227.2  229.8   2.93x
 #
-# Sublinear, and flat from eight — four of the cores are efficiency cores and
-# some contention remains. Eight and twelve are inside each other's noise
-# (repeats: 11.89/11.80/11.31 at eight, 9.93/11.29/11.12 at twelve).
+# **Every script gains, so every run deals on the pool.** There was a rule here
+# that used the pool only for a solver-touching run, because one variable
+# assignment was a hash map per deal and the same twelve threads then ran at a
+# QUARTER of one. That allocation went, the variable script went from 0.27x to
+# 3.67x, and the rule had nothing left to protect.
 #
-# **That script is the best case, and it is not a typical one.** wasm's
-# allocator is one dlmalloc behind one lock, so anything a script allocates per
-# deal is a queue every worker stands in. One variable assignment is a hash map
-# per deal, and the same 12 threads then run at a QUARTER of one thread. A real
-# scenario (Jacoby 2NT) goes 269k deals/s to 105k. The full table is at
-# `threads_for` in `src/lib.rs`, which is also where the engine decides what to
-# do about it: threads are used for a script that searches for double-dummy
-# results over deals it shuffled — 321 deals/s to 537, and the case this work
-# was asked for — and one thread for everything else, which is faster.
+# Sublinear, and flattening: four of the twelve cores are efficiency cores, and
+# the scenario — the case the browser is actually for — scales best of the four
+# because it does the most work per deal short of solving. The double-dummy run
+# flattens earliest, its solver having threads of its own to contend with.
 #
-# So the threaded build ships, and most runs still deal on one thread. What
-# would change that is per-deal allocation going the way `Hand`'s did; until
-# then, threading an ordinary filter here loses.
-#
-# The atomics build costs nothing at one thread: 2.83 against the
-# single-threaded build's 2.73 in the same session, which is the wrong way round
-# by less than the noise. And `produced` was byte-identical at every thread
+# The atomics build costs nothing at one thread: 2.79M against the
+# single-threaded build's own 2.66M in the same session, which is the wrong way
+# round by about the noise. And `produced` is byte-identical at every thread
 # count, against the single-threaded browser build and against the Node build —
 # the property that makes any of this safe.
 #
-# WebKit 26.6, which is the engine an iPad runs, scales too: 2.87 at one thread,
-# 9.18 at four, 11.06 at eight, with the same deals. iOS and iPadOS have had
-# `SharedArrayBuffer` under COOP/COEP since Safari 15.2.
+# WebKit, which is the engine an iPad runs, scaled much as Chromium does when it
+# was measured on the pre-#88 build: 2.87M deals/s at one thread, 9.18 at four,
+# 11.06 at eight, with the same deals. Those figures have NOT been re-measured
+# since — no WebKit build was to hand — so treat them as the shape rather than
+# the numbers. iOS and iPadOS have had `SharedArrayBuffer` under COOP/COEP since
+# Safari 15.2.
 #
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"

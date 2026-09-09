@@ -37,6 +37,9 @@ activity-log.json
 # WebAssembly build output
 wasm/pkg/
 wasm/pkg-node/
+# What the weekly threaded-build check builds into, so it never lands in a
+# commit from a local run of the same command.
+wasm/pkg-threaded/
 wasm/target/
 
 # Web app

@@ -7,9 +7,16 @@
 //!
 //! # Threading
 //!
-//! Single-threaded. Shared memory in wasm needs `SharedArrayBuffer`, which needs
-//! COOP/COEP headers. Deal generation is stateless per seed, so a threaded build
-//! would produce identical output, just faster — see `docs/WASM.md`.
+//! Two builds from one source. The ordinary one is single-threaded and stays on
+//! stable; `./build.sh threaded` adds atomics and shared memory and is what the
+//! site ships, because shared memory in wasm is `SharedArrayBuffer` and the site
+//! is served with the COOP/COEP that makes one exist. A page without those
+//! headers still runs the same bundle — it simply deals on one thread.
+//!
+//! Deal generation is stateless per seed, so the thread count changes how long a
+//! run takes and nothing else: the deals, the statistics and the levelling are
+//! identical at any count. Every run deals on the whole pool the page started.
+//! See `docs/WASM.md` and `wasm/build.sh`.
 //!
 //! # Determinism
 //!
@@ -396,18 +403,6 @@ fn now_ms() -> f64 {
     }
 }
 
-/// Generate deals matching `script`, returning JSON.
-///
-/// With `auto_level`, the engine levels the scenario first: it measures how
-/// often each `HandType_*` comes up, works out a keep rate for each, and runs
-/// the levelled copy — two passes, both of them the engine's, so the browser
-/// and the command line agree on what a levelling is and when to refuse one.
-/// The deals then come back interleaved, walking through the types rather than
-/// meeting them as they fall.
-///
-/// `max_generate` bounds the work: a browser tab has no Ctrl-C, so a selective
-/// filter must not be able to hang it. Callers should surface `hit_limit`
-/// rather than silently showing a short result.
 /// Start a pool of `threads` web workers for the engine to deal on.
 ///
 /// Only present in a threaded build (`./build.sh threaded`), and it must be
@@ -419,16 +414,15 @@ fn now_ms() -> f64 {
 /// deals exactly the same deals, which is the property that makes any of this
 /// safe.
 ///
-/// **The site does not ship a threaded build**, but that is a deployment
-/// decision rather than a performance one: a second build to produce, and
-/// COOP/COEP headers to serve.
+/// **The site ships this build.** `.github/workflows/pages.yml` runs
+/// `npm run wasm:threaded` and checks the binary it deployed is the threaded
+/// one, and `web/public/_headers` sends the COOP/COEP it needs.
 ///
-/// It used to be a performance one. Threads made the browser slower — 4M deals
-/// in six seconds on one against 290K on twelve — because a `Deal` was four
-/// `Vec<Card>` allocations and wasm's dlmalloc serialises them, so every worker
-/// queued on the same lock. `Hand` is an inline `[Card; 13]` now, and the shape
-/// reversed: measured 2026-09-05, about 4x on twelve threads, and no cost at
-/// one. `build.sh` carries the numbers.
+/// Every run deals on the whole pool. That was not always true: while a `Deal`
+/// was four `Vec<Card>` allocations and an `EvalContext` a hash map per deal,
+/// wasm's single-locked dlmalloc made threads a queue, and a scenario ran
+/// slower on twelve than on one. Both are gone, and every script now gains.
+/// `build.sh` carries the numbers.
 #[cfg(feature = "parallel")]
 #[wasm_bindgen]
 pub fn start_threads(threads: usize) -> js_sys::Promise {
@@ -902,10 +896,24 @@ fn run_script(
                     swap: dealer_core::SwapMode::None,
                 },
             },
-            // Whatever the caller started a pool with, and one if it did not
-            // — see `start_threads`. A thread count cannot change what comes
-            // out, only how long it takes, so a page that cannot spawn any
-            // gets the same deals more slowly.
+            // The whole pool, for every run.
+            //
+            // A thread count cannot change what comes out, only how long it
+            // takes, so this is free to be a question of speed alone — and the
+            // answer is now the same for every script. Chromium 149 on twelve
+            // threads against one, cross-origin isolated, median of three:
+            //
+            //     condition hcp(north) >= 20         2.79M/s -> 11.41M/s  4.08x
+            //     x = hcp(north); condition x >= 20  2.26M/s ->  8.32M/s  3.67x
+            //     Jacoby 2NT, a real scenario         350k/s ->  2.40M/s  6.85x
+            //     tricks() over shuffled deals         78/s  ->    230/s  2.93x
+            //
+            // It was not always. While evaluating a deal built a cache of its
+            // own, wasm's single-locked dlmalloc turned every worker into a
+            // queue, and the second script there ran at 0.27x — slower for
+            // having more threads. So this used to be a rule that dealt on the
+            // pool only for a solver-touching run. #88 lent a deal's contexts
+            // one scratch instead, every script gained, and the rule went.
             threads: threads_available(),
             batch: 0,
             params: params.clone(),

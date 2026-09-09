@@ -15,6 +15,16 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { renderReferenceText, expectedNames } from '../src/lib/referenceText.js'
 
+// The threaded build's glue pulls in wasm-bindgen-rayon's worker helper, and
+// that helper registers a message listener on `self` as soon as it is imported.
+// Node has neither `self` nor a global `addEventListener`, so importing the
+// browser build here died with "self is not defined" — which this script then
+// reported as "the wasm engine is not built", naming the wrong fault entirely.
+// Stubs are enough: nothing here starts a thread pool, so the listener it
+// registers is never used.
+globalThis.self ??= globalThis
+globalThis.addEventListener ??= () => {}
+
 const WASM_JS = new URL('../src/wasm/dealer3_wasm.js', import.meta.url)
 const WASM_BIN = new URL('../src/wasm/dealer3_wasm_bg.wasm', import.meta.url)
 const OUT = new URL('../public/reference.txt', import.meta.url)
@@ -22,8 +32,11 @@ const OUT = new URL('../public/reference.txt', import.meta.url)
 let engine
 try {
   engine = await import(WASM_JS.href)
-} catch {
-  console.error('The wasm engine is not built. Run `npm run wasm` first.')
+} catch (e) {
+  // With the reason. "Run npm run wasm" is right when the module is missing and
+  // actively misleading when it is there and threw on the way in.
+  console.error('Cannot load the wasm engine — run `npm run wasm` first if it is not built.')
+  console.error(`  ${e?.message || e}`)
   process.exit(1)
 }
 

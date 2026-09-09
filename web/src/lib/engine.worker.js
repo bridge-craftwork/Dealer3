@@ -39,22 +39,32 @@ let ready = null
 /// to try and carry on.
 async function bringUp() {
   await init()
-  if (typeof engine.start_threads !== 'function') return { threads: 1, why: 'built without threads' }
-  if (!self.crossOriginIsolated) {
-    return { threads: 1, why: 'the page is not cross-origin isolated' }
+  if (typeof engine.start_threads !== 'function') {
+    return { threads: 1, why: 'this build has no thread pool', supported: false }
   }
-  // Four, not every core. Measured on a selective scenario, deals characterized
-  // in six seconds: 1 thread 5.0M, 2 8.9M, 3 11.6M, 4 13.8M, 5 10.7M, 6 8.5M,
-  // 8 6.6M, 12 3.3M. It peaks at four and then falls below one thread — asking
-  // for twelve is worse than asking for none.
-  const wanted = Math.max(1, Math.min(navigator.hardwareConcurrency || 1, 4))
+  if (!self.crossOriginIsolated) {
+    return { threads: 1, why: 'the page is not cross-origin isolated', supported: true }
+  }
+  // Every core the browser admits to, up to MAX_THREADS. Every run deals on
+  // all of it; `wasm/build.sh` carries the measurements.
+  const wanted = Math.max(1, Math.min(navigator.hardwareConcurrency || 1, MAX_THREADS))
   try {
     await engine.start_threads(wanted)
-    return { threads: wanted, why: null }
+    return { threads: wanted, why: null, supported: true }
   } catch (e) {
-    return { threads: 1, why: e?.message || String(e) }
+    return { threads: 1, why: e?.message || String(e), supported: true }
   }
 }
+
+/// The most workers to ask for, however many cores the browser reports.
+///
+/// Scaling was measured out to twelve and is flattening well before it: on a
+/// twelve-core M4 Pro a real scenario gains 6.1x at eight threads and 6.9x at
+/// twelve, and a double-dummy run 2.90x and 2.93x. Past twelve each worker is a
+/// thread and a stack for a share of the work that has stopped shrinking, so a
+/// thirty-two core machine asking for thirty-two would be paying for the ones
+/// that are not helping. `wasm/build.sh` carries the full table.
+const MAX_THREADS = 12
 
 // --- The solved-deal library ----------------------------------------------
 //
@@ -127,11 +137,27 @@ async function dealsFromLibrary(options, report) {
 }
 
 self.onmessage = async (event) => {
-  const { id, script, options } = event.data || {}
+  const { id, type, script, options } = event.data || {}
   try {
     // Loaded once per worker, and a worker outlives any single run — so the
     // thread pool is started once too, not per run.
     if (!ready) ready = bringUp()
+
+    // "How many threads did you get?", asked before any run. The page shows the
+    // answer, because a console line is only seen by someone who already
+    // suspects — and the failure this guards against is one nobody suspects:
+    // the run works, it is simply four times slower than it should be.
+    if (type === 'pool') {
+      const pool = await ready
+      self.postMessage({
+        id,
+        type: 'pool',
+        threads: pool.threads,
+        why: pool.why,
+        supported: pool.supported,
+      })
+      return
+    }
 
     const pool = await ready
     // Once per worker, not per run: a page that quietly fell back to one thread

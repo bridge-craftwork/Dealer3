@@ -139,6 +139,48 @@ function runInWorker(script, options) {
 }
 
 /**
+ * How many threads the engine is dealing on, and why it is not more.
+ *
+ * Resolves to `{ threads, why, supported }`: `supported` says whether this
+ * build has a pool at all, and `why` is the reason it fell back to one thread —
+ * a page that is not cross-origin isolated, most often.
+ *
+ * The page shows this. A page that quietly dealt on one thread would look
+ * exactly like a slow scenario, which is how the first threaded build shipped
+ * serial without anyone noticing; a console line is no use for that, because
+ * nobody opens the console to check a thing they do not suspect.
+ *
+ * Asked once and remembered: it is a property of the build and the browser, not
+ * of a run. Starting the pool is part of bringing the engine up, so this also
+ * warms the worker before the first Run.
+ */
+let pool = null
+export function poolInfo() {
+  if (!pool) {
+    const w = ensureWorker()
+    const id = nextRunId++
+    pool = new Promise((resolve) => {
+      const onMessage = (event) => {
+        const data = event.data || {}
+        if (data.id !== id || data.type !== 'pool') return
+        w.removeEventListener('message', onMessage)
+        resolve({ threads: data.threads, why: data.why, supported: data.supported })
+      }
+      w.addEventListener('message', onMessage)
+      // A worker that dies on the way up must not leave this pending for ever:
+      // the page would then never say anything about threads at all.
+      w.addEventListener(
+        'error',
+        () => resolve({ threads: 1, why: 'the engine failed to start', supported: false }),
+        { once: true },
+      )
+      w.postMessage({ id, type: 'pool' })
+    })
+  }
+  return pool
+}
+
+/**
  * Calling into the module before `ready()` resolves fails deep inside the
  * generated bindings with "Cannot read properties of undefined (reading
  * '__wbindgen_free')", which says nothing about the actual mistake. This has

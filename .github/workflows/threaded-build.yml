@@ -1,0 +1,111 @@
+name: Threaded build
+
+# An early warning, on a quiet Tuesday.
+#
+# The site ships the threaded wasm build, and that build rests on two things
+# outside this repository: a pinned nightly toolchain, and a `wasm-bindgen`
+# binary whose version matches the `wasm-bindgen` crate. Both can rot without a
+# line here changing — the crate floats within 0.2.x, so a release upstream can
+# leave the binary in a cache behind it, and that is exactly what happened once
+# already: the build simply stopped working, and nobody knew until someone
+# needed to deploy.
+#
+# Ordinary CI does not catch it: the deploy workflow only runs on a push that
+# touches the engine or the site, so a repository that is quiet for a fortnight
+# finds out on the day it matters. This runs the threaded build and nothing
+# else, weekly, so the discovery is cheap and early.
+#
+# It is cheap: `-Z build-std` rebuilds the standard library, which is 18 seconds
+# cold into an empty target directory and 0.2 warm, and `Swatinem/rust-cache`
+# already covers `target/`.
+#
+# **Every step is named for what it would mean if it failed.** The point is to
+# say which of the two rotted — the toolchain or bindgen — without anyone having
+# to read a log.
+
+on:
+  schedule:
+    # Tuesdays, 07:00 UTC. A weekday, so a failure is seen; early, so it is not
+    # competing with anything.
+    - cron: '0 7 * * 2'
+  # For checking a fix without waiting a week.
+  workflow_dispatch:
+  # And whenever the build's own machinery changes, since that is the other way
+  # it breaks.
+  push:
+    branches: [main]
+    paths:
+      - 'wasm/build.sh'
+      - '.github/workflows/threaded-build.yml'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  threaded:
+    name: The threaded wasm build still builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      # Failure here means the pinned nightly is gone or no longer carries what
+      # it needs. The pin and the reason for it are in `wasm/build.sh`, which is
+      # also where this reads it from — one place, not two.
+      - name: The pinned nightly is still installable
+        run: |
+          set -euo pipefail
+          toolchain=$(sed -n 's/^THREADED_TOOLCHAIN=//p' wasm/build.sh)
+          test -n "$toolchain" || {
+            echo "wasm/build.sh no longer names a THREADED_TOOLCHAIN." >&2
+            exit 1
+          }
+          echo "Threaded build toolchain: $toolchain"
+          rustup toolchain install "$toolchain" --profile minimal \
+              --component rust-src --target wasm32-unknown-unknown
+
+      # Failure here means the crate's wasm-bindgen version has moved to one
+      # with no published binary — the skew this whole workflow exists to catch,
+      # in its purest form.
+      - name: A wasm-bindgen binary exists for the version the crate wants
+        working-directory: wasm
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile
+          version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"/\1/p;}' Cargo.lock)
+          test -n "$version" || {
+            echo "Cargo.lock names no wasm-bindgen, so nothing can be matched to it." >&2
+            exit 1
+          }
+          echo "The crate wants wasm-bindgen $version"
+          archive="wasm-bindgen-$version-x86_64-unknown-linux-musl"
+          curl -sSfL "https://github.com/wasm-bindgen/wasm-bindgen/releases/download/$version/$archive.tar.gz" \
+            | tar -xz --strip-components=1 -C "$HOME/.cargo/bin" "$archive/wasm-bindgen"
+          wasm-bindgen --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: wasm
+
+      # Failure here is the build itself: the crate, the standard library
+      # rebuild, or the bindgen step refusing what the toolchain emitted.
+      - name: Build it
+        working-directory: wasm
+        run: ./build.sh threaded pkg-threaded
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # And that what came out is what was asked for, read out of the binary.
+      # A build that succeeded and produced a single-threaded module would
+      # otherwise pass this workflow while failing its purpose.
+      - name: It is a threaded module
+        working-directory: web
+        run: node scripts/check-threaded.mjs ../wasm/pkg-threaded
