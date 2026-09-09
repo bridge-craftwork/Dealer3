@@ -29,7 +29,7 @@
 /// Versioned in the name so a change of shape is a new store rather than a
 /// migration. A piece never changes — `rpdd-042.zdd` is the same 640 KiB
 /// forever — so nothing here expires.
-export const CACHE_NAME = "dealer3-library-v1";
+export const CACHE_NAME = 'dealer3-library-v1'
 
 /// The most deals one run will ask the library for.
 ///
@@ -41,13 +41,13 @@ export const CACHE_NAME = "dealer3-library-v1";
 /// It bounds how selective a filter the library can satisfy, and the run report
 /// says how many deals were actually read, so a script that filters harder than
 /// this can see that it ran out of deals rather than out of matches.
-export const MAX_LIBRARY_DEALS = 65536;
+export const MAX_LIBRARY_DEALS = 65536
 
 /// Pieces held in memory at once, beyond which the oldest is dropped.
 ///
 /// Each is 640 KiB of tables. The browser's cache still has them, so dropping
 /// one costs a cache read rather than a fetch.
-const MEMORY_PIECES = 8;
+const MEMORY_PIECES = 8
 
 /// How many ask/supply rounds before something is wrong.
 ///
@@ -55,7 +55,7 @@ const MEMORY_PIECES = 8;
 /// slack; a fourth means the library is asking for something it is never
 /// satisfied by, and looping for ever on a network resource is worse than
 /// failing.
-const MAX_ROUNDS = 4;
+const MAX_ROUNDS = 4
 
 /**
  * How many deals to ask the library for.
@@ -68,17 +68,9 @@ const MAX_ROUNDS = 4;
  * At least `produce`, so that asking for more deals than the budget is a short
  * run reported honestly rather than a request refused.
  */
-export function dealsToRequest({
-  produce = 1,
-  maxGenerate = 0,
-  totalDeals = 0,
-} = {}) {
-  const wanted = Math.max(
-    1,
-    Math.min(maxGenerate || MAX_LIBRARY_DEALS, MAX_LIBRARY_DEALS),
-    produce,
-  );
-  return totalDeals > 0 ? Math.min(wanted, totalDeals) : wanted;
+export function dealsToRequest({ produce = 1, maxGenerate = 0, totalDeals = 0 } = {}) {
+  const wanted = Math.max(1, Math.min(maxGenerate || MAX_LIBRARY_DEALS, MAX_LIBRARY_DEALS), produce)
+  return totalDeals > 0 ? Math.min(wanted, totalDeals) : wanted
 }
 
 /**
@@ -103,73 +95,71 @@ export function dealsToRequest({
  * @returns {(url: string) => Promise<Uint8Array>}
  */
 export function createLibraryFetcher({
-  manifestUrl = "",
+  manifestUrl = '',
   fetchImpl = undefined,
   cacheStorage = undefined,
   cacheName = CACHE_NAME,
 } = {}) {
-  const doFetch = fetchImpl || ((url) => globalThis.fetch(url));
-  const storage = cacheStorage === undefined ? globalThis.caches : cacheStorage;
-  const memory = new Map();
-  let opening = null;
+  const doFetch = fetchImpl || ((url) => globalThis.fetch(url))
+  const storage = cacheStorage === undefined ? globalThis.caches : cacheStorage
+  const memory = new Map()
+  let opening = null
 
   // Opened once and never re-attempted: a browser that refuses the cache once
   // refuses it every time, and asking again per piece would be a rejected
   // promise per fetch.
   const store = () => {
-    if (!storage) return Promise.resolve(null);
-    if (!opening)
-      opening = Promise.resolve(storage.open(cacheName)).catch(() => null);
-    return opening;
-  };
+    if (!storage) return Promise.resolve(null)
+    if (!opening) opening = Promise.resolve(storage.open(cacheName)).catch(() => null)
+    return opening
+  }
 
   const remember = (url, bytes) => {
-    memory.set(url, bytes);
+    memory.set(url, bytes)
     while (memory.size > MEMORY_PIECES) {
-      const oldest = memory.keys().next().value;
-      if (oldest === undefined) break;
-      memory.delete(oldest);
+      const oldest = memory.keys().next().value
+      if (oldest === undefined) break
+      memory.delete(oldest)
     }
-    return bytes;
-  };
+    return bytes
+  }
 
   return async function piece(url) {
-    const held = memory.get(url);
-    if (held) return held;
+    const held = memory.get(url)
+    if (held) return held
 
-    const persist = url !== manifestUrl;
-    const cache = persist ? await store() : null;
+    const persist = url !== manifestUrl
+    const cache = persist ? await store() : null
     if (cache) {
-      const hit = await cache.match(url).catch(() => null);
-      if (hit && hit.ok)
-        return remember(url, new Uint8Array(await hit.arrayBuffer()));
+      const hit = await cache.match(url).catch(() => null)
+      if (hit && hit.ok) return remember(url, new Uint8Array(await hit.arrayBuffer()))
     }
 
-    let response;
+    let response
     try {
-      response = await doFetch(url);
+      response = await doFetch(url)
     } catch (e) {
       // A network failure reads as "Failed to fetch", which says nothing about
       // what was being fetched or why the page wanted it.
       throw new Error(
         `Could not reach the solved-deal library at ${url} (${e?.message || e}). ` +
-          "Check the connection, or switch back to random deals.",
-      );
+          'Check the connection, or switch back to random deals.',
+      )
     }
     if (!response.ok) {
       throw new Error(
         `The solved-deal library answered HTTP ${response.status} for ${url}. ` +
-          "Switch back to random deals, or try again.",
-      );
+          'Switch back to random deals, or try again.',
+      )
     }
-    const buffer = await response.arrayBuffer();
+    const buffer = await response.arrayBuffer()
     if (cache) {
       // Failing to cache is not failing to fetch: a full quota should cost a
       // refetch next time, not the run.
-      await cache.put(url, new Response(buffer)).catch(() => {});
+      await cache.put(url, new Response(buffer)).catch(() => {})
     }
-    return remember(url, new Uint8Array(buffer));
-  };
+    return remember(url, new Uint8Array(buffer))
+  }
 }
 
 /**
@@ -187,22 +177,18 @@ export function createLibraryFetcher({
  * @returns {Promise<number>} how many deals the library holds
  */
 export async function learnLibrarySize(lib, fetchPiece, onProgress) {
-  for (
-    let round = 0;
-    lib.total_deals === undefined && round < MAX_ROUNDS;
-    round++
-  ) {
-    const [url] = lib.needs(0, 1);
-    if (!url) break;
-    onProgress?.({ stage: "manifest", done: 0, total: 1, url });
-    lib.supply(url, await fetchPiece(url));
+  for (let round = 0; lib.total_deals === undefined && round < MAX_ROUNDS; round++) {
+    const [url] = lib.needs(0, 1)
+    if (!url) break
+    onProgress?.({ stage: 'manifest', done: 0, total: 1, url })
+    lib.supply(url, await fetchPiece(url))
   }
   if (lib.total_deals === undefined) {
     throw new Error(
       `The library at ${lib.manifest_url} did not say how many deals it holds.`,
-    );
+    )
   }
-  return lib.total_deals;
+  return lib.total_deals
 }
 
 /**
@@ -217,51 +203,41 @@ export async function learnLibrarySize(lib, fetchPiece, onProgress) {
  *
  * @returns {Promise<{fetched: number}>} how many pieces this call had to get
  */
-export async function supplyLibraryPieces(
-  lib,
-  firstDeal,
-  count,
-  { fetchPiece, onProgress } = {},
-) {
-  let fetched = 0;
+export async function supplyLibraryPieces(lib, firstDeal, count, { fetchPiece, onProgress } = {}) {
+  let fetched = 0
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const needed = lib.needs(firstDeal, count);
-    if (!needed.length) return { fetched };
+    const needed = lib.needs(firstDeal, count)
+    if (!needed.length) return { fetched }
 
     // Together, not one after another. The round already knows every URL it
     // wants before it asks for any of them, so awaiting them in turn spends a
     // round trip per piece for nothing — and this is never one piece: a run of
     // 100,000 deals is more than the 65,536 a piece holds, so it always
     // straddles a boundary, and a cold fetch was paying both waits end to end.
-    let done = 0;
-    onProgress?.({ stage: "pieces", done, total: needed.length });
+    let done = 0
+    onProgress?.({ stage: 'pieces', done, total: needed.length })
     const arrived = await Promise.all(
       needed.map(async (url) => {
-        const bytes = await fetchPiece(url);
+        const bytes = await fetchPiece(url)
         // Counted as they land, so the count still only goes up even though
         // the pieces may arrive in any order.
-        onProgress?.({
-          stage: "pieces",
-          done: ++done,
-          total: needed.length,
-          url,
-        });
-        return bytes;
+        onProgress?.({ stage: 'pieces', done: ++done, total: needed.length, url })
+        return bytes
       }),
-    );
+    )
 
     // Handed over in the order asked for rather than the order they arrived,
     // so what the library is given does not depend on what the network did.
-    needed.forEach((url, i) => lib.supply(url, arrived[i]));
-    fetched += needed.length;
+    needed.forEach((url, i) => lib.supply(url, arrived[i]))
+    fetched += needed.length
   }
   throw new Error(
-    "The solved-deal library kept asking for more pieces than it could use; " +
-      "nothing was read. This is a bug — please report it.",
-  );
+    'The solved-deal library kept asking for more pieces than it could use; ' +
+      'nothing was read. This is a bug — please report it.',
+  )
 }
 
-const count = (n) => Number(n || 0).toLocaleString();
+const count = (n) => Number(n || 0).toLocaleString()
 
 /**
  * What to say about the deals a run read.
@@ -277,57 +253,57 @@ const count = (n) => Number(n || 0).toLocaleString();
  * @returns {{summary: string, warnings: string[]}}
  */
 export function describeInput(input, library = null) {
-  if (!input) return { summary: "", warnings: [] };
+  if (!input) return { summary: '', warnings: [] }
 
-  const solved = input.solved || 0;
-  const read = input.read || 0;
+  const solved = input.solved || 0
+  const read = input.read || 0
   const where =
     library && library.totalDeals
       ? ` from the solved-deal library, starting at deal ${count(library.firstDeal)} of ${count(
           library.totalDeals,
         )}`
-      : "";
+      : ''
   const tables =
     read > 0 && solved === read
-      ? " Every one arrived with its double-dummy table, so tricks(), dds() and par() were lookups rather than searches."
+      ? ' Every one arrived with its double-dummy table, so tricks(), dds() and par() were lookups rather than searches.'
       : solved > 0
         ? ` ${count(solved)} of them arrived with double-dummy tables.`
-        : " None of them came with double-dummy tables.";
-  const summary = `Read ${count(read)} deal${read === 1 ? "" : "s"}${where}.${tables}`;
+        : ' None of them came with double-dummy tables.'
+  const summary = `Read ${count(read)} deal${read === 1 ? '' : 's'}${where}.${tables}`
 
-  const warnings = [];
-  const requested = library?.requested;
+  const warnings = []
+  const requested = library?.requested
   if (requested && read < requested) {
     warnings.push(
       `Asked for ${count(requested)} deals and read ${count(read)}. ` +
-        "The run had fewer deals to filter than it expected, so a short result here " +
-        "is not necessarily a selective condition.",
-    );
+        'The run had fewer deals to filter than it expected, so a short result here ' +
+        'is not necessarily a selective condition.',
+    )
   }
   if (input.unsolved) {
     warnings.push(
-      `${count(input.unsolved)} deal${input.unsolved === 1 ? "" : "s"} arrived without a ` +
-        "double-dummy table and will be solved on demand, which is the slow path this " +
-        "library exists to avoid.",
-    );
+      `${count(input.unsolved)} deal${input.unsolved === 1 ? '' : 's'} arrived without a ` +
+        'double-dummy table and will be solved on demand, which is the slow path this ' +
+        'library exists to avoid.',
+    )
   }
   if (library?.totalDeals && requested >= library.totalDeals) {
     warnings.push(
       `This run read the whole library (${count(library.totalDeals)} deals). ` +
-        "A longer one would come round to deals it has already seen, and average and " +
-        "frequency would count them twice.",
-    );
+        'A longer one would come round to deals it has already seen, and average and ' +
+        'frequency would count them twice.',
+    )
   }
   if (input.skipped_count) {
-    const reasons = (input.skipped || []).slice(0, 3).join("; ");
+    const reasons = (input.skipped || []).slice(0, 3).join('; ')
     warnings.push(
-      `${count(input.skipped_count)} record${input.skipped_count === 1 ? "" : "s"} could not ` +
-        `be read${reasons ? `: ${reasons}` : ""}. The deals around them were still read.`,
-    );
+      `${count(input.skipped_count)} record${input.skipped_count === 1 ? '' : 's'} could not ` +
+        `be read${reasons ? `: ${reasons}` : ''}. The deals around them were still read.`,
+    )
   }
-  for (const note of input.notes || []) warnings.push(note);
+  for (const note of input.notes || []) warnings.push(note)
 
-  return { summary, warnings };
+  return { summary, warnings }
 }
 
 /**
@@ -341,12 +317,10 @@ export function describeInput(input, library = null) {
  * @returns {string} empty once there is nothing left to fetch
  */
 export function libraryStatusText(status) {
-  if (!status) return "";
-  if (status.stage === "manifest")
-    return "Reading the solved-deal library's index…";
-  if (status.done >= status.total)
-    return "Running the script over the library\u2019s deals…";
-  return `Fetching the solved-deal library — piece ${status.done + 1} of ${status.total}…`;
+  if (!status) return ''
+  if (status.stage === 'manifest') return "Reading the solved-deal library's index…"
+  if (status.done >= status.total) return 'Running the script over the library\u2019s deals…'
+  return `Fetching the solved-deal library — piece ${status.done + 1} of ${status.total}…`
 }
 
 /**
@@ -361,12 +335,12 @@ export function libraryStatusText(status) {
  * @returns {string} empty when there is nothing worth saying
  */
 export function pointlessLibraryWarning(usesDoubleDummy) {
-  if (usesDoubleDummy !== false) return "";
+  if (usesDoubleDummy !== false) return ''
   return (
-    "This script never calls tricks(), dds() or par(), so pre-solved deals buy it " +
-    "nothing — it will download the library and use none of the answers. Random deals " +
-    "will be faster."
-  );
+    'This script never calls tricks(), dds() or par(), so pre-solved deals buy it ' +
+    'nothing — it will download the library and use none of the answers. Random deals ' +
+    'will be faster.'
+  )
 }
 
 /// About how long one double-dummy search takes here, in milliseconds.
@@ -375,7 +349,7 @@ export function pointlessLibraryWarning(usesDoubleDummy) {
 /// `par()` reach. Deliberately a round number: it is an order of magnitude for
 /// someone deciding between a download and a wait, not a promise, and it is
 /// five orders of magnitude above what a deal costs otherwise.
-export const SOLVE_MS = 23;
+export const SOLVE_MS = 23
 
 /**
  * What to say to someone who chose random deals for a script that does ask a
@@ -396,18 +370,15 @@ export const SOLVE_MS = 23;
  * @returns {string} empty when there is nothing worth saying
  */
 export function slowRandomWarning(usesDoubleDummy, produce) {
-  if (usesDoubleDummy !== true) return "";
-  const deals =
-    Number.isFinite(produce) && produce > 0 ? Math.floor(produce) : 0;
-  const cost = deals
-    ? ` — at least ${deals} × ${SOLVE_MS} ms, so about ${humanSeconds(deals * SOLVE_MS)}`
-    : "";
+  if (usesDoubleDummy !== true) return ''
+  const deals = Number.isFinite(produce) && produce > 0 ? Math.floor(produce) : 0
+  const cost = deals ? ` — at least ${deals} × ${SOLVE_MS} ms, so about ${humanSeconds(deals * SOLVE_MS)}` : ''
   return (
     `This script calls tricks(), dds() or par(), so every deal has to be solved here` +
     `${cost}, and more again if the call is in the condition, where every deal ` +
     `generated is solved rather than every deal produced. Pre-solved deals arrive with ` +
     `the answers already in them, so the same questions are lookups.`
-  );
+  )
 }
 
 /**
@@ -417,10 +388,10 @@ export function slowRandomWarning(usesDoubleDummy, produce) {
  * @returns {string}
  */
 function humanSeconds(ms) {
-  const seconds = ms / 1000;
-  if (seconds < 1) return "under a second";
-  if (seconds < 90) return `${Math.round(seconds)} seconds`;
-  const minutes = seconds / 60;
-  if (minutes < 90) return `${Math.round(minutes)} minutes`;
-  return `${(minutes / 60).toFixed(1)} hours`;
+  const seconds = ms / 1000
+  if (seconds < 1) return 'under a second'
+  if (seconds < 90) return `${Math.round(seconds)} seconds`
+  const minutes = seconds / 60
+  if (minutes < 90) return `${Math.round(minutes)} minutes`
+  return `${(minutes / 60).toFixed(1)} hours`
 }
