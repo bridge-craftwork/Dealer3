@@ -73,12 +73,20 @@
       </aside>
 
       <section class="col col-editor">
-        <div class="controls">
-          <!-- Where the deals come from. The one control on this row that is
-               about the deals rather than the run: everything beside it means
-               exactly what it meant, the seed included — on Pre-solved it picks
-               a starting position in the library instead of driving a shuffle,
-               so the same seed still gives the same deals. -->
+        <!-- Everything that is set once and then left alone. It used to be a
+             row of its own, always on screen, and it is the reason the page did
+             not fit a phone: the number fields are sized in `em` for the digits
+             they hold, so the row had a floor it could not shrink below. See
+             #95.
+
+             What stays out here is what someone touches while writing a script.
+             What comes in here is what they set at the start of an afternoon. -->
+        <div v-if="settingsOpen" id="settings-panel" class="settings-panel">
+          <!-- Where the deals come from. The one setting here that is about the
+               deals rather than the run: everything beside it means exactly what
+               it meant, the seed included — on Pre-solved it picks a starting
+               position in the library instead of driving a shuffle, so the same
+               seed still gives the same deals. -->
           <span class="source" role="radiogroup" aria-label="Deal source">
             <label class="check" title="Shuffle deals here, from the seed. What this page has always done.">
               <input v-model="dealSource" type="radio" name="deal-source" value="random" />
@@ -89,7 +97,6 @@
               Pre-solved deals
             </label>
           </span>
-          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
           <label>
             Max generate
             <!-- `min` must be a multiple of `step`, or the browser snaps to the
@@ -132,6 +139,22 @@
               <option value="none">None — statistics only</option>
             </select>
           </label>
+          <!-- Divides Produce among the hand types instead of taking deals as
+               they come. It answers the same question as Auto-level — what mix
+               comes out — and only one of them can, which is why the two used
+               to sit together. Auto-level is on the Run row because it is
+               toggled while working; this is set once, so it is in here, and
+               its hint carries the relationship the adjacency used to. -->
+          <label class="check" :class="{ off: !roundRobinLive }" :title="roundRobinHint">
+            <input v-model="roundRobin" type="checkbox" :disabled="!roundRobinLive" />
+            Round robin
+          </label>
+          <!-- The neutral half of what this page says about the library. The
+               warnings stay outside: they exist to change a decision before Run
+               is pressed, and one behind a closed panel would not. -->
+          <p v-if="dealSource === 'library'" class="source-note settings-note">
+            {{ libraryHint }}
+          </p>
         </div>
 
         <!-- Said where it is chosen rather than in the results, because it is
@@ -146,11 +169,6 @@
              own deals, solves every one of them here. -->
         <p v-else-if="dealSource === 'random' && slowRandom" class="source-warn">
           {{ slowRandom }}
-        </p>
-        <p v-else-if="dealSource === 'library'" class="source-note">
-          Deals come from Pavlicek's 10,485,760 solved deals, so tricks(), dds() and par() are
-          lookups rather than searches. The seed picks where in the library to start. A piece is
-          640 KiB and is kept, so only the first run of a region waits for it.
         </p>
 
         <!-- Tabs, the levelling switch and Run share a row: three things that
@@ -180,13 +198,10 @@
                the next edit would take that away. Greyed while the levelled
                scenario is on screen, because that run has nothing left to
                decide — see `run`. -->
-          <!-- Divides Produce among the hand types instead of taking deals as
-               they come. Beside Auto-level because it answers the same question
-               — what mix comes out — and only one of them can. -->
-          <label class="check" :class="{ off: !roundRobinLive }" :title="roundRobinHint">
-            <input v-model="roundRobin" type="checkbox" :disabled="!roundRobinLive" />
-            Round robin
-          </label>
+          <!-- The number touched most while writing a script — "give me five of
+               these and let me look" — so it is the one that earns a permanent
+               place beside Run. -->
+          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
 
           <label class="check" :class="{ off: !levelBoxLive }" :title="levelHint">
             <input v-model="autoLevel" type="checkbox" :disabled="!levelBoxLive" />
@@ -210,6 +225,23 @@
               step="5"
             />s
           </label>
+
+          <!-- Beside Run rather than at the top of the pane: this is where the
+               eye already is when a run is being set up. `aria-expanded` and
+               `aria-controls` because the panel is elsewhere in the document
+               and a screen reader has no other way to learn the two are
+               related. -->
+          <button
+            class="settings-toggle"
+            :class="{ on: settingsOpen }"
+            :title="settingsOpen ? 'Hide settings' : 'Deal source, seed, format and limits'"
+            aria-label="Settings"
+            aria-controls="settings-panel"
+            :aria-expanded="settingsOpen ? 'true' : 'false'"
+            @click="settingsOpen = !settingsOpen"
+          >
+            <span aria-hidden="true">⚙</span>
+          </button>
 
           <button
             class="run"
@@ -510,6 +542,11 @@ const selectedFile = ref(restored?.scenario || '')
 // closed it is editing a script and would have to close it again on every
 // reload otherwise.
 const pickerOpen = ref(restored?.pickerOpen ?? true)
+
+// Closed by default: the panel exists because these were on screen all the
+// time and did not need to be. Remembered, though — someone who opens it is
+// usually setting up a session, not answering one question.
+const settingsOpen = ref(restored?.settingsOpen ?? false)
 const loadingFile = ref('')
 const downloading = ref(false)
 
@@ -611,8 +648,16 @@ const formatHint = computed(() =>
     : 'How each produced deal is written out. None keeps the statistics and collects no deals at all, which is what a run gathering numbers wants.',
 )
 
+// Said once. This was the tooltip while a near-identical sentence sat on the
+// page — two wordings of one fact, which had already drifted apart once — and
+// it is now both the tooltip and the note inside the settings panel.
+//
+// The sentence about a piece being 640 KiB and kept has gone. It explained a
+// first-run wait that was two and a half seconds when it was written and is
+// now under a second, and implementation detail that no longer explains
+// anything a user notices is just something else to read.
 const libraryHint =
-  'Draw from Pavlicek\u2019s 10,485,760 pre-solved deals, so tricks(), dds() and par() are ' +
+  'Deals come from Pavlicek\u2019s 10,485,760 solved deals, so tricks(), dds() and par() are ' +
   'lookups rather than searches. The seed picks where in the library to start.'
 
 /// Whether this script asks a double-dummy question at all, as the engine reads
@@ -692,6 +737,7 @@ watch(
     dealSource,
     selectedFile,
     pickerOpen,
+    settingsOpen,
     autoLevel,
     measureSeconds,
     newSeedEachRun,
@@ -710,6 +756,7 @@ watch(
         dealSource: dealSource.value,
         scenario: selectedFile.value,
         pickerOpen: pickerOpen.value,
+        settingsOpen: settingsOpen.value,
         autoLevel: autoLevel.value,
         measureSeconds: measureSeconds.value,
         newSeedEachRun: newSeedEachRun.value,
@@ -1017,6 +1064,29 @@ body {
 }
 /* Run to the far right, whichever line it ends up on. */
 .run-row > .run { margin-left: auto; }
+/* The gear sits with Run, not adrift at the far edge: `margin-left: auto` on
+   Run pushes everything before it left, so placing this immediately before Run
+   keeps the pair together however wide the row gets. */
+.settings-toggle {
+  font-size: 1rem; line-height: 1; padding: 5px 9px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg-raised); color: var(--fg-muted);
+}
+.settings-toggle:hover { color: var(--fg); }
+/* Open is a state, not a hover: with the panel below, the button has to say
+   which of the two it is, or the only way to tell is to look away from it. */
+.settings-toggle.on { color: var(--fg); border-color: var(--accent); background: var(--bg); }
+
+.settings-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px;
+  padding: 8px 10px; margin: 0 0 6px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg-raised);
+}
+.settings-panel label { font-size: 0.82rem; white-space: nowrap; }
+/* Wraps onto its own line rather than sitting in the flow of controls: it is a
+   sentence, and a sentence between two number fields reads as a label. */
+.settings-note { flex-basis: 100%; margin: 2px 0 0; }
+
 
 /* The characterizing budget sits on this row rather than among the controls
    above, so it inherits none of their sizing. Three digits: 300s is the most

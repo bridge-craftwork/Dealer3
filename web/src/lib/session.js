@@ -50,6 +50,10 @@ export function loadSession() {
       // closed: the list is how a first visit finds anything to run, and a
       // stored value that is not a boolean says nothing about that.
       pickerOpen: typeof v.pickerOpen === 'boolean' ? v.pickerOpen : true,
+      // Closed unless it was explicitly opened, which is the opposite of the
+      // scenario list above: that one shows what to run, this one holds
+      // settings someone has already chosen.
+      settingsOpen: typeof v.settingsOpen === 'boolean' ? v.settingsOpen : false,
       // Left undefined rather than defaulted, so the caller can tell "never
       // chosen" from "chosen false" — auto-level ticks itself the first time a
       // script names hand types, and only until someone has had an opinion.
