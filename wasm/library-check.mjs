@@ -16,6 +16,7 @@
 // join between the two chunks, and that is checked byte for byte.
 
 import { createRequire } from 'module'
+import { runEnvelope } from '../web/src/lib/envelope.js'
 import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -80,10 +81,11 @@ check('a run across the chunk boundary is the library\'s own records, byte for b
   same(zrd, fixture.subarray(3 * RECORD, 8 * RECORD)))
 
 // And the point of emitting .zrd: the existing run reads it unchanged.
-const out = JSON.parse(w.generate_from_deals(
-  'condition 1\naction printoneline, average "N HCP" hcp(north)\n',
-  zrd, 1, 40, 1000000, 'oneline', false, false, [], undefined))
-check('the bytes feed generate_from_deals unchanged',
+const out = JSON.parse(w.run_json(
+  runEnvelope('condition 1\naction printoneline, average "N HCP" hcp(north)\n',
+    { seed: 1, produce: 40, maxGenerate: 1000000, format: 'oneline' }),
+  zrd, undefined))
+check('the bytes feed run_json unchanged',
   out.input?.format === 'zrd' && out.input?.read === 5 && out.produced === 5,
   JSON.stringify(out.input))
 check('every deal arrived with its table, so tricks() is a lookup',
