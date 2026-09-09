@@ -13,7 +13,7 @@
  * whose reference is silently a build old.
  */
 import { readFile, writeFile } from 'node:fs/promises'
-import { renderReferenceText, expectedNames } from '../src/lib/referenceText.js'
+import { renderReferenceText, renderLlmsText, expectedNames } from '../src/lib/referenceText.js'
 
 // The threaded build's glue pulls in wasm-bindgen-rayon's worker helper, and
 // that helper registers a message listener on `self` as soon as it is imported.
@@ -28,6 +28,7 @@ globalThis.addEventListener ??= () => {}
 const WASM_JS = new URL('../src/wasm/dealer3_wasm.js', import.meta.url)
 const WASM_BIN = new URL('../src/wasm/dealer3_wasm_bg.wasm', import.meta.url)
 const OUT = new URL('../public/reference.txt', import.meta.url)
+const LLMS = new URL('../public/llms.txt', import.meta.url)
 
 let engine
 try {
@@ -69,7 +70,21 @@ if (text.length < 20000) {
 }
 
 await writeFile(OUT, text, 'utf8')
+
+// The index that points at it. A model handed the app URL gets 883 bytes of
+// page shell and no route onward, because everything else is rendered by
+// script it does not run; this and the `<link rel="alternate">` in index.html
+// are the whole of the thread from one to the other. Emitted here so its
+// figures describe the build that wrote them.
+const llms = renderLlmsText(info, version, text.length)
+if (!llms.includes('reference.txt')) {
+  console.error('llms.txt does not link the reference, which is the only reason it exists.')
+  process.exit(1)
+}
+await writeFile(LLMS, llms, 'utf8')
+
 console.log(
   `reference.txt: ${text.length} characters, ` +
-    `${expectedNames(info).length} entries, engine ${version}`,
+    `${expectedNames(info).length} entries, engine ${version}` +
+    `\nllms.txt: ${llms.length} characters`,
 )

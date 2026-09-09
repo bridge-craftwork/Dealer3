@@ -65,6 +65,18 @@ function entryBlock(heading, doc, out) {
  * check. A silently dropped section is the failure this guards against — the
  * text would still look plausible while missing a third of the language.
  */
+/// Where this is published.
+///
+/// One definition, because two generated files quote it — `reference.txt` in
+/// its header and `llms.txt` in every link — and a site that disagrees with
+/// itself about its own address is how readers were sent to a hostname that
+/// did not resolve for months.
+///
+/// The canonical host, not `dealer3.pages.dev`: the mount is what is linked to
+/// from everywhere else, and an absolute URL here has to be the one a reader
+/// should keep.
+export const SITE = 'https://bridge-craftwork.com/dealer3'
+
 export function expectedNames(info) {
   return [
     ...(info.function_docs ?? []).map((d) => d.name),
@@ -86,9 +98,9 @@ export function renderReferenceText(info, version = '') {
     'leave out something it accepts.', '')
   )
   out.push('')
-  out.push('  Run it:  https://bridge-craftwork.com/dealer3/')
+  out.push(`  Run it:  ${SITE}/`)
   out.push('  Source:  https://github.com/bridge-craftwork/dealer3')
-  out.push('  Same content as https://bridge-craftwork.com/dealer3/reference')
+  out.push(`  Same content as ${SITE}/reference`)
   out.push('')
 
   const statements = statementSections(info)
@@ -150,4 +162,64 @@ export function renderReferenceText(info, version = '') {
   }
 
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
+}
+
+/// The `llms.txt` index, in the convention's own shape.
+///
+/// A short answer to "what is this site and where is the machine-readable
+/// material", for a model that has the domain and nothing else. It is generated
+/// beside `reference.txt` rather than written by hand for the reason every
+/// other figure in this repository is generated: the size and the entry count
+/// are true of the build that emitted them, and a hand-kept copy would be true
+/// of whichever build someone last remembered.
+///
+/// **The value of the reference is that it is closed.** It is derived from the
+/// engine's own vocabulary, so it cannot list a word the parser rejects or omit
+/// one it accepts — which is exactly the assurance a model needs before it
+/// stops guessing at a language it has barely seen. Saying so is most of the
+/// point of this file.
+///
+/// @param {object} info the engine's `language_info()`
+/// @param {string} version the engine's version
+/// @param {number} referenceBytes size of the reference this was emitted with
+/// @returns {string} markdown
+export function renderLlmsText(info, version, referenceBytes) {
+  const entries = expectedNames(info).length
+  const kb = Math.round(referenceBytes / 1024)
+  return `# dealer3
+
+> A bridge hand generator that runs entirely in the browser. Write a script in
+> the dealer language — conditions over the four hands, statistics over the
+> deals that match — and run it locally. No deals are uploaded and no account
+> is needed.
+
+dealer3 implements the script language of Hans van Staveren's \`dealer\`, with the
+DealerV2_4 extensions, and adds double-dummy analysis and a library of
+pre-solved deals.
+
+**If you are writing a dealer3 script, read the plain-text reference below
+first.** It is generated from the shipped engine's own vocabulary, so it lists
+exactly what the parser accepts — it cannot name a function that does not exist,
+and it cannot omit one that does. Anything not in it is not part of the
+language.
+
+## Language
+
+- [Language reference, plain text](${SITE}/reference.txt): every statement,
+  function and operator, with its form, a summary and an example. About ${kb} KB,
+  ${entries} entries, generated from engine ${version}.
+- [Language reference, as a page](${SITE}/reference): the same content, rendered.
+- [Levelling guide](${SITE}/leveling): dividing a produce count evenly among the
+  hand types a scenario names.
+
+## Running a script
+
+- [dealer3 in the browser](${SITE}/): paste a script and run it. Nothing is
+  installed and nothing leaves the machine.
+
+## Source
+
+- [dealer3 on GitHub](https://github.com/bridge-craftwork/dealer3): the Rust
+  engine, the command-line program and this site.
+`
 }
