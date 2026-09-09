@@ -93,6 +93,21 @@ jobs:
         with:
           workspaces: wasm
 
+      # `build.sh` drives `wasm-pack`, so the runner needs one. This step was
+      # missing when the workflow was written — it took the wasm-bindgen step
+      # from `pages.yml` and not the one below it — and the first scheduled run
+      # died on "wasm-pack not found" before reaching anything it was built to
+      # check.
+      #
+      # PINNED, not `latest`, for the reason spelled out in `pages.yml`: the
+      # action resolves `latest` through the GitHub API and, when that call
+      # fails, quietly falls back to v0.9.1, whose wasm-opt cannot parse what
+      # wasm-bindgen emits.
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: 'v0.15.0'
+
       # Failure here is the build itself: the crate, the standard library
       # rebuild, or the bindgen step refusing what the toolchain emitted.
       - name: Build it
