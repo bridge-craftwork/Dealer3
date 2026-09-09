@@ -85,8 +85,8 @@ fn to_solved(records: Vec<deal_input::InputDeal>) -> Vec<run::SolvedDeal> {
 }
 
 pub use run::{
-    run, Deals, LevelingOptions, LevelingReport, Phase, Produced, Rows, RunHost, RunOptions,
-    RunReport,
+    run, Deals, LevelingOptions, LevelingReport, MeasureDeals, Phase, Produced, Rows, RunHost,
+    RunOptions, RunReport,
 };
 
 use dealer_core::Deal;

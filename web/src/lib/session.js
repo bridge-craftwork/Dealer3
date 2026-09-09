@@ -56,6 +56,10 @@ export function loadSession() {
       autoLevel: typeof v.autoLevel === 'boolean' ? v.autoLevel : undefined,
       newSeedEachRun:
         typeof v.newSeedEachRun === 'boolean' ? v.newSeedEachRun : undefined,
+      // Seconds to spend characterizing. Left undefined rather than defaulted,
+      // so a first visit takes the engine's own number instead of a copy of it
+      // kept here — see `defaultMeasureSeconds`.
+      measureSeconds: Number.isFinite(v.measureSeconds) ? v.measureSeconds : undefined,
       // What was typed into the script's parameter fields, by parameter
       // number. Restored with the script, since a parameterised scenario is
       // only half itself without them.

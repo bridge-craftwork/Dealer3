@@ -712,10 +712,15 @@ whatever the machine — but a run stopped by the *clock* stops wherever the clo
 caught it, so it is not. Pin `--level-measure` if you need a build to produce
 the same file every time.
 
-**In the browser** there is nothing to set. It characterizes for up to a few
-seconds — a page blocks while it deals — and stops at whichever comes first: the
-2,000 sightings, that clock, or the Max generate box. If it falls short it says
-so in the Hand types panel, and the count it reached is reported there.
+**In the browser** the same two limits are the **Characterize** box beside
+Auto-level, in seconds, and the 2,000 sightings. It stops at whichever comes
+first, and if it falls short it says so in the Hand types panel, with the count
+it reached.
+
+**Max generate does not bound it**, and used to: one box was doing both jobs,
+so a scenario worth levelling had its measurement cut short by a limit that was
+about the run. Raise Characterize to measure for longer; raise Max generate to
+let the run itself deal more.
 
 A demanding scenario will fall short. One whose condition keeps a deal in
 several hundred, and which then splits those across five bands, can want tens of
