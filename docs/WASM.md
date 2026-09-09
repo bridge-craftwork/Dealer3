@@ -17,7 +17,7 @@ Requires [wasm-pack](https://rustwasm.github.io/wasm-pack/installer/) and the
 
 Current size: **~1400 KB raw, ~500 KB gzipped**, including `bridge-solver`,
 which `tricks()` reaches through `dealer-dds`. The solver is about 11 KB
-gzipped of that, and the readers behind `generate_from_deals` — ZRD, PBN and the
+gzipped of that, and the readers behind a supplied-deals run — ZRD, PBN and the
 line-oriented layouts — about 22 KB gzipped: measured by building without that
 entry point, which comes to 1351 KB raw and 478 KB gzipped.
 
@@ -39,7 +39,10 @@ printf 'condition hcp(north) >= 12\n' > /tmp/v.dlr
 ../target/release/dealer /tmp/v.dlr -s 7 -p 5 -f oneline | sed 's/[[:space:]]*$//' > /tmp/native.txt
 node -e '
   const w = require("./pkg-node/dealer3_wasm.js");
-  console.log(JSON.parse(w.generate("condition hcp(north) >= 12\n",7,5,100000,"oneline")).deals.join("\n"));
+  const envelope = JSON.stringify({ v: 1, script: "condition hcp(north) >= 12\n",
+    settings: { seed: 7, produce: 5, maxGenerate: 100000, format: "oneline",
+                autoLevel: false, roundRobin: false } });
+  console.log(JSON.parse(w.run_json(envelope)).deals.join("\n"));
 ' > /tmp/wasm.txt
 diff /tmp/native.txt /tmp/wasm.txt && echo identical
 ```
@@ -51,8 +54,7 @@ cover this build too: it is the same generator.
 
 | Export | Returns | Notes |
 |---|---|---|
-| `generate(script, seed, produce, max_generate, format, auto_level, round_robin, params, measure_seconds, on_progress)` | JSON | `format` is `"oneline"`, `"printall"` or `"pbn"`; `params` fills `$0`-`$9`; `measure_seconds` bounds levelling's characterizing pass |
-| `generate_from_deals(script, deals, seed, produce, max_generate, format, auto_level, round_robin, params, measure_seconds, on_progress)` | JSON | The same, over deals the caller supplies: `deals` is a `Uint8Array` |
+| `run_json(envelope, deals, on_progress)` | JSON | The one way to run a script. `envelope` is the JSON below; `deals` is a `Uint8Array` to run over, or `undefined` to shuffle |
 | `new Library(manifestUrl)` | object | The published solved-deal library, fetched a piece at a time; see below |
 | `rpdd_manifest_url()` | string | The manifest of the library we host, for `new Library(...)` |
 | `record_for_seed(seed, records)` | number | Which record a run's seed starts at — the CLI's own mapping, not a page's |
@@ -64,6 +66,42 @@ cover this build too: it is the same generator.
 | `supports_threads()` | bool | Whether this build can deal on more than one thread at all |
 | `start_threads(n)` | Promise | Threaded build only: start the pool. Needs a cross-origin isolated page |
 | `version()` | string | Engine version |
+
+### The run envelope
+
+`run_json` takes one JSON string rather than a list of arguments. Fields are
+camelCase, because every caller is JavaScript.
+
+```json
+{
+  "v": 1,
+  "script": "condition hcp(north) >= 15\n",
+  "settings": {
+    "seed": 1,
+    "produce": 40,
+    "maxGenerate": 1000000,
+    "format": "oneline",
+    "autoLevel": false,
+    "roundRobin": false,
+    "params": [],
+    "measureSeconds": 2.5
+  }
+}
+```
+
+`format` is `"oneline"`, `"printall"`, `"pbn"` or `"none"`. `params` fills
+`$0`-`$9` and may be left out. `measureSeconds` bounds levelling's
+characterizing pass and may be left out, in which case
+`measure_budget_seconds()` is used. Everything else is required.
+
+**Unknown fields are refused by name, and so is an unknown `v`.** A misspelled
+setting is the mistake this shape exists to catch: with a positional argument
+list there was no name to misspell, and with a permissive parse there would be
+no complaint — the run would take a default and return numbers for a run nobody
+asked for. `"autolevel"` gets an error naming `autolevel`.
+
+This is the same envelope intended for share links, export files and bundled
+demo scripts, so a new setting is added in one place rather than four.
 
 ### `generate`
 
@@ -122,7 +160,7 @@ second copy of it. Deals are the wrong currency for it: how many deals a sightin
 of the rarest hand type costs is precisely what the pass exists to find out. The
 command line spells the same limit `--level-timeout`.
 
-The exception is `generate_from_deals`, where the deals are a finite pile rather
+The exception is a run over supplied deals, where they are a finite pile rather
 than a tap: there both passes share `max_generate` as the command line does, and
 whichever of the two limits arrives first stops the measuring.
 
@@ -131,20 +169,22 @@ tens of thousands to build a histogram and a page cannot show them all.
 Statistics still accumulate over every matching deal, so `produced` can exceed
 `deals.length`.
 
-### `generate_from_deals`
+### Running over supplied deals
 
-Runs the script over deals the caller hands over, rather than dealing any. Same
-arguments as `generate` with the file's bytes inserted second, and the same JSON
-back with one field added.
+Pass bytes as the second argument and the engine runs over those instead of
+dealing any. Same envelope, same JSON back with one field added — `deals` is the
+only thing that decides where a run's deals come from.
 
 **The browser is the HTTP client.** Nothing in the engine fetches, opens or
 names a file — JS does that and passes the bytes:
 
 ```js
 const bytes = new Uint8Array(await (await fetch("/library.zrd")).arrayBuffer())
-const result = JSON.parse(w.generate_from_deals(
-  "condition hcp(north) >= 15\n", bytes, 1, 40, 1000000, "oneline",
-  false, false, [], null, null))
+const result = JSON.parse(w.run_json(
+  JSON.stringify({ v: 1, script: "condition hcp(north) >= 15\n",
+    settings: { seed: 1, produce: 40, maxGenerate: 1000000, format: "oneline",
+                autoLevel: false, roundRobin: false } }),
+  bytes))
 console.log(result.input)
 // { format: "zrd", read: 10, solved: 10, unsolved: 0,
 //   separators: 0, skipped: [], skipped_count: 0, notes: [] }
@@ -204,7 +244,7 @@ Pavlicek's, solved over almost two years of computer time — but the file is
 So only the tables are published, as 640 KiB pieces, and the deals are not
 published at all: they are a pure function of their index, and `rpdd-reader`
 recreates them here at about 640ns each. `Library` joins the two and hands back
-`.zrd` bytes for `generate_from_deals` — the same bytes, the same reader and the
+`.zrd` bytes for `run_json` — the same bytes, the same reader and the
 same run as `--input-deals` at a terminal. There is deliberately no second run
 path.
 
@@ -219,9 +259,11 @@ while ((need = lib.needs(index, count)).length)
   for (const url of need)
     lib.supply(url, new Uint8Array(await (await fetch(url)).arrayBuffer()))
 
-const result = JSON.parse(w.generate_from_deals(
-  script, lib.zrd(index, count), seed, 40, 1000000, "oneline",
-  false, false, [], null))
+const result = JSON.parse(w.run_json(
+  JSON.stringify({ v: 1, script, settings: {
+    seed, produce: 40, maxGenerate: 1000000, format: "oneline",
+    autoLevel: false, roundRobin: false } }),
+  lib.zrd(index, count)))
 ```
 
 The first round asks for the manifest and the second for the chunks it names;
@@ -232,7 +274,7 @@ like — a `Map`, the Cache API, IndexedDB — and hand the same bytes back.
 |---|---|---|
 | `needs(firstDeal, count)` | `string[]` | URLs still wanted. Empty means `zrd` will answer |
 | `supply(url, bytes)` | — | Bytes for a URL `needs` returned. Throws for one it did not |
-| `zrd(firstDeal, count)` | `Uint8Array` | The run, for `generate_from_deals`. Throws while anything is missing |
+| `zrd(firstDeal, count)` | `Uint8Array` | The run, to pass to `run_json`. Throws while anything is missing |
 | `manifest_url` | string | What it was pointed at |
 | `total_deals` | number \| undefined | Known once the manifest has been supplied |
 | `forget_chunks()` | — | Release held pieces, keeping the manifest |
@@ -502,7 +544,7 @@ cd wasm && ./build.sh nodejs && node library-check.mjs
 `cargo test` inside `wasm/` already checks the arithmetic, in Rust, on the host.
 What it cannot check is that `needs()` arrives as an array, that a `Uint8Array`
 handed to `supply()` reaches Rust as `&[u8]`, and that `zrd()` comes back as
-bytes `generate_from_deals` accepts. Those are `wasm-bindgen`'s, and they are
+bytes `run_json` accepts. Those are `wasm-bindgen`'s, and they are
 where the wiring bugs happen. It serves the ten-record fixture as two `.zdd`
 chunks and checks the run byte for byte, across the join and around the wrap.
 
@@ -513,7 +555,7 @@ the only thing that stood in the way was the clock, and `now_ms` reads
 `SystemTime` off wasm rather than `Date.now()`. What it reads has no effect on
 which deals come out.
 
-That is what covers `generate_from_deals` — it runs over
+That is what covers a supplied-deals run — it runs over
 `dealer-run/tests/fixtures/rpdd_10First.zrd` and asserts the deals are the
 file's ten, that the filter still applies to them, and what `input` says about
 each format. It is not a browser, so it does not cover the JS boundary itself:

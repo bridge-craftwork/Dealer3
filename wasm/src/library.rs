@@ -23,7 +23,7 @@
 //! let need
 //! while ((need = lib.needs(index, count)).length)
 //!     for (const url of need) lib.supply(url, new Uint8Array(await (await fetch(url)).arrayBuffer()))
-//! const out = generate_from_deals(script, lib.zrd(index, count), seed, ...)
+//! const out = run_json(envelope, lib.zrd(index, count))
 //! ```
 //!
 //! The first round asks for the manifest and the second for the chunks it
@@ -31,7 +31,7 @@
 //!
 //! # Why it hands back `.zrd` bytes
 //!
-//! Because [`crate::generate_from_deals`] already reads them, unchanged. The
+//! Because [`crate::run_json`] already reads them, unchanged. The
 //! same bytes, the same reader and the same run as `--input-deals` at a
 //! terminal — so a library run in a tab and a library run in a shell cannot
 //! come to different conclusions about what they read.
@@ -146,7 +146,7 @@ impl Library {
     }
 
     /// `count` deals from `first_deal`, each with its double-dummy table, as
-    /// `.zrd` bytes for [`crate::generate_from_deals`].
+    /// `.zrd` bytes to hand to [`crate::run_json`].
     ///
     /// Fails while anything is still missing; ask [`needs`](Self::needs) first.
     pub fn zrd(&self, first_deal: u32, count: u32) -> Result<Vec<u8>, JsError> {

@@ -30,7 +30,7 @@ use dealer_parser::vocabulary;
 use dealer_parser::{Statement, VulnerabilityType};
 use dealer_pbn::{format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability};
 use dealer_run::{Deals, LevelingOptions, Phase, Produced, RunHost, RunOptions};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 /// Upper bound on deals returned to the caller. A script may ask for tens of
@@ -616,138 +616,169 @@ impl RunHost for Page<'_> {
     }
 }
 
-/// Generate deals from a script, as JSON.
+/// The envelope version this build understands.
+///
+/// Bumped when a change would make an older caller wrong rather than merely
+/// out of date. A mismatch is refused by name rather than half-read.
+const ENVELOPE_VERSION: u32 = 1;
+
+/// A run, described in one shape.
+///
+/// This replaced ten positional arguments, and the comment that used to sit
+/// here defended them: wasm-bindgen exports positionally, so the arguments are
+/// "in the type system" while a settings object is a hand-written cast on both
+/// sides. That was half right, and the wrong half mattered.
+///
+/// JavaScript has no types to check. `produce` and `max_generate` are both
+/// numbers, `auto_level` and `round_robin` are both booleans, so transposing
+/// either pair type-checked perfectly and ran — and a `dealer-run` signature
+/// change once travelled through two merged pull requests before anyone
+/// noticed, which is why there is a WebAssembly job in CI at all. What the
+/// positional list actually offered was arity, and even that was thin:
+/// `verify.mjs` passed nine arguments to an eleven-argument function and was
+/// correct, but nothing about reading it said so.
+///
+/// Parsing gives back more than it takes. `deny_unknown_fields` means a
+/// misspelled setting is refused **by name** instead of silently taking its
+/// default, and the version says outright when a caller and this build
+/// disagree. Those are the two failures that actually happen here, and neither
+/// was catchable before.
+///
+/// The same shape is the share link's payload, the export file and a demo's
+/// manifest entry, so a setting is added once rather than in four places kept
+/// in step by hand.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RunEnvelope {
+    v: u32,
+    script: String,
+    settings: RunSettings,
+}
+
+/// Everything about a run that is not the script and not the deals.
+///
+/// camelCase on the wire because every consumer is JavaScript — the page, the
+/// share link, the export file — and `session.js` already stores these names
+/// that way.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct RunSettings {
+    seed: u32,
+    produce: usize,
+    max_generate: usize,
+    format: String,
+    auto_level: bool,
+    round_robin: bool,
+    /// Absent means none, which is what nearly every script wants.
+    #[serde(default)]
+    params: Vec<String>,
+    /// Absent means [`MEASURE_BUDGET_MS`], as it did when this was an argument.
+    #[serde(default)]
+    measure_seconds: Option<f64>,
+}
+
+/// Run a script, described by an envelope, and return the report as JSON.
+///
+/// The one entry point. `deals` decides where the deals come from and is the
+/// only thing that does: bytes mean run over those — a Pavlicek `.zrd`, PBN, or
+/// the one-line and printall layouts, read by the same reader `--input-deals`
+/// uses — and nothing means shuffle from `seed`.
+///
+/// Deals and `on_progress` stay real arguments because they are not settings:
+/// one is a `Uint8Array` that has no business in JSON, the other is a callback.
 ///
 /// With `auto_level`, the engine characterizes the scenario first — how often
 /// each `HandType_*` comes up — works out a keep rate for each and deals the
-/// levelled copy. Both passes are the engine's business; what comes back is
-/// the deals and the numbers behind them.
+/// levelled copy. With `round_robin`, it divides `produce` among those
+/// variables instead of taking deals as they come; the two are refused
+/// together, since they ask for the same thing in different ways.
 ///
-/// With `round_robin`, it divides `produce` among the `HandType_*` variables —
-/// one of each per round, any remainder going to whichever types turn up next,
-/// one apiece — instead of taking deals as they come. Nothing is measured, so
-/// nothing can be measured wrong: a levelled set of twenty is four of each on
-/// average and 6/1/5/4/4 without anything having gone wrong, where a round is
-/// four. Refused alongside `auto_level`, which asks for the same thing the
-/// other way.
-/// `measure_seconds` is how long characterizing may take, and it is the only
-/// thing that stops it: `max_generate` bounds the run that was asked for, not
-/// the measuring that pays for it. Left out — `undefined` or `null` — it takes
-/// [`MEASURE_BUDGET_MS`]. The command line spells the same thing
-/// `--level-timeout`.
-// The argument list is the JS calling convention: wasm_bindgen exports these
-// positionally, and folding them into a settings object would move the naming
-// out of the type system and into a hand-written cast on both sides.
-#[allow(clippy::too_many_arguments)]
+/// `measure_seconds` bounds characterizing and is the only thing that does:
+/// `max_generate` bounds the run that was asked for, not the measuring that
+/// pays for it. Over supplied deals the pile bounds it too, and whichever
+/// limit arrives first stops the pass.
+///
+/// **Over supplied deals, look at `input` in what comes back.** `read` against
+/// the number of deals the caller believes it sent is what tells a run over a
+/// truncated download from a run over all of it; neither `produced` nor
+/// `hit_limit` can, because a run that exhausts its deals has not hit its
+/// budget — it stops short and looks like success.
+///
+/// `predeal` is refused over supplied deals rather than ignored: it arranges
+/// cards into deals this program shuffles, and there is nothing for it to do to
+/// deals that arrived already dealt. `seed` is still asked for, because it is
+/// what `rnd()` draws from and what orders an interleaved set.
+///
+/// **The browser is the HTTP client**: nothing here fetches, opens or names a
+/// file, which is why one entry point serves a download, a drag-and-drop, a
+/// file input and the solved-deal library alike.
 #[wasm_bindgen]
-pub fn generate(
-    script: &str,
-    seed: u32,
-    produce: usize,
-    max_generate: usize,
-    format: &str,
-    auto_level: bool,
-    round_robin: bool,
-    params: Vec<String>,
-    measure_seconds: Option<f64>,
+pub fn run_json(
+    envelope: &str,
+    deals: Option<Vec<u8>>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, JsError> {
-    run_script(
-        script,
-        seed,
-        produce,
-        max_generate,
-        format,
-        auto_level,
-        round_robin,
-        &params,
-        measure_seconds,
-        on_progress,
-        DealSource::Shuffled,
-    )
-    .map_err(|e| JsError::new(&e))
+    run_envelope(envelope, deals.as_deref(), on_progress).map_err(|e| JsError::new(&e))
 }
 
-/// Run `script` over deals the caller supplies, rather than dealing any.
+/// [`run_json`]'s body.
 ///
-/// Everything else — `auto_level`, `round_robin`, `params`, `format` and the
-/// JSON that comes back — is [`generate`]'s and behaves as it does there. Where
-/// the deals come from is the only difference between the two.
-///
-/// `deals` is the file's bytes — a `Uint8Array`, which is what a `fetch()`
-/// gives after `arrayBuffer()`. **The browser is the HTTP client**: nothing
-/// here fetches, opens or names a file, which is why one entry point serves a
-/// download, a drag-and-drop and a file input alike.
-///
-/// The format is decided by what the bytes are, not what they were called — a
-/// Pavlicek `.zrd` library, PBN, or the one-line and printall layouts — through
-/// the same reader `--input-deals` uses at the terminal. A library's records
-/// and PBN's `[DoubleDummyTricks]` bring their double-dummy tables with them, so
-/// a script calling `tricks()` over a solved file solves nothing.
-///
-/// What came back is in `input`, and **a caller should look at it**: `read`
-/// against the number of deals it believes it sent is what tells a run over a
-/// truncated download from a run over all of it. Neither `produced` nor
-/// `hit_limit` can say that — a run that exhausts the deals it was given has
-/// not hit its budget, so it stops short and looks like success.
-///
-/// `seed` no longer decides which deals appear, since they are given, but it is
-/// still what `rnd()` draws from and what orders an interleaved set — so it is
-/// asked for, exactly as `generate` asks for it.
-///
-/// `predeal` is refused rather than ignored: it arranges cards into deals this
-/// program shuffles, and there is nothing for it to do to deals that arrived
-/// already dealt. The command line refuses the same combination.
-///
-/// `measure_seconds` bounds characterizing as it does in [`generate`], but here
-/// the deals bound it too: a supplied pile is finite, so both passes share it
-/// and whichever limit arrives first stops the pass.
-#[allow(clippy::too_many_arguments)]
-#[wasm_bindgen]
-pub fn generate_from_deals(
-    script: &str,
-    deals: &[u8],
-    seed: u32,
-    produce: usize,
-    max_generate: usize,
-    format: &str,
-    auto_level: bool,
-    round_robin: bool,
-    params: Vec<String>,
-    measure_seconds: Option<f64>,
+/// Speaks `String` rather than `JsError` for the reason [`run_script`] does:
+/// `JsError::new` reaches for JavaScript's `Error`, which does not exist off
+/// wasm, so a failure raised here would abort a test process instead of being
+/// something a test can assert on — and the failures are precisely what wants
+/// asserting.
+fn run_envelope(
+    envelope: &str,
+    deals: Option<&[u8]>,
     on_progress: Option<js_sys::Function>,
-) -> Result<String, JsError> {
+) -> Result<String, String> {
+    let envelope: RunEnvelope = serde_json::from_str(envelope)
+        .map_err(|e| format!("The run envelope could not be read: {}", e))?;
+    if envelope.v != ENVELOPE_VERSION {
+        return Err(format!(
+            "This build reads run envelope version {}, and was given version {}. \
+             A newer envelope needs a newer build; an older one needs its version raised.",
+            ENVELOPE_VERSION, envelope.v
+        ));
+    }
+    let s = envelope.settings;
+
     // One decoder, two front ends. Anything read here that the command line
     // would not read the same way is a bug in one of them, not a difference
     // between a page and a terminal.
-    // The whole file, in order. A page that wants to start somewhere else —
-    // the seed picking a position in a large library, which is what #68 asks
-    // for — will pass a window of its own; that is a decision about what the
-    // page offers, not one to make while wiring two branches together.
-    let (supplied, report) =
-        dealer_run::deals_from_bytes(deals, dealer_run::deal_input::Window::all())
-            .map_err(|e| JsError::new(&e))?;
+    let source = match deals {
+        Some(bytes) => {
+            // The whole of what was handed over, in order. A caller wanting to
+            // start elsewhere in a large library passes a window of its own;
+            // that is a decision about what the page offers, not one to make
+            // while wiring branches together.
+            let (supplied, report) =
+                dealer_run::deals_from_bytes(bytes, dealer_run::deal_input::Window::all())?;
+            DealSource::Supplied {
+                deals: supplied,
+                report,
+            }
+        }
+        None => DealSource::Shuffled,
+    };
+
     run_script(
-        script,
-        seed,
-        produce,
-        max_generate,
-        format,
-        auto_level,
-        round_robin,
-        &params,
-        measure_seconds,
+        &envelope.script,
+        s.seed,
+        s.produce,
+        s.max_generate,
+        &s.format,
+        s.auto_level,
+        s.round_robin,
+        &s.params,
+        s.measure_seconds,
         on_progress,
-        DealSource::Supplied {
-            deals: supplied,
-            report,
-        },
+        source,
     )
-    .map_err(|e| JsError::new(&e))
 }
 
-/// The body both entry points share: everything except where the deals came
-/// from.
+/// The run itself: everything except where the deals came from.
 ///
 /// Speaks `String` rather than `JsError` so that it can be called from an
 /// ordinary test. `JsError::new` reaches for JavaScript's `Error`, which does
@@ -1716,6 +1747,69 @@ pub fn version() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A well-formed envelope, which each test below then breaks in one way.
+    fn envelope(extra: &str) -> String {
+        format!(
+            r#"{{"v":1,"script":"condition 1\naction average \"h\" hcp(north)\n",
+                "settings":{{"seed":1,"produce":3,"maxGenerate":1000,
+                "format":"oneline","autoLevel":false,"roundRobin":false{}}}}}"#,
+            extra
+        )
+    }
+
+    #[test]
+    fn a_well_formed_envelope_runs() {
+        let json = run_envelope(&envelope(""), None, None).expect("should run");
+        assert!(json.contains("\"produced\":3"), "{}", json);
+    }
+
+    /// The reason the version is in the envelope at all: a caller from a later
+    /// build must be told, not half-read. Every field here is one this build
+    /// understands, so nothing but `v` says the two disagree.
+    #[test]
+    fn a_version_this_build_does_not_know_is_refused_by_number() {
+        let future = envelope("").replacen("\"v\":1", "\"v\":2", 1);
+        let err = run_envelope(&future, None, None).expect_err("should refuse");
+        assert!(err.contains('1') && err.contains('2'), "{}", err);
+    }
+
+    /// A misspelled setting used to be the dangerous case: with ten positional
+    /// arguments there was no name to misspell, and with a permissive parse
+    /// there would be no complaint — the run would take the default and return
+    /// numbers for a run nobody asked for. `deny_unknown_fields` makes it say
+    /// which word it did not know.
+    #[test]
+    fn a_misspelled_setting_is_refused_by_name() {
+        let typo = envelope(r#","autolevel":true"#);
+        let err = run_envelope(&typo, None, None).expect_err("should refuse");
+        assert!(err.contains("autolevel"), "{}", err);
+    }
+
+    /// `seed` has no sensible default — a run without one is not a run with
+    /// seed zero, it is a caller that forgot — so it is required and named.
+    #[test]
+    fn a_missing_required_setting_is_refused_by_name() {
+        let without = envelope("").replacen("\"seed\":1,", "", 1);
+        let err = run_envelope(&without, None, None).expect_err("should refuse");
+        assert!(err.contains("seed"), "{}", err);
+    }
+
+    /// The two genuinely optional ones, left out together.
+    #[test]
+    fn params_and_the_measure_budget_may_be_left_out() {
+        let json = run_envelope(&envelope(""), None, None).expect("should run");
+        assert!(json.contains("\"produced\":3"), "{}", json);
+    }
+
+    /// Bytes mean "run over these", and nothing means "shuffle". That is the
+    /// whole of what used to be two entry points.
+    #[test]
+    fn supplying_deals_reads_them_instead_of_shuffling() {
+        let json = run_envelope(&envelope(""), Some(LIBRARY), None).expect("should run");
+        assert!(json.contains("\"read\":10"), "{}", json);
+        assert!(json.contains("\"format\":\"zrd\""), "{}", json);
+    }
 
     /// Ten records of Pavlicek's library, every one of them solved. The same
     /// fixture `dealer-run` reads, so a front end that read it differently

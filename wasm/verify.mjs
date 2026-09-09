@@ -9,6 +9,7 @@
 // Requires a release build of the CLI: ./dev-build.sh build --release
 
 import { createRequire } from 'module'
+import { runEnvelope } from '../web/src/lib/envelope.js'
 import { execFileSync, spawnSync } from 'child_process'
 import { writeFileSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -74,6 +75,17 @@ function parseCli(out) {
 let failures = 0
 const fail = (c, msg) => { failures++; console.log(`  ✗ ${c}: ${msg}`) }
 
+// The envelope for a shuffled run of one case, built the same way the page
+// builds it — importing the page's own builder rather than writing the shape
+// out again, so this cannot verify a shape the app does not send.
+const shuffled = (c) =>
+  runEnvelope(c.script, {
+    seed: c.seed,
+    produce: c.produce,
+    maxGenerate: 500000,
+    format: 'oneline',
+  })
+
 for (const c of CASES) {
   const path = join(tmp, `${c.name.replace(/\W+/g, '_')}.dlr`)
   writeFileSync(path, c.script)
@@ -84,7 +96,7 @@ for (const c of CASES) {
     const printed = execFileSync(CLI,
       [path, '-s', String(c.seed), '-p', String(c.produce), '-q'],
       { encoding: 'utf8' })
-    const fromWasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false, [], undefined)).printes
+    const fromWasm = JSON.parse(w.run_json(shuffled(c), undefined, undefined)).printes
     if (printed !== fromWasm) {
       fail(c.name, `printes differs\n      cli:  ${JSON.stringify(printed)}\n      wasm: ${JSON.stringify(fromWasm)}`)
     } else {
@@ -96,7 +108,7 @@ for (const c of CASES) {
   const cli = parseCli(execFileSync(CLI,
     [path, '-s', String(c.seed), '-p', String(c.produce), '-f', 'oneline', '-X'],
     { encoding: 'utf8' }))
-  const wasm = JSON.parse(w.generate(c.script, c.seed, c.produce, 500000, 'oneline', false, false, [], undefined))
+  const wasm = JSON.parse(w.run_json(shuffled(c), undefined, undefined))
 
   if (JSON.stringify(cli.deals) !== JSON.stringify(wasm.deals)) {
     fail(c.name, `deals differ (cli ${cli.deals.length}, wasm ${wasm.deals.length})`)
@@ -158,8 +170,9 @@ for (const c of SUPPLIED) {
      '-p', '100', '-s', '1', '-f', 'oneline', '-X'],
     { encoding: 'utf8' }))
   const bytes = new Uint8Array(readFileSync(LIBRARY))
-  const wasm = JSON.parse(
-    w.generate_from_deals(c.script, bytes, 1, 100, 500000, 'oneline', false, false, []))
+  const wasm = JSON.parse(w.run_json(
+    runEnvelope(c.script, { seed: 1, produce: 100, maxGenerate: 500000, format: 'oneline' }),
+    bytes, undefined))
 
   if (JSON.stringify(cli.deals) !== JSON.stringify(wasm.deals)) {
     fail(c.name, `deals differ (cli ${cli.deals.length}, wasm ${wasm.deals.length})`)

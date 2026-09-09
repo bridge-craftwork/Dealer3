@@ -17,6 +17,7 @@
 // worth an await, so they stay on the main thread's own instance.
 
 import init, * as engine from '@/wasm/dealer3_wasm.js'
+import { runEnvelope } from './envelope.js'
 import {
   createLibraryFetcher,
   dealsToRequest,
@@ -177,9 +178,10 @@ self.onmessage = async (event) => {
       self.postMessage({ id, type: 'progress', message })
     }
 
-    // Two deal sources, one run. `generate_from_deals` is the same engine over
-    // deals it was handed instead of deals it shuffled — the filter, the
-    // statistics, the levelling and the output are all the ones above.
+    // Two deal sources, one run, one call. The engine takes an envelope
+    // describing the run and, separately, the deals to run it over: bytes mean
+    // use these, nothing means shuffle. The filter, the statistics, the
+    // levelling and the output are the same either way.
     let raw
     let libraryInfo = null
     // Getting the deals is part of the run, so it is part of the time. The
@@ -195,32 +197,9 @@ self.onmessage = async (event) => {
       )
       librarySeconds = (performance.now() - startedLibrary) / 1000
       libraryInfo = info
-      raw = engine.generate_from_deals(
-        script,
-        zrd,
-        options.seed,
-        options.produce,
-        options.maxGenerate,
-        options.format,
-        options.autoLevel,
-        options.roundRobin,
-        options.params || [],
-        options.measureSeconds,
-        onProgress,
-      )
+      raw = engine.run_json(runEnvelope(script, options), zrd, onProgress)
     } else {
-      raw = engine.generate(
-        script,
-        options.seed,
-        options.produce,
-        options.maxGenerate,
-        options.format,
-        options.autoLevel,
-        options.roundRobin,
-        options.params || [],
-        options.measureSeconds,
-        onProgress,
-      )
+      raw = engine.run_json(runEnvelope(script, options), undefined, onProgress)
     }
     self.postMessage({
       id,
