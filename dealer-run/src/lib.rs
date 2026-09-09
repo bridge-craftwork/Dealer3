@@ -494,15 +494,25 @@ impl<'a> RunAccumulator<'a> {
     /// an `average` and a `HandType_` draws them the other way round from the
     /// same deal. `--round-robin` is a new mode with nothing to be compatible
     /// with, where a plain `-p` has dealer.exe behind it.
-    pub fn observe<'d>(
+    ///
+    /// `cache` is the caller's per-thread scratch, and the reason this takes
+    /// it rather than making one: a context that builds its own allocates, and
+    /// this builds up to three of them per produced deal. Emptied here, once,
+    /// so the three share what they work out — a value the `average`s need is
+    /// not worked out again for the hand types — and so nothing a previous deal
+    /// left behind can be read. `&mut` is what makes that a compile-time fact
+    /// rather than a discipline: see [`dealer_eval::VarCache`].
+    pub fn observe<'d, 'v>(
         &mut self,
         deal: &'d Deal,
-        variables: &'d Variables<'d>,
-        counts: Option<&'d PointCounts>,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
         dd_tricks: &'d dealer_dds::DealTricks,
+        cache: &'d mut dealer_eval::VarCache<'v>,
     ) -> Result<Observed, RunError> {
+        let cache = cache.start_deal();
         if let Some(plan) = self.round_robin.clone() {
-            let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks)?;
+            let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks, cache)?;
             // Untyped deals are not wanted either: a round robin is a statement
             // about the categories, and a deal in none of them is in no round.
             //
@@ -530,8 +540,9 @@ impl<'a> RunAccumulator<'a> {
                     taken: false,
                 });
             }
-            let level_type = self.pick_level_type(hand_type, deal, variables, counts, dd_tricks)?;
-            self.accumulate_statistics(deal, variables, counts, dd_tricks)?;
+            let level_type =
+                self.pick_level_type(hand_type, deal, variables, counts, dd_tricks, cache)?;
+            self.accumulate_statistics(deal, variables, counts, dd_tricks, cache)?;
             self.count(hand_type, level_type);
             return Ok(Observed {
                 matched: Matched {
@@ -542,9 +553,10 @@ impl<'a> RunAccumulator<'a> {
             });
         }
 
-        self.accumulate_statistics(deal, variables, counts, dd_tricks)?;
-        let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks)?;
-        let level_type = self.pick_level_type(hand_type, deal, variables, counts, dd_tricks)?;
+        self.accumulate_statistics(deal, variables, counts, dd_tricks, cache)?;
+        let hand_type = self.pick_hand_type(deal, variables, counts, dd_tricks, cache)?;
+        let level_type =
+            self.pick_level_type(hand_type, deal, variables, counts, dd_tricks, cache)?;
         self.count(hand_type, level_type);
         Ok(Observed {
             matched: Matched {
@@ -556,17 +568,25 @@ impl<'a> RunAccumulator<'a> {
     }
 
     /// The `average` and `frequency` statements, over one taken deal.
-    fn accumulate_statistics<'d>(
+    fn accumulate_statistics<'d, 'v>(
         &mut self,
         deal: &'d Deal,
-        variables: &'d Variables<'d>,
-        counts: Option<&'d PointCounts>,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
         dd_tricks: &'d dealer_dds::DealTricks,
+        cache: &'d dealer_eval::VarCache<'v>,
     ) -> Result<(), RunError> {
         if self.averages.is_empty() && self.frequencies.is_empty() {
             return Ok(());
         }
-        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
+        let ctx = EvalContext::for_deal(
+            deal,
+            variables,
+            counts,
+            self.vulnerability,
+            dd_tricks,
+            cache,
+        );
         for average in self.averages.iter_mut() {
             let value = eval(average.expr, &ctx).map_err(|e| RunError::Eval {
                 what: "Average evaluation error".to_string(),
@@ -601,34 +621,50 @@ impl<'a> RunAccumulator<'a> {
         Ok(())
     }
 
-    fn pick_hand_type<'d>(
+    fn pick_hand_type<'d, 'v>(
         &self,
         deal: &'d Deal,
-        variables: &'d Variables<'d>,
-        counts: Option<&'d PointCounts>,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
         dd_tricks: &'d dealer_dds::DealTricks,
+        cache: &'d dealer_eval::VarCache<'v>,
     ) -> Result<Option<usize>, RunError> {
         if self.hand_type_names.is_empty() {
             return Ok(None);
         }
-        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
+        let ctx = EvalContext::for_deal(
+            deal,
+            variables,
+            counts,
+            self.vulnerability,
+            dd_tricks,
+            cache,
+        );
         pick(&self.hand_type_names, &ctx, deal, "Hand")
     }
 
     /// The levelling decomposition, which is usually the hand types — and then
     /// their counts serve for both, rather than classifying twice.
-    fn pick_level_type<'d>(
+    fn pick_level_type<'d, 'v>(
         &self,
         hand_type: Option<usize>,
         deal: &'d Deal,
-        variables: &'d Variables<'d>,
-        counts: Option<&'d PointCounts>,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
         dd_tricks: &'d dealer_dds::DealTricks,
+        cache: &'d dealer_eval::VarCache<'v>,
     ) -> Result<Option<usize>, RunError> {
         if self.level_type_names.is_empty() {
             return Ok(hand_type);
         }
-        let ctx = EvalContext::for_deal(deal, variables, counts, self.vulnerability, dd_tricks);
+        let ctx = EvalContext::for_deal(
+            deal,
+            variables,
+            counts,
+            self.vulnerability,
+            dd_tricks,
+            cache,
+        );
         pick(&self.level_type_names, &ctx, deal, "Level")
     }
 
@@ -798,11 +834,10 @@ fn pick(
 ) -> Result<Option<usize>, RunError> {
     let mut matched: Option<usize> = None;
     for (i, name) in names.iter().enumerate() {
-        let value =
-            eval(&Expr::Variable((*name).to_string()), ctx).map_err(|e| RunError::Eval {
-                what: format!("{} type `{}` could not be evaluated", kind, name),
-                message: e.to_string(),
-            })?;
+        let value = dealer_eval::eval_variable(name, ctx).map_err(|e| RunError::Eval {
+            what: format!("{} type `{}` could not be evaluated", kind, name),
+            message: e.to_string(),
+        })?;
         if value != 0 {
             if let Some(first) = matched {
                 return Err(RunError::Overlap {
@@ -836,13 +871,20 @@ mod tests {
         let mut acc = RunAccumulator::new(program, stop, dealer_core::Vulnerability::default())
             .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
+        let mut cache = dealer_eval::VarCache::new();
         let mut matched = Vec::new();
         for _ in 0..count {
             let deal = generator.next_deal();
             matched.push(
-                acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
-                    .expect("observe")
-                    .matched,
+                acc.observe(
+                    &deal,
+                    &variables,
+                    None,
+                    &dealer_dds::NOTHING_KNOWN,
+                    &mut cache,
+                )
+                .expect("observe")
+                .matched,
             );
         }
         (acc, matched)
@@ -865,6 +907,79 @@ condition 1
         assert!(!stop.satisfied(&[]), "a script naming no categories");
         assert!(!stop.satisfied(&[5, 5, 1]), "one category still short");
         assert!(stop.satisfied(&[2, 9, 2]), "every category at the goal");
+    }
+
+    /// One scratch across a run must record exactly what a fresh one per deal
+    /// would.
+    ///
+    /// `observe` builds up to three contexts per deal and they now share one
+    /// cache, kept across deals so that classifying a levelled scenario stops
+    /// allocating per deal (#86). Getting the deal boundary wrong there would
+    /// not crash or even look odd: the counts would still add up, the
+    /// categories would still partition, and only the answers would be another
+    /// deal's. So this runs the same deals both ways and demands the same
+    /// numbers.
+    #[test]
+    fn one_scratch_across_deals_records_what_a_fresh_one_would() {
+        // Variables in all three places a deal's contexts read them: the hand
+        // types, the levelling types and the statistics.
+        let program = parse(
+            "\
+strength = hcp(north)
+shapely = shape(north, any 5431) + shape(north, any 4441)
+HandType_Weak = strength <= 9
+HandType_Middling = strength >= 10 and strength <= 14
+HandType_Strong = strength >= 15
+LevelType_Flat = shapely == 0
+LevelType_Odd = shapely > 0
+average \"strength\" strength
+frequency \"band\" (strength, 0, 37)
+condition 1
+",
+        );
+        let variables = extract_variables(&program);
+
+        let run = |per_deal: bool| {
+            let mut acc = RunAccumulator::new(
+                &program,
+                MeasureStop::standard(),
+                dealer_core::Vulnerability::default(),
+            )
+            .expect("accumulator");
+            let mut generator = FastDealGenerator::new(20260829);
+            let mut kept = dealer_eval::VarCache::new();
+            let mut matched = Vec::new();
+            for _ in 0..300 {
+                let deal = generator.next_deal();
+                let mut fresh = dealer_eval::VarCache::new();
+                let cache = if per_deal { &mut fresh } else { &mut kept };
+                matched.push(
+                    acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN, cache)
+                        .expect("observe")
+                        .matched,
+                );
+            }
+            let hand_types = acc.hand_type_counts().to_vec();
+            let levels = acc.leveling_counts().to_vec();
+            (matched, hand_types, levels, acc.finish())
+        };
+
+        let shared = run(false);
+        let fresh = run(true);
+        assert_eq!(shared.0, fresh.0, "a deal was classified differently");
+        assert_eq!(shared.1, fresh.1, "the hand-type counts differ");
+        assert_eq!(shared.2, fresh.2, "the levelling counts differ");
+        assert_eq!(
+            format!("{:?}", shared.3),
+            format!("{:?}", fresh.3),
+            "the averages or frequencies differ"
+        );
+        // And the deals really do disagree with each other, or none of the
+        // above could have failed.
+        assert!(
+            shared.1.iter().filter(|n| **n > 0).count() > 1,
+            "every deal landed in one band, so nothing was being compared"
+        );
     }
 
     #[test]
@@ -902,10 +1017,17 @@ condition 1
         )
         .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
+        let mut cache = dealer_eval::VarCache::new();
 
         let error = loop {
             let deal = generator.next_deal();
-            if let Err(e) = acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN) {
+            if let Err(e) = acc.observe(
+                &deal,
+                &variables,
+                None,
+                &dealer_dds::NOTHING_KNOWN,
+                &mut cache,
+            ) {
                 break e;
             }
         };
@@ -942,10 +1064,17 @@ condition 1
         )
         .expect("accumulator");
         let mut generator = FastDealGenerator::new(20260829);
+        let mut cache = dealer_eval::VarCache::new();
         while !acc.measure_satisfied() {
             let deal = generator.next_deal();
-            acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
-                .expect("observe");
+            acc.observe(
+                &deal,
+                &variables,
+                None,
+                &dealer_dds::NOTHING_KNOWN,
+                &mut cache,
+            )
+            .expect("observe");
             assert!(
                 acc.produced() < 10_000,
                 "should have stopped long before now"
@@ -1040,8 +1169,15 @@ condition 1
         let mut acc = RunAccumulator::new(program, MeasureStop::standard(), vulnerability)
             .expect("accumulator");
         let deal = one_suit_each();
-        acc.observe(&deal, &variables, None, &dealer_dds::NOTHING_KNOWN)
-            .expect("observe");
+        let mut cache = dealer_eval::VarCache::new();
+        acc.observe(
+            &deal,
+            &variables,
+            None,
+            &dealer_dds::NOTHING_KNOWN,
+            &mut cache,
+        )
+        .expect("observe");
         acc.finish().averages[0].value
     }
 

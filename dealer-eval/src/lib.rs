@@ -314,18 +314,134 @@ impl std::fmt::Display for EvalError {
 
 impl std::error::Error for EvalError {}
 
+/// Scratch space for the variable values worked out on one deal.
+///
+/// Hoisted out of the context because building it there allocated. An empty
+/// `FxHashMap` does not allocate, but the first insert does — so **any** script
+/// with a variable in it allocated at least once per deal, and a deal builds
+/// several contexts. On wasm that is fatal to threading: the allocator is one
+/// dlmalloc behind one lock, so twelve threads queue on it and a script with a
+/// single variable ran four times *slower* threaded than serial (#85, #86).
+///
+/// A caller keeps one of these per thread and lends it to each deal in turn.
+/// [`HashMap::clear`](std::collections::HashMap::clear) keeps the capacity, so
+/// after the first deal on a thread there is no allocation left to pay for.
+///
+/// # The deal boundary
+///
+/// A value cached for one deal is wrong for the next, and wrong *plausibly* —
+/// every count would still add up. So the only way to get the shared reference
+/// a context is built from is [`VarCache::start_deal`], which takes `&mut self`
+/// and empties it first. The borrow checker does the rest: the `&mut` reborrow
+/// keeps every context built from one deal's loan alive for exactly as long as
+/// that loan, so a second `start_deal` cannot be called while a stale context
+/// still exists, and a context cannot exist without a `start_deal` having
+/// cleared the scratch. Forgetting to clear is a compile error rather than a
+/// wrong answer.
+pub struct VarCache<'v> {
+    /// `RefCell` because `eval` takes `&self` all the way down.
+    ///
+    /// Keys are `&str` borrowed from the script's own variable names, so an
+    /// insert clones nothing.
+    values: RefCell<FxHashMap<&'v str, i32>>,
+}
+
+impl Default for VarCache<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<'v> VarCache<'v> {
+    /// An empty scratch, which has not allocated yet.
+    #[inline]
+    pub fn new() -> Self {
+        VarCache {
+            values: RefCell::new(FxHashMap::default()),
+        }
+    }
+
+    /// Empty it, and lend it to one deal's contexts.
+    ///
+    /// Every context built from what this returns shares one cache, so a value
+    /// the condition worked out is not worked out again for the hand-type pick
+    /// or the `average`s. Taking `&mut self` and handing back a shared borrow
+    /// is what ties that sharing to one deal: see the type's own note.
+    ///
+    /// `#[inline]` because this workspace does not link with LTO, so without it
+    /// every deal makes a cross-crate call to empty a map that is usually
+    /// already empty — worth about 2% of a bare condition, which is a script
+    /// with no variables and so nothing here to do at all.
+    #[inline]
+    pub fn start_deal(&mut self) -> &Self {
+        self.values.get_mut().clear();
+        self
+    }
+
+    /// What is cached for `name` on the deal in hand.
+    #[inline]
+    fn get(&self, name: &str) -> Option<i32> {
+        self.values.borrow().get(name).copied()
+    }
+
+    /// Remember `value` for `name` until the deal changes.
+    ///
+    /// `expected` is how many variables the script has, and it is used once —
+    /// on the insert that finds the scratch still unallocated — to size it in
+    /// one go. Growing into it instead costs an allocation per doubling, and
+    /// the corpus reaches 205 variables in one script, so that is seven
+    /// allocations rather than one every time a worker starts a fresh piece of
+    /// a batch. On wasm those are seven turns at a single lock.
+    #[inline]
+    fn put(&self, name: &'v str, value: i32, expected: usize) {
+        let mut values = self.values.borrow_mut();
+        if values.capacity() == 0 {
+            values.reserve(expected.max(1));
+        }
+        values.insert(name, value);
+    }
+}
+
+/// Where a context's variable values live.
+///
+/// The hot path lends one scratch to a whole deal; the convenience
+/// constructors — a bare expression, a test — have nobody to lend them one and
+/// keep their own. One predictable branch per variable lookup, against a hash
+/// lookup that was going to happen anyway.
+enum Cache<'d, 'v> {
+    /// This context's own, for a caller with no scratch to lend.
+    Owned(VarCache<'v>),
+    /// One deal's scratch, shared with every other context over that deal.
+    Shared(&'d VarCache<'v>),
+}
+
+impl<'v> Cache<'_, 'v> {
+    #[inline]
+    fn get(&self) -> &VarCache<'v> {
+        match self {
+            Cache::Owned(cache) => cache,
+            Cache::Shared(cache) => cache,
+        }
+    }
+}
+
 /// Evaluation context - holds the deal being evaluated and variable bindings
-pub struct EvalContext<'a> {
-    pub deal: &'a Deal,
+///
+/// Two lifetimes, because the two halves live for different lengths of time.
+/// `'d` is one deal — the cards, what is known about them double-dummy, and the
+/// loan of the scratch they are worked out in. `'v` is the script — its
+/// variables, their names, and the point counts it redefined — which outlives
+/// every deal the run makes. The scratch's keys borrow from the script, so it
+/// is a `'v` thing lent for a `'d`; collapsing the two would force the deal to
+/// live as long as the script, which a freshly shuffled one cannot.
+pub struct EvalContext<'d, 'v> {
+    pub deal: &'d Deal,
     /// Variable name -> Expression tree reference mapping
     /// Variables store references to expression trees (no cloning needed)
     /// FxHashMap uses a faster (non-cryptographic) hash function
-    pub variables: &'a Variables<'a>,
-    /// Cache of evaluated variable values (per-deal)
-    /// Using RefCell for interior mutability since eval takes &self
-    /// Keys are &str references to avoid String cloning on cache insert
-    /// FxHashMap uses a faster (non-cryptographic) hash function
-    cache: RefCell<FxHashMap<&'a str, i32>>,
+    pub variables: &'v Variables<'v>,
+    /// Where the values worked out for this deal are kept.
+    cache: Cache<'d, 'v>,
     /// The stream `rnd()` draws from, seeded from the deal on first use.
     ///
     /// One per context rather than one per deal, so a `rnd()` in a `condition`
@@ -337,7 +453,7 @@ pub struct EvalContext<'a> {
     /// `None` is the ordinary case — no script in the 1,076-script corpus uses
     /// either statement — and it means the hardcoded counts run exactly as they
     /// did before. Only a script that redefines something pays for the table.
-    counts: Option<&'a PointCounts>,
+    counts: Option<&'v PointCounts>,
     /// Which side is vulnerable, for `par()`.
     ///
     /// `Vulnerability::None` unless a run says otherwise, which is what a
@@ -357,7 +473,7 @@ pub struct EvalContext<'a> {
     /// difference between a lookup and a hundred milliseconds. Empty is not a
     /// failure: it is what a freshly dealt deal looks like, and it is solved on
     /// demand.
-    dd_tricks: &'a dealer_dds::DealTricks,
+    dd_tricks: &'d dealer_dds::DealTricks,
 }
 
 /// Can evaluating `expr` reach a call to `rnd()`?
@@ -436,13 +552,13 @@ fn reaches_rnd_memo<'a>(
 static EMPTY_VARIABLES: std::sync::LazyLock<Variables<'static>> =
     std::sync::LazyLock::new(Variables::default);
 
-impl<'a> EvalContext<'a> {
+impl<'d, 'v> EvalContext<'d, 'v> {
     /// Create a context without any variables (for simple expressions)
-    pub fn new(deal: &'a Deal) -> Self {
+    pub fn new(deal: &'d Deal) -> Self {
         EvalContext {
             deal,
             variables: &EMPTY_VARIABLES,
-            cache: RefCell::new(FxHashMap::default()),
+            cache: Cache::Owned(VarCache::new()),
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
@@ -451,11 +567,11 @@ impl<'a> EvalContext<'a> {
     }
 
     /// Create a context with pre-defined variable references
-    pub fn with_variables(deal: &'a Deal, variables: &'a Variables<'a>) -> Self {
+    pub fn with_variables(deal: &'d Deal, variables: &'v Variables<'v>) -> Self {
         EvalContext {
             deal,
             variables,
-            cache: RefCell::new(FxHashMap::default()),
+            cache: Cache::Owned(VarCache::new()),
             rnd: RefCell::new(None),
             counts: None,
             vulnerability: dealer_core::Vulnerability::default(),
@@ -483,17 +599,25 @@ impl<'a> EvalContext<'a> {
     /// so every number stays right and the run is merely slow.
     ///
     /// Taking both as arguments makes leaving one out a compile error.
+    ///
+    /// `cache` is there for the same reason, and is the one argument that
+    /// cannot be got wrong even in principle: the only way to have a
+    /// `&VarCache` at all is [`VarCache::start_deal`], which empties it. A
+    /// caller keeps one per thread rather than one per deal, which is what
+    /// took the per-deal allocation out of every script with a variable in it
+    /// (#86).
     pub fn for_deal(
-        deal: &'a Deal,
-        variables: &'a Variables<'a>,
-        counts: Option<&'a PointCounts>,
+        deal: &'d Deal,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
         vulnerability: dealer_core::Vulnerability,
-        dd_tricks: &'a dealer_dds::DealTricks,
+        dd_tricks: &'d dealer_dds::DealTricks,
+        cache: &'d VarCache<'v>,
     ) -> Self {
         EvalContext {
             deal,
             variables,
-            cache: RefCell::new(FxHashMap::default()),
+            cache: Cache::Shared(cache),
             rnd: RefCell::new(None),
             counts,
             vulnerability,
@@ -502,7 +626,7 @@ impl<'a> EvalContext<'a> {
     }
 
     /// What is already known about this deal's double-dummy results.
-    pub fn dd_tricks(&self) -> &'a dealer_dds::DealTricks {
+    pub fn dd_tricks(&self) -> &'d dealer_dds::DealTricks {
         self.dd_tricks
     }
 
@@ -532,14 +656,14 @@ impl<'a> EvalContext<'a> {
     /// `extract_point_counts` returns exactly that — so the ordinary path keeps
     /// running the hardcoded counts.
     pub fn with_counts(
-        deal: &'a Deal,
-        variables: &'a Variables<'a>,
-        counts: Option<&'a PointCounts>,
+        deal: &'d Deal,
+        variables: &'v Variables<'v>,
+        counts: Option<&'v PointCounts>,
     ) -> Self {
         EvalContext {
             deal,
             variables,
-            cache: RefCell::new(FxHashMap::default()),
+            cache: Cache::Owned(VarCache::new()),
             rnd: RefCell::new(None),
             counts,
             vulnerability: dealer_core::Vulnerability::default(),
@@ -717,33 +841,45 @@ pub fn eval_program(program: &Program, deal: &Deal) -> Result<i32, EvalError> {
     eval_with_context(constraint, &variables, deal)
 }
 
+/// The value of the variable `name` on this context's deal.
+///
+/// The same thing `eval` does for an `Expr::Variable`, without one: `pick`
+/// classifies a deal by asking for `HandType_1`, `HandType_2` and so on by
+/// name, and building an `Expr::Variable` to ask with allocated a `String` per
+/// category per deal — on the levelling path, which is the one that builds the
+/// most contexts already.
+pub fn eval_variable(name: &str, ctx: &EvalContext) -> Result<i32, EvalError> {
+    // Check the deal's scratch first (a &str lookup, so nothing is allocated).
+    if let Some(cached_value) = ctx.cache.get().get(name) {
+        return Ok(cached_value);
+    }
+
+    // Look up variable and evaluate its stored expression tree.
+    // `get_key_value` hands back the key with the script's lifetime, which is
+    // what lets the scratch borrow the name instead of cloning it.
+    match ctx.variables.get_key_value(name) {
+        Some((key, var_expr)) => {
+            let value = eval(var_expr, ctx)?;
+            // Cache the computed value using the key reference (no clone!)
+            // — unless the variable can reach `rnd()`, whose whole point
+            // is to answer differently each time it is asked.
+            if !ctx.variables.is_volatile(key.as_str()) {
+                ctx.cache
+                    .get()
+                    .put(key.as_str(), value, ctx.variables.len());
+            }
+            Ok(value)
+        }
+        None => Err(EvalError::UndefinedVariable(name.to_string())),
+    }
+}
+
 /// Evaluate an expression against a deal
 pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
     match expr {
         Expr::Literal(value) => Ok(*value),
 
-        Expr::Variable(name) => {
-            // Check cache first (use &str for lookup to avoid allocation)
-            if let Some(&cached_value) = ctx.cache.borrow().get(name.as_str()) {
-                return Ok(cached_value);
-            }
-
-            // Look up variable and evaluate its stored expression tree
-            // Use get_key_value to get the key with lifetime 'a for cache insertion
-            match ctx.variables.get_key_value(name) {
-                Some((key, var_expr)) => {
-                    let value = eval(var_expr, ctx)?;
-                    // Cache the computed value using the key reference (no clone!)
-                    // — unless the variable can reach `rnd()`, whose whole point
-                    // is to answer differently each time it is asked.
-                    if !ctx.variables.is_volatile(key.as_str()) {
-                        ctx.cache.borrow_mut().insert(key.as_str(), value);
-                    }
-                    Ok(value)
-                }
-                None => Err(EvalError::UndefinedVariable(name.clone())),
-            }
-        }
+        Expr::Variable(name) => eval_variable(name, ctx),
 
         Expr::Position(pos) => {
             // Check if this position name is actually a variable override
@@ -756,15 +892,18 @@ pub fn eval(expr: &Expr, ctx: &EvalContext) -> Result<i32, EvalError> {
             };
 
             // Check cache first for the single-letter variable
-            if let Some(&cached_value) = ctx.cache.borrow().get(pos_name) {
+            if let Some(cached_value) = ctx.cache.get().get(pos_name) {
                 return Ok(cached_value);
             }
 
             // Check if variable is defined - if so, use it instead of position
-            // Use get_key_value to get the key with proper lifetime for cache insertion
+            // Use get_key_value to get the key with the script's lifetime, so
+            // the cache borrows the name rather than cloning it.
             if let Some((key, var_expr)) = ctx.variables.get_key_value(pos_name) {
                 let value = eval(var_expr, ctx)?;
-                ctx.cache.borrow_mut().insert(key.as_str(), value);
+                ctx.cache
+                    .get()
+                    .put(key.as_str(), value, ctx.variables.len());
                 return Ok(value);
             }
 
@@ -1035,10 +1174,12 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             if args.len() == 2 {
                 let suit = eval_suit_arg(&args[1])?;
                 Ok(counted(ctx, hand, CountRow::Hcp, Some(suit), || {
-                    hand.cards_in_suit(suit)
-                        .iter()
-                        .map(|c| c.hcp() as i32)
-                        .sum()
+                    // Over the hand, filtering, rather than `cards_in_suit` —
+                    // which builds a `Vec` and so allocates once per call, on
+                    // every deal. See `VarCache` for why that matters: it is the
+                    // same lock, and a scenario asking about four suits in four
+                    // seats reaches here a dozen times a deal (#86).
+                    cards_in(hand, suit).map(|c| c.hcp() as i32).sum()
                 }))
             } else {
                 Ok(counted(ctx, hand, CountRow::Hcp, None, || {
@@ -1080,8 +1221,7 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             if args.len() == 2 {
                 let suit = eval_suit_arg(&args[1])?;
                 Ok(counted(ctx, hand, CountRow::Controls, Some(suit), || {
-                    hand.cards_in_suit(suit)
-                        .iter()
+                    cards_in(hand, suit)
                         .map(|c| match c.rank {
                             dealer_core::Rank::Ace => 2,
                             dealer_core::Rank::King => 1,
@@ -1475,6 +1615,16 @@ fn eval_function(function: &Function, args: &[Expr], ctx: &EvalContext) -> Resul
             Ok(if north_south { score_ns } else { -score_ns })
         }
     }
+}
+
+/// One hand's cards in `suit`, without collecting them.
+///
+/// `Hand::cards_in_suit` returns a `Vec`, which is an allocation per call — and
+/// these are called per deal, from a worker thread, where wasm's single-locked
+/// allocator turns one into a queue. Nothing here needs the cards in a
+/// collection; it needs to add something up.
+fn cards_in(hand: &dealer_core::Hand, suit: Suit) -> impl Iterator<Item = &Card> {
+    hand.cards().iter().filter(move |c| c.suit == suit)
 }
 
 /// Evaluate an argument that should be a position
@@ -2950,6 +3100,142 @@ mod tests {
             };
             assert!(refused, "`{}` should not be read as a contract", word);
         }
+    }
+
+    /// A value worked out for one deal must not be read back on the next.
+    ///
+    /// The scratch a context evaluates variables in is now the caller's, kept
+    /// across deals so that a script with variables in it stops allocating per
+    /// deal (#86). That is exactly the shape of failure this project is worst
+    /// at noticing: a stale entry crossing a deal boundary answers plausibly,
+    /// every count still adds up, and every other test stays green.
+    ///
+    /// So: two deals in a row, the same variable name, different values, one
+    /// scratch. The second answer must be the second deal's.
+    #[test]
+    fn a_reused_scratch_does_not_carry_a_value_across_a_deal() {
+        use dealer_parser::parse_program;
+
+        let program = parse_program("x = hcp(north)\ncondition x > 0\n").expect("should parse");
+        let variables = extract_variables(&program);
+        let expr = Expr::Variable("x".to_string());
+
+        // Two deals in a row whose North hands are worth different amounts, so
+        // that carrying the first value into the second is visible.
+        let mut generator = FastDealGenerator::new(20260908);
+        let first = generator.next_deal();
+        let second = loop {
+            let deal = generator.next_deal();
+            if deal.hand(Position::North).hcp() != first.hand(Position::North).hcp() {
+                break deal;
+            }
+        };
+
+        let mut scratch = VarCache::new();
+
+        let first_value = {
+            let ctx = EvalContext::for_deal(
+                &first,
+                &variables,
+                None,
+                dealer_core::Vulnerability::default(),
+                &dealer_dds::NOTHING_KNOWN,
+                scratch.start_deal(),
+            );
+            eval(&expr, &ctx).expect("first")
+        };
+        let second_value = {
+            let ctx = EvalContext::for_deal(
+                &second,
+                &variables,
+                None,
+                dealer_core::Vulnerability::default(),
+                &dealer_dds::NOTHING_KNOWN,
+                scratch.start_deal(),
+            );
+            eval(&expr, &ctx).expect("second")
+        };
+
+        // What each deal is worth on its own, with nothing carried at all.
+        let alone = |deal: &Deal| {
+            let ctx = EvalContext::with_variables(deal, &variables);
+            eval(&expr, &ctx).expect("alone")
+        };
+
+        assert_ne!(
+            alone(&first),
+            alone(&second),
+            "the two deals must disagree, or the test cannot fail"
+        );
+        assert_eq!(first_value, alone(&first));
+        assert_eq!(
+            second_value,
+            alone(&second),
+            "the second deal read the first deal's cached value"
+        );
+    }
+
+    /// The other half of the same guarantee: within one deal the scratch is
+    /// shared, so a value is worked out once however many contexts ask.
+    ///
+    /// Which is the point of sharing it — a levelled run evaluates the same
+    /// variables for the condition, the hand-type pick, the levelling pick and
+    /// the statistics — and it is only safe because a non-volatile variable is
+    /// a pure function of its deal.
+    #[test]
+    fn one_deal_s_contexts_share_what_they_work_out() {
+        use dealer_parser::parse_program;
+
+        let program = parse_program("x = hcp(north)\ncondition x > 0\n").expect("should parse");
+        let variables = extract_variables(&program);
+        let expr = Expr::Variable("x".to_string());
+        let deal = reference_deal();
+        let mut scratch = VarCache::new();
+        let lent = scratch.start_deal();
+
+        let mut answers = Vec::new();
+        for _ in 0..3 {
+            let ctx = EvalContext::for_deal(
+                &deal,
+                &variables,
+                None,
+                dealer_core::Vulnerability::default(),
+                &dealer_dds::NOTHING_KNOWN,
+                lent,
+            );
+            answers.push(eval(&expr, &ctx).expect("value"));
+        }
+        assert_eq!(answers, vec![answers[0]; 3]);
+        assert_eq!(answers[0], deal.hand(Position::North).hcp() as i32);
+    }
+
+    /// `rnd()` is the one thing a deal's scratch must not remember, and
+    /// sharing one across a deal's contexts must not start remembering it.
+    #[test]
+    fn a_volatile_variable_is_still_drawn_afresh_from_a_shared_scratch() {
+        use dealer_parser::parse_program;
+
+        let program = parse_program("r = rnd(1000000)\ncondition r >= 0\n").expect("should parse");
+        let variables = extract_variables(&program);
+        let expr = Expr::Variable("r".to_string());
+        let deal = reference_deal();
+        let mut scratch = VarCache::new();
+        let lent = scratch.start_deal();
+
+        let ctx = EvalContext::for_deal(
+            &deal,
+            &variables,
+            None,
+            dealer_core::Vulnerability::default(),
+            &dealer_dds::NOTHING_KNOWN,
+            lent,
+        );
+        let draws: Vec<i32> = (0..8).map(|_| eval(&expr, &ctx).expect("draw")).collect();
+        assert!(
+            draws.iter().any(|d| *d != draws[0]),
+            "a shared scratch cached a volatile variable: {:?}",
+            draws
+        );
     }
 
     /// The cycle guard in `reaches_rnd`. A variable referring to itself cannot
