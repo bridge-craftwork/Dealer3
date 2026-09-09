@@ -994,8 +994,14 @@ body {
 <style scoped>
 .app { display: flex; flex-direction: column; height: 100%; }
 
+/* Wraps, which is the whole of why this page did not fit a phone.
+   Eight items at `nowrap` — title, subtitle, three links, version, threads —
+   needed 446px in a 390px viewport, and the page scrolled sideways by exactly
+   that 56px. Measured rather than guessed: setting this one property took
+   `documentElement.scrollWidth` from 446 to 390. The editor and the results
+   were never the problem; both already clip inside their own scrollers. */
 .bar {
-  display: flex; align-items: baseline; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
   padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg-subtle);
 }
 .bar h1 { font-size: 15px; margin: 0; }
@@ -1239,15 +1245,51 @@ input.num-seed { --num-digits: 10; }
 .picker-open:hover { background: var(--accent-subtle); color: var(--fg); }
 .picker-open-label { writing-mode: vertical-rl; letter-spacing: 0.04em; }
 
+/* An iPad in landscape already gets the three columns; what it does not have is
+   a desktop's width to spend on them. The scenario list takes 260 of 1180 —
+   more than a fifth — leaving 460 each for the script and the results, which
+   are the two things being read against each other. Narrower here, wider there.
+
+   `.cols.picker-closed` still wins on specificity, so closing the list still
+   collapses it to the rail. */
+@media (min-width: 1001px) and (max-width: 1250px) {
+  .cols { grid-template-columns: 200px 1fr 1fr; }
+}
+
 @media (max-width: 1000px) {
   .cols { grid-template-columns: 1fr; grid-template-rows: auto 1fr 1fr; }
   /* Stacked, the list is a row rather than a column, so the closed rail is a
      strip across the top and its label reads the ordinary way round. */
   .cols.picker-closed { grid-template-columns: 1fr; }
-  .col-picker { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+  /* A share of the height rather than a fixed slice of it. 220px is a fifth of
+     an iPad held upright and well over half a phone held sideways, where it left
+     57px each for the editor and the results — the two things actually being
+     used. The list is a means; it gives up the room. */
+  .col-picker {
+    border-right: 0; border-bottom: 1px solid var(--line);
+    max-height: min(220px, 30vh);
+  }
   .col-picker.is-closed { max-height: none; }
   .picker-open { height: auto; flex-direction: row; padding: 6px 10px; }
   .picker-open-label { writing-mode: horizontal-tb; }
   .col-results { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+/* A phone is where someone reads a run, not where they write one — the script
+   language wants a keyboard. So the results take the room, and the editor keeps
+   enough to see what is about to run and to reach Run itself. The subtitle goes:
+   it is decorative, and on a header that now wraps it costs a whole line.
+
+   This is the layout a shared link lands in (#98, #99): the reader taps, sees
+   what came out, and scrolls up to the script only if they want it. */
+@media (max-width: 620px) {
+  .bar-sub { display: none; }
+  /* The spacer pushes the links to the right of the title, which is what a
+     single-line header wants and a wrapped one does not: it grows only on the
+     line it lands on, so the first line ends up right-aligned against a second
+     that starts at the left. Without it the whole header simply packs. */
+  .bar-spacer { display: none; }
+  .cols { grid-template-rows: auto minmax(0, 0.8fr) minmax(0, 1.7fr); }
+  .col-picker { max-height: 150px; }
 }
 </style>
