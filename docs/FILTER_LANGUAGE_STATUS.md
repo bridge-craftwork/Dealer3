@@ -20,7 +20,7 @@ cargo test -p dealer                  # verifies this file
 UPDATE_DOCS=1 cargo test -p dealer    # rewrites the tables
 ```
 
-The same tables drive https://dealer.bridge-classroom.org/reference.html, which
+The same tables drive https://bridge-craftwork.com/dealer3/reference, which
 reads them out of the WebAssembly build at runtime.
 
 Descriptions were written from the evaluator and checked against the original C

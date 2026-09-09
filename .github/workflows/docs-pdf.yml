@@ -52,7 +52,7 @@ jobs:
               "printBackground": true,
               "displayHeaderFooter": true,
               "headerTemplate": "<div></div>",
-              "footerTemplate": "<div style=\"width:100%;font:9px -apple-system,sans-serif;color:#888;padding:0 18mm;display:flex;justify-content:space-between\"><span>dealer.bridge-classroom.org</span><span class=\"pageNumber\"></span></div>"
+              "footerTemplate": "<div style=\"width:100%;font:9px -apple-system,sans-serif;color:#888;padding:0 18mm;display:flex;justify-content:space-between\"><span>bridge-craftwork.com/dealer3</span><span class=\"pageNumber\"></span></div>"
             }'
 
       # Not committed back to the repo: a generated binary in git makes every

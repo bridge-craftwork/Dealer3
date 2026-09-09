@@ -165,7 +165,7 @@ allocation and the rule with it. `docs/WASM.md` has the measurements.
 engine or the site. It fails loudly when the Cloudflare credential is missing
 rather than going green having deployed nothing.
 
-Live at **https://dealer.bridge-classroom.org** (also `dealer3.pages.dev`).
+Live at **https://bridge-craftwork.com/dealer3/** (also `dealer3.pages.dev`).
 
 ## Viewing and saving
 
