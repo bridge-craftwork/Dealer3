@@ -126,6 +126,22 @@ impl DdDemand {
 /// Used to keep the carrying off the hot path entirely: for the great majority
 /// of scripts, which never mention double-dummy, there is nothing to carry and
 /// this says so once for the whole run rather than forty bytes a deal.
+/// Does testing a deal against this program's condition reach the solver?
+///
+/// Narrower than [`touches_solver`], and it answers a different question: not
+/// "will this run solve" but "does each deal cost a search *before* we know
+/// whether it matched". A `tricks()` in an action is paid only by deals that
+/// matched, and can be warmed on the pool in whatever quantity is wanted; a
+/// `tricks()` in the condition is paid by every deal built, which is what makes
+/// the size of a batch matter.
+pub fn condition_touches_solver(program: &Program) -> bool {
+    let mut demand = DdDemand::None;
+    if let Some(constraint) = dealer_eval::extract_constraint(program) {
+        walk(constraint, program, &mut demand, &mut HashSet::new());
+    }
+    !demand.is_none()
+}
+
 pub fn touches_solver(program: &Program) -> bool {
     let mut demand = DdDemand::None;
     if let Some(constraint) = dealer_eval::extract_constraint(program) {
