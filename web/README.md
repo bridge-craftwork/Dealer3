@@ -404,3 +404,36 @@ see. The reference page was no exception — its first build rendered zero entri
 because `npm run build` skips the wasm step, so the page ran against an engine
 that predated the docs. **Build with `build:all` before checking anything in a
 browser.**
+
+## What a client that does not run scripts sees
+
+Everything below `#app` is rendered by JavaScript, so anything that does not run
+it — a crawler, a reader with scripting off, an assistant asked to read this
+URL — sees only what is literally in `index.html`. That used to be a title and
+one sentence of description: **883 bytes**, with 29 KB of authoritative language
+reference one path segment away and nothing pointing at it.
+
+Three things now bridge that, and none of them is visible to a user with
+JavaScript:
+
+| | |
+|---|---|
+| `<link rel="alternate" type="text/plain" href="reference.txt">` | the machine-readable route from the app page to the language. Relative, so it resolves both on `dealer3.pages.dev` and under the `/dealer3/` mount |
+| `<noscript>` | what a non-scripting client should honestly be told, with links onward. Not markup hidden for crawlers: a person with scripting off gets exactly the same page, and it is a real answer for them |
+| `public/llms.txt` | the [llms.txt](https://llmstxt.org) index, generated beside `reference.txt` by `scripts/emit-reference.mjs` |
+
+`llms.txt` is generated rather than written because its figures — the
+reference's size, the number of entries, the engine version — are true of the
+build that emitted them. A hand-kept copy would be true of whichever build
+someone last remembered, which is the failure this repository generates its
+status tables to avoid.
+
+**The claim worth keeping accurate** is that the reference is closed: it comes
+from the engine's own vocabulary, so it cannot name a function the parser
+rejects or omit one it accepts. That is the assurance that lets a model stop
+guessing at a language it has barely seen, and it is only true while the file
+stays generated.
+
+One thing this does *not* solve: a model still has to be given the URL, or find
+the site by searching. Nothing here helps an assistant that has never heard of
+dealer3 — it helps one that has been pointed at it, which is the common case.

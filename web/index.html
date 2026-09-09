@@ -6,11 +6,42 @@
     <title>dealer3 — bridge hand generator</title>
     <meta
       name="description"
-      content="Write and run bridge dealer scripts in the browser. Nothing leaves your machine."
+      content="Write and run bridge dealer scripts in the browser: conditions over the four hands, statistics over the deals that match. Implements the dealer script language with double-dummy analysis and a library of pre-solved deals. Nothing leaves your machine."
+    />
+    <!-- Relative, so it resolves on both hosts. See web/README.md. -->
+    <link
+      rel="alternate"
+      type="text/plain"
+      href="reference.txt"
+      title="dealer3 language reference (plain text)"
     />
   </head>
   <body>
     <div id="app"></div>
+    <!-- What a client that does not run script should be told. See web/README.md. -->
+    <noscript>
+      <h1>dealer3</h1>
+      <p>
+        A bridge hand generator that runs in the browser. The editor and the
+        engine both need JavaScript, so there is nothing to run on this page
+        without it — but the language is documented in full, and the program
+        runs at a terminal too.
+      </p>
+      <ul>
+        <li>
+          <a href="reference.txt">Language reference, plain text</a> — every
+          statement, function and operator, generated from the engine's own
+          vocabulary, so it lists exactly what the parser accepts.
+        </li>
+        <li><a href="reference">The same reference as a page</a></li>
+        <li><a href="leveling">Levelling guide</a></li>
+        <li><a href="llms.txt">llms.txt</a></li>
+        <li>
+          <a href="https://github.com/bridge-craftwork/dealer3">Source on GitHub</a>
+          — the Rust engine, the command-line program and this site.
+        </li>
+      </ul>
+    </noscript>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
