@@ -73,14 +73,85 @@
       </aside>
 
       <section class="col col-editor">
+        <!-- Said where it is chosen rather than in the results, because it is
+             a reason to choose differently before pressing Run: a script with
+             no double-dummy question in it downloads 640 KiB and reads none of
+             the answers. Asked of the engine, off the parsed script. -->
+        <p v-if="dealSource === 'library' && pointlessLibrary" class="source-warn">
+          {{ pointlessLibrary }}
+        </p>
+        <!-- The same question read the other way, and the expensive direction:
+             a script that does ask for double-dummy work, told to shuffle its
+             own deals, solves every one of them here. -->
+        <p v-else-if="dealSource === 'random' && slowRandom" class="source-warn">
+          {{ slowRandom }}
+        </p>
+
+        <!-- Tabs, the levelling switch and Run share a row: three things that
+             all decide what the pane below shows, and one row rather than two
+             leaves that much more script on screen. -->
+        <div class="run-row">
+          <!-- Two views of the same run. The generated scenario is worth
+               reading: the keeps, the header recording what they were measured
+               over, and the chat text filled in from the same numbers. -->
+          <div v-if="leveledScript" class="tabs" role="tablist">
+            <button
+              role="tab"
+              :aria-selected="editorTab === 'script'"
+              :class="{ on: editorTab === 'script' }"
+              @click="editorTab = 'script'"
+            >Script</button>
+            <button
+              role="tab"
+              :aria-selected="editorTab === 'leveled'"
+              :class="{ on: editorTab === 'leveled' }"
+              @click="editorTab = 'leveled'"
+            >Leveled</button>
+          </div>
+          <!-- The number touched most while writing a script — "give me five of
+               these and let me look" — so it is the one that earns a permanent
+               place beside Run. -->
+          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
+
+          <button
+            class="settings-toggle"
+            :class="{ on: settingsOpen }"
+            :title="settingsOpen ? 'Hide settings' : 'Deal source, seed, format and limits'"
+            aria-label="Settings"
+            aria-controls="settings-panel"
+            :aria-expanded="settingsOpen ? 'true' : 'false'"
+            @click="settingsOpen = !settingsOpen"
+          >
+            <span aria-hidden="true">⚙</span>
+          </button>
+
+          <button
+            class="run"
+            :disabled="!engineReady || running || !scriptValid || paramsMissing.length > 0"
+            :title="runHint"
+            @click="run"
+          >
+            {{ running ? 'Running…' : runLabel }}
+          </button>
+          <!-- Appears with the bars rather than the instant Run is pressed:
+               a sub-second run would otherwise flash a button nobody could
+               have used. -->
+          <button v-if="showProgress" class="cancel" @click="cancel">Cancel</button>
+        </div>
+
         <!-- Everything that is set once and then left alone. It used to be a
              row of its own, always on screen, and it is the reason the page did
              not fit a phone: the number fields are sized in `em` for the digits
              they hold, so the row had a floor it could not shrink below. See
              #95.
 
-             What stays out here is what someone touches while writing a script.
-             What comes in here is what they set at the start of an afternoon. -->
+             What stays out here is what someone touches while writing a script:
+             Produce, and Run. Everything else — including Auto-level, which most
+             people never reach for — is in here.
+
+             Below the Run row, not above it: a disclosure opens downward from
+             the control that owns it, and one that pushed the row it belongs to
+             further down the page read as a separate thing that had appeared. -->
         <div v-if="settingsOpen" id="settings-panel" class="settings-panel">
           <!-- Where the deals come from. The one setting here that is about the
                deals rather than the run: everything beside it means exactly what
@@ -140,69 +211,19 @@
             </select>
           </label>
           <!-- Divides Produce among the hand types instead of taking deals as
-               they come. It answers the same question as Auto-level — what mix
-               comes out — and only one of them can, which is why the two used
-               to sit together. Auto-level is on the Run row because it is
-               toggled while working; this is set once, so it is in here, and
-               its hint carries the relationship the adjacency used to. -->
+               they come. It answers the same question as Auto-level below —
+               what mix comes out — and only one of them can, which is why the
+               two sit together. -->
           <label class="check" :class="{ off: !roundRobinLive }" :title="roundRobinHint">
             <input v-model="roundRobin" type="checkbox" :disabled="!roundRobinLive" />
             Round robin
           </label>
-          <!-- The neutral half of what this page says about the library. The
-               warnings stay outside: they exist to change a decision before Run
-               is pressed, and one behind a closed panel would not. -->
-          <p v-if="dealSource === 'library'" class="source-note settings-note">
-            {{ libraryHint }}
-          </p>
-        </div>
-
-        <!-- Said where it is chosen rather than in the results, because it is
-             a reason to choose differently before pressing Run: a script with
-             no double-dummy question in it downloads 640 KiB and reads none of
-             the answers. Asked of the engine, off the parsed script. -->
-        <p v-if="dealSource === 'library' && pointlessLibrary" class="source-warn">
-          {{ pointlessLibrary }}
-        </p>
-        <!-- The same question read the other way, and the expensive direction:
-             a script that does ask for double-dummy work, told to shuffle its
-             own deals, solves every one of them here. -->
-        <p v-else-if="dealSource === 'random' && slowRandom" class="source-warn">
-          {{ slowRandom }}
-        </p>
-
-        <!-- Tabs, the levelling switch and Run share a row: three things that
-             all decide what the pane below shows, and one row rather than two
-             leaves that much more script on screen. -->
-        <div class="run-row">
-          <!-- Two views of the same run. The generated scenario is worth
-               reading: the keeps, the header recording what they were measured
-               over, and the chat text filled in from the same numbers. -->
-          <div v-if="leveledScript" class="tabs" role="tablist">
-            <button
-              role="tab"
-              :aria-selected="editorTab === 'script'"
-              :class="{ on: editorTab === 'script' }"
-              @click="editorTab = 'script'"
-            >Script</button>
-            <button
-              role="tab"
-              :aria-selected="editorTab === 'leveled'"
-              :class="{ on: editorTab === 'leveled' }"
-              @click="editorTab = 'leveled'"
-            >Leveled</button>
-          </div>
           <!-- Ticks itself when a script names hand types, since that is the
                only thing levelling needs and the reason to want it. Untouched
                after that: turning it back off is a choice, and re-ticking it on
                the next edit would take that away. Greyed while the levelled
                scenario is on screen, because that run has nothing left to
                decide — see `run`. -->
-          <!-- The number touched most while writing a script — "give me five of
-               these and let me look" — so it is the one that earns a permanent
-               place beside Run. -->
-          <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
-
           <label class="check" :class="{ off: !levelBoxLive }" :title="levelHint">
             <input v-model="autoLevel" type="checkbox" :disabled="!levelBoxLive" />
             Auto-level
@@ -231,31 +252,15 @@
                `aria-controls` because the panel is elsewhere in the document
                and a screen reader has no other way to learn the two are
                related. -->
-          <button
-            class="settings-toggle"
-            :class="{ on: settingsOpen }"
-            :title="settingsOpen ? 'Hide settings' : 'Deal source, seed, format and limits'"
-            aria-label="Settings"
-            aria-controls="settings-panel"
-            :aria-expanded="settingsOpen ? 'true' : 'false'"
-            @click="settingsOpen = !settingsOpen"
-          >
-            <span aria-hidden="true">⚙</span>
-          </button>
 
-          <button
-            class="run"
-            :disabled="!engineReady || running || !scriptValid || paramsMissing.length > 0"
-            :title="runHint"
-            @click="run"
-          >
-            {{ running ? 'Running…' : runLabel }}
-          </button>
-          <!-- Appears with the bars rather than the instant Run is pressed:
-               a sub-second run would otherwise flash a button nobody could
-               have used. -->
-          <button v-if="showProgress" class="cancel" @click="cancel">Cancel</button>
+          <!-- The neutral half of what this page says about the library. The
+               warnings stay outside: they exist to change a decision before Run
+               is pressed, and one behind a closed panel would not. -->
+          <p v-if="dealSource === 'library'" class="source-note settings-note">
+            {{ libraryHint }}
+          </p>
         </div>
+
 
         <!-- Not held back the way the bars below are. Fetching is the one part
              of a run that waits on something outside the tab, and a page that
@@ -1013,9 +1018,17 @@ body {
 .col-editor { display: flex; flex-direction: column; padding: 8px; gap: 8px; min-height: 0; }
 .col-results { border-left: 1px solid var(--line); min-height: 0; }
 
-.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; }
-.controls label { display: flex; align-items: center; gap: 4px; color: var(--fg-muted); }
-.controls input, .controls select {
+/* Shared by the settings panel and the Run row: both hold small labelled
+   fields, and a field should not change size for having moved between them.
+
+   These were written for `.controls`, the row the panel replaced. Renaming the
+   container orphaned every rule below — the number fields lost the widths at
+   the end of this block and fell back to the browser's default, which is how
+   Produce came to be wider than Seed. Nothing failed; it just looked wrong. */
+.settings-panel label, .run-row label {
+  display: flex; align-items: center; gap: 4px; color: var(--fg-muted);
+}
+.settings-panel input, .settings-panel select, .run-row input {
   font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
 }
@@ -1028,15 +1041,17 @@ body {
    So the width is stated as what it has to hold rather than as a round number:
    `--num-digits` of text, plus `--num-chrome` for everything the browser draws
    around it. */
-.controls { --num-chrome: 2.6em; }
-.controls input[type="number"] { width: calc(var(--num-digits, 8) * 1ch + var(--num-chrome)); }
+.settings-panel, .run-row { --num-chrome: 2.6em; }
+.settings-panel input[type="number"], .run-row input[type="number"] {
+  width: calc(var(--num-digits, 8) * 1ch + var(--num-chrome));
+}
 /* A board count. Seven digits is a million boards — far past anything anyone
    asks a browser for, and still the narrowest of the three. */
-.controls input.num-produce { --num-digits: 7; }
+input.num-produce { --num-digits: 7; }
 /* Up to 10,000,000, which the field's own arrows will walk it to. */
-.controls input.num-generate { --num-digits: 8; }
+input.num-generate { --num-digits: 8; }
 /* A u32: 4294967295, and the widest thing on the row. */
-.controls input.num-seed { --num-digits: 10; }
+input.num-seed { --num-digits: 10; }
 .check {
   display: inline-flex;
   align-items: center;
@@ -1121,11 +1136,6 @@ body {
 }
 .tabs button.on { background: var(--editor-bg); color: #fff; border-color: var(--editor-line); }
 
-.editor-loading {
-  flex: 1; display: grid; place-items: center;
-  color: var(--fg-muted); font-size: 13px;
-  border: 1px solid var(--line); border-radius: 4px;
-}
 .run {
   padding: 5px 16px; font: inherit; font-size: 13px; font-weight: 500;
   border: 0; border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer;
