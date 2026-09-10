@@ -618,6 +618,17 @@ pub struct Rows {
 }
 
 impl<'a> Produced<'a> {
+    /// This deal's complete double-dummy table, if it has one.
+    ///
+    /// What it arrived with, plus whatever the run worked out — the same
+    /// `DealTricks` the script's own `tricks()` reads. `None` unless all
+    /// twenty cells are known, and **nothing is solved to answer this**: an
+    /// exporter asks "do we know already?", and a deal nobody asked about is
+    /// not worth twenty searches to annotate.
+    pub fn dd_table(&self) -> Option<dealer_dds::bridge_solver::DdTable> {
+        self.dd_tricks.table()
+    }
+
     /// A fresh context over this deal, for a caller's own per-deal work.
     ///
     /// Fresh rather than shared for the reason contexts are built where they

@@ -6,6 +6,8 @@ license = "Unlicense"
 
 [dependencies]
 dealer-core = { path = "../dealer-core" }
+bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }
+bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 chrono = "0.4"
 
 [dev-dependencies]

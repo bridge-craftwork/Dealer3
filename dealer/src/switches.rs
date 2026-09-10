@@ -356,6 +356,21 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         ),
     },
     SwitchRow {
+        short: "",
+        long: "--dd-tags",
+        group: "Output",
+        what: "Which double-dummy tags a PBN export writes",
+        dealer_exe: Origin::Absent,
+        dealer_v2: Origin::Absent,
+        note: Some(
+            "dealer3's own. `none`, `optimum` (the default), `tricks` or `both`: the two PBN \
+             encodings are redundant and which one a consumer wants depends on the consumer. \
+             Only for a deal that already knows all twenty cells — one read from a solved \
+             library, or one whose script asked for every cell. Nothing is solved to fill a \
+             tag, so choosing an output format never decides how long a run takes.",
+        ),
+    },
+    SwitchRow {
         short: "-d",
         long: "--dealer",
         group: "Output",
@@ -610,15 +625,6 @@ pub const SWITCH_ROWS: &[SwitchRow] = &[
         dealer_exe: Origin::Absent,
         dealer_v2: Origin::Same,
         note: Some("It prints nothing. DealerV2_4's own docs describe it as \"1 Single result mode; 2 all 20 strain-compass combinations\" (`docs/Handstat_layout.txt`), so it chooses how the DDS library is called, not what comes out — and DealerV2_4 switches to mode 2 by itself whenever `par` or `trix` needs it. dealer3 has no such choice to offer: results are kept per (deal, denomination, declarer) and travel with their deal, so asking once costs one search, asking twenty costs twenty, and asking again costs nothing."),
-    },
-    SwitchRow {
-        short: "-Z",
-        long: "",
-        group: "Not implemented",
-        what: "Export in RP zrd format",
-        dealer_exe: Origin::Absent,
-        dealer_v2: Origin::Same,
-        note: None,
     },
     SwitchRow {
         short: "-U",
