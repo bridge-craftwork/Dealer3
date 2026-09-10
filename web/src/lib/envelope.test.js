@@ -1,5 +1,17 @@
-import { describe, it, expect } from 'vitest'
-import { runEnvelope, ENVELOPE_VERSION } from './envelope.js'
+import { describe, it, expect, vi } from 'vitest'
+import {
+  runEnvelope,
+  ENVELOPE_VERSION,
+  DOCUMENT_VERSION,
+  DOCUMENT_DEFAULTS,
+  DOCUMENT_FORMATS,
+  makeDocument,
+  readDocument,
+  paramValuesFrom,
+  settingsDelta,
+} from './envelope.js'
+import { loadSession } from './session.js'
+import { readFileSync } from 'node:fs'
 
 const settings = {
   seed: 7,
@@ -59,5 +71,160 @@ describe('runEnvelope', () => {
   it('keeps the script exactly, newlines and all', () => {
     const script = 'condition hcp(north) >= 15\naction average "h" hcp(north)\n'
     expect(parsed(script, settings).script).toBe(script)
+  })
+})
+
+describe('a document', () => {
+  const page = {
+    seed: 8391,
+    produce: 20,
+    maxGenerate: 1000000,
+    format: 'oneline',
+    autoLevel: false,
+    roundRobin: false,
+    params: [],
+    dealSource: 'library',
+    newSeedEachRun: true,
+    scenario: 'Sup_X_By_Advancer',
+  }
+
+  it('carries the caller settings the engine never sees', () => {
+    const doc = makeDocument('condition 1\n', page)
+    expect(doc.settings.dealSource).toBe('library')
+    expect(doc.settings.newSeedEachRun).toBe(true)
+    expect(doc.settings.scenario).toBe('Sup_X_By_Advancer')
+  })
+
+  it('narrows to the engine envelope by being read through it', () => {
+    // The point of the two living in one file: there is no second list of the
+    // engine's fields to keep in step. `runEnvelope` names them, so handing it
+    // a document's settings drops the caller's by not asking for them — and
+    // the engine refuses what it does not know, so a leak here fails a run.
+    const doc = makeDocument('condition 1\n', page)
+    const envelope = JSON.parse(runEnvelope(doc.script, doc.settings))
+    expect(Object.keys(envelope.settings).sort()).toEqual([
+      'autoLevel',
+      'format',
+      'maxGenerate',
+      'params',
+      'produce',
+      'roundRobin',
+      'seed',
+    ])
+    expect(envelope.settings.seed).toBe(8391)
+  })
+
+  it('round-trips through a reader', () => {
+    const doc = makeDocument('condition hcp(north) >= 15\n', { ...page, measureSeconds: 12 })
+    expect(readDocument(JSON.parse(JSON.stringify(doc)))).toEqual({
+      v: DOCUMENT_VERSION,
+      script: 'condition hcp(north) >= 15\n',
+      settings: { ...page, measureSeconds: 12 },
+    })
+  })
+
+  it('refuses a version it does not know, by name, rather than half-loading', () => {
+    expect(() => readDocument({ v: 2, script: 'condition 1\n' })).toThrow(/version 2/)
+    expect(() => readDocument({ v: 2, script: 'condition 1\n' })).toThrow(/newer/)
+  })
+
+  it('refuses what is not a document at all', () => {
+    expect(() => readDocument(null)).toThrow(/does not hold/)
+    expect(() => readDocument([1, 2])).toThrow(/does not hold/)
+    expect(() => readDocument({ v: 1 })).toThrow(/no script/)
+    expect(() => readDocument({ v: 1, script: '   ' })).toThrow(/no script/)
+    expect(() => readDocument({ v: 1, script: 'x'.repeat(300 * 1024) })).toThrow(/larger/)
+  })
+
+  it('opens the script rather than failing over a setting it cannot use', () => {
+    // A hand-edited or truncated fragment. The script is the thing that was
+    // shared; refusing the whole link over `format=xml` would throw it away to
+    // no purpose, and the engine would refuse the value anyway.
+    const s = readDocument({
+      v: 1,
+      script: 'condition 1\n',
+      settings: { format: 'xml', produce: -3, dealSource: 'wat', params: 'nope', nonsense: 1 },
+    }).settings
+    expect(s.format).toBe('oneline')
+    expect(s.produce).toBe(20)
+    expect(s.dealSource).toBe('random')
+    expect(s.params).toEqual([])
+    expect('nonsense' in s).toBe(false)
+  })
+
+  it('leaves out a seed it was not given, so the reader rolls one', () => {
+    // Not defaulted to a number. A link that names no seed is about a script
+    // rather than about particular hands, and every visitor should see a
+    // different sample rather than all of them seeing seed 1.
+    expect('seed' in readDocument({ v: 1, script: 'condition 1\n' }).settings).toBe(false)
+    expect('seed' in readDocument({ v: 1, script: 'c\n', settings: { seed: -1 } }).settings).toBe(false)
+    expect(readDocument({ v: 1, script: 'c\n', settings: { seed: 7 } }).settings.seed).toBe(7)
+  })
+
+  it('agrees with the session about what a setting means when nobody said', () => {
+    // Two readers of the same fields — one from localStorage, one from a link.
+    // They are separate on purpose (a session holds UI state a link must not
+    // carry), which is exactly the shape that drifts, so this pins the overlap.
+    vi.stubGlobal('localStorage', {
+      getItem: () => '{}',
+      setItem: () => {},
+      removeItem: () => {},
+    })
+    const stored = loadSession()
+    vi.unstubAllGlobals()
+    for (const key of ['produce', 'maxGenerate', 'format', 'roundRobin', 'dealSource']) {
+      expect([key, stored[key]]).toEqual([key, DOCUMENT_DEFAULTS[key]])
+    }
+  })
+})
+
+describe('paramValuesFrom', () => {
+  it('projects the engine spelling back to the fields it was typed into', () => {
+    // Miss this and a shared parameterised scenario opens with its fields
+    // blank — running on the script's declared defaults, which is not the run
+    // that was shared.
+    expect(paramValuesFrom(['0=west', '1=15'])).toEqual({ 0: 'west', 1: '15' })
+  })
+
+  it('keeps a value containing an equals sign whole', () => {
+    expect(paramValuesFrom(['2=hcp(north) >= 15'])).toEqual({ 2: 'hcp(north) >= 15' })
+  })
+
+  it('ignores anything that is not a parameter', () => {
+    expect(paramValuesFrom(['west', '=x', 'x=1', undefined, 12])).toEqual({})
+    expect(paramValuesFrom(undefined)).toEqual({})
+  })
+})
+
+describe('settingsDelta', () => {
+  it('keeps only what a link has to say', () => {
+    expect(settingsDelta({ ...DOCUMENT_DEFAULTS, seed: 5, produce: 20, format: 'pbn' })).toEqual({
+      seed: 5,
+      format: 'pbn',
+    })
+  })
+
+  it('always keeps the seed, which has no default to be equal to', () => {
+    expect(settingsDelta({ seed: 0 }).seed).toBe(0)
+  })
+
+  it('drops an empty parameter list and keeps a full one', () => {
+    expect('params' in settingsDelta({ params: [] })).toBe(false)
+    expect(settingsDelta({ params: ['0=west'] }).params).toEqual(['0=west'])
+  })
+})
+
+describe('the formats a document may name', () => {
+  it('are the ones the page offers', () => {
+    // A document is read back into a `<select>`, and a select holding a value
+    // no option carries shows blank — so a format the menu dropped would open
+    // a link with the field empty and run something else. Two lists, one of
+    // them in a template, is exactly the pair that drifts.
+    const app = readFileSync(new URL('../App.vue', import.meta.url), 'utf8')
+    const menu = app.slice(app.indexOf('<select v-model="format">'))
+    const offered = [...menu.slice(0, menu.indexOf('</select>')).matchAll(/value="([^"]+)"/g)].map(
+      (m) => m[1],
+    )
+    expect(offered).toEqual(DOCUMENT_FORMATS)
   })
 })

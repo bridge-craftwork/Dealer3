@@ -28,6 +28,9 @@ src/
 │   ├── guide.js          rendering a docs/ markdown file as a page
 │   ├── engine.worker.js  generation, off the main thread
 │   ├── library.js        the solved-deal library: fetching, caching, wording
+│   ├── envelope.js       the run the engine takes, and the document a link carries
+│   ├── share.js          a document to a URL fragment and back
+│   ├── clipboard.js      copying text, with the fallback the platforms need
 │   └── download.js       saving results as PBN or text
 ├── Reference.vue         the language reference page
 ├── Leveling.vue          the levelling guide, rendered from docs/
@@ -132,7 +135,100 @@ is no caret to select from either.
 `CopyButton.vue` reads the document from the editor at click time rather than
 holding its own copy, and falls back to a hidden `<textarea>` when
 `navigator.clipboard` is missing or refused, which it is on an insecure origin.
-A failure says so rather than flashing "Copied".
+A failure says so rather than flashing "Copied". The clipboard itself lives in
+`clipboard.js`, shared with the Share button below.
+
+## Sharing a script by link
+
+**Share**, beside the settings gear, copies a link that opens the script *and*
+its settings on somebody else's machine. The alternative was sending a PDF,
+which the recipient cannot run: they have to copy the text back out, and none of
+the settings travel with it.
+
+The payload is in the **URL fragment**, and never in the query string. Nothing
+after the `#` is sent with the request, so a link reaches no server log, no cache
+key and no edge rule — which is what makes this shippable with no back end, and
+why it costs nothing to keep working. It is also the form that survives the trip:
+a real BBO capture sent as a query string came back **403 at the edge** on
+2026-08-28 while the identical payload in the fragment loaded. bridge-solver
+already hands hands over this way; the cross-tool contract
+(`bridge-craftwork-site#3`, item 4) settles it for every tool here.
+
+Three forms, cheapest first, all of which open the same way:
+
+| Fragment | Means |
+|---|---|
+| `#s=<scenario>` | a scenario from the list, unmodified, plus what was changed |
+| `#d=<base64url>` | the document itself, deflated — no network at all |
+| `#k=<key>` | the short-link service (#103), which is not built |
+
+Sharing an untouched scenario needs no encoding at all: the recipient's page
+fetches the same script from the same list, so the link is
+`#s=Sup_X_By_Advancer&seed=8391` and stays readable in an email. Change one
+character of it and the whole script travels instead — otherwise the recipient
+would open a *different* script under the right name, which is worse than a long
+link. That form is `JSON.stringify` → `CompressionStream('deflate-raw')` →
+base64url, native in Safari 16.4, Chrome and Firefox, so no library: 600–900
+bytes of script comes out around 350–550 characters.
+
+`#k=` is recognised and refused with a sentence, rather than opening a page that
+looks as though there was no link. Nothing produces one yet.
+
+### What a link carries, and what it does not
+
+The engine's envelope (`run_json`) is one half of a run: script, seed, produce,
+max generate, format, auto-level, round robin, params, measure budget. It
+refuses fields it does not know, deliberately. A **document** is that plus the
+two settings the caller acts on and the engine never sees:
+
+- **`dealSource`** — random or the pre-solved library. The engine infers the
+  source from whether deals were handed to it, so being *told* "library" would
+  be a field it could not act on. The recipient's page needs it to know to fetch
+  before calling.
+- **`newSeedEachRun`** — the engine takes a *definite* seed, so "roll a new one"
+  is resolved before the call. A demo link probably wants it on; a link showing a
+  particular hand definitely wants it off.
+
+`scenario` travels with them, so the list opens pointing at the right entry.
+What must **not** travel is UI state — whether the picker or the settings panel
+was open is about the sender's window.
+
+Both shapes live in `envelope.js`, and narrowing is not a function: `runEnvelope`
+names the engine's fields, so passing it a document's settings drops the caller's
+by not asking for them. There is deliberately no second list to keep in step. A
+document cannot be handed to `run_json` whole — that is refused, by design.
+
+One conversion is easy to lose: the page keeps `paramValues` by parameter number,
+the envelope takes `params` as `N=TEXT`, and a link carries the engine's
+spelling. `paramValuesFrom` projects it back. Miss it and a shared parameterised
+scenario arrives with blank fields, running on the script's declared defaults —
+looking exactly as though it had worked.
+
+### Opening one
+
+A link **loads and stops**. Nothing runs: an unknown script can be expensive (a
+double-dummy condition on shuffled deals takes minutes), the recipient should see
+what they are about to run, and a page that starts work on open makes the back
+button surprising.
+
+The fragment is untrusted input, so it parses or it is refused with a sentence
+worth reading — a truncated link says it was truncated, an unknown version says
+so by number rather than half-loading, and a setting that means nothing falls
+back to its default rather than throwing the script away with it. Inflation is
+bounded: a few hundred characters of deflate can become hundreds of megabytes,
+and a tab that hangs before anything is on screen is the one failure with no way
+back.
+
+A shared script never silently replaces what was in the editor. The session from
+before the link is held in memory — the autosave overwrites the stored copy
+within half a second — and the notice above the editor offers it back. That is
+the only way back: the page never navigated, so the back button would leave the
+site.
+
+The fragment is left in the address bar, so the link can be re-opened from
+history and the autosave takes over from the first edit. Declining it with
+**Bring back what I had** removes it, since it must not open again on the next
+reload.
 
 ## Deploying
 
