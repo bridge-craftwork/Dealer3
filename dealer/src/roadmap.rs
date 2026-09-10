@@ -197,16 +197,21 @@ pub const REMAINING: &[WorkItem] = &[
         note: Some("`--input-deals` already covers the common case in dealer3's own way."),
     },
     WorkItem {
-        what: "Read and write RP ZRD, Pavlicek's solved-deal library",
+        what: "Write RP ZRD, and write double-dummy tables back on export",
         done_when: Some(DoneWhen::Switch("-Z")),
         issue: Some(61),
         effort: Effort::Medium,
         value: Value::Medium,
         note: Some(
-            "Reading is the valuable half: a ZRD record carries a deal *and* its twenty \
-             double-dummy results, so `tricks()`, `dds()` and `par()` become lookups rather \
-             than hundred-millisecond searches — which is also what would make them usable \
-             in the browser. The format work is bridge-encodings#20.",
+            "**Reading has shipped**, which was the valuable half: `--input-deals` takes a \
+             `.zrd`, and a deal read from any format arrives with the double-dummy table it \
+             carried — a ZRD record's twenty results, a PBN `[DoubleDummyTricks]` or an \
+             `[OptimumResultTable]` — so `tricks()`, `dds()` and `par()` are lookups rather \
+             than hundred-millisecond searches, which is what made them affordable in the \
+             browser. What is left is the other direction: writing a table back out, as a \
+             PBN tag and as ZRD records, so a run's deals can be saved solved. \
+             bridge-craftwork/Dealer3#64 chooses which encoding a PBN export writes. The \
+             format work is bridge-encodings#20.",
         ),
     },
     WorkItem {
