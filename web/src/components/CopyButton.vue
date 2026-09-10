@@ -19,6 +19,7 @@
 // worth copying out — it is what you paste into BBO — and it is read-only, so
 // there is no caret to select from either.
 import { ref } from 'vue'
+import { copyText } from '@/lib/clipboard.js'
 
 const props = defineProps({
   /// Called for the text, rather than passing it: the editor holds the current
@@ -42,29 +43,8 @@ function flash(next, text) {
 }
 
 async function copy() {
-  const value = props.text() ?? ''
-  try {
-    // `navigator.clipboard` is absent on an insecure origin and can be refused
-    // outright, so the older path is a real fallback rather than politeness.
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-    } else {
-      const area = document.createElement('textarea')
-      area.value = value
-      area.setAttribute('readonly', '')
-      area.style.position = 'fixed'
-      area.style.opacity = '0'
-      document.body.appendChild(area)
-      area.select()
-      const ok = document.execCommand('copy')
-      document.body.removeChild(area)
-      if (!ok) throw new Error('execCommand refused')
-    }
-    flash('done', 'Copied')
-  } catch {
-    // Saying so beats a button that looks as though it worked.
-    flash('failed', 'Press ⌘C')
-  }
+  if (await copyText(props.text() ?? '')) flash('done', 'Copied')
+  else flash('failed', 'Press \u2318C')
 }
 </script>
 

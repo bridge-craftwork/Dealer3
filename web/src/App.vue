@@ -73,6 +73,23 @@
       </aside>
 
       <section class="col col-editor">
+        <!-- What a link did, said where the script it replaced is. A link that
+             quietly swapped somebody's work for a stranger's would be the one
+             unforgivable thing this feature could do, so the way back is
+             offered here rather than left to the back button — which would not
+             help, the page having never navigated. -->
+        <p v-if="shareError" class="shared-notice bad">{{ shareError }}</p>
+        <p v-else-if="sharedNotice" class="shared-notice">
+          <span>{{ sharedNotice }}</span>
+          <button
+            v-if="canRestore"
+            class="shared-restore"
+            title="Put back the script and settings that were here before this link was opened"
+            @click="restorePrevious"
+          >Bring back what I had</button>
+          <button class="shared-dismiss" title="Hide this" @click="sharedNotice = ''">Dismiss</button>
+        </p>
+
         <!-- Said where it is chosen rather than in the results, because it is
              a reason to choose differently before pressing Run: a script with
              no double-dummy question in it downloads 640 KiB and reads none of
@@ -113,6 +130,18 @@
                place beside Run. -->
           <label>Produce <input v-model.number="produce" class="num-produce" type="number" min="1" /></label>
 
+          <!-- Beside the gear rather than in it: sharing is something you go
+               looking for, and a control behind a disclosure is one nobody
+               finds. It shares what is in the editor and the settings around
+               it — on the Leveled tab that is still the script that produced
+               the levelling, which is the thing worth sending. -->
+          <button
+            class="share"
+            :disabled="!script.trim()"
+            title="Copy a link to this script and its settings. The link holds them itself — nothing is uploaded."
+            @click="onShare"
+          >Share</button>
+
           <button
             class="settings-toggle"
             :class="{ on: settingsOpen }"
@@ -143,6 +172,24 @@
                a sub-second run would otherwise flash a button nobody could
                have used. -->
           <button v-if="showProgress" class="cancel" @click="cancel">Cancel</button>
+        </div>
+
+        <!-- The link itself, and not only the clipboard: a copy can be refused
+             outright by the browser, and a link nobody can see would then be a
+             button that appeared to work. Selectable, so it can be taken by
+             hand. -->
+        <div v-if="shareLink" class="share-panel">
+          <input
+            ref="shareField"
+            class="share-input"
+            type="text"
+            readonly
+            aria-label="Link to this script"
+            :value="shareLink"
+            @focus="$event.target.select()"
+          />
+          <button class="shared-dismiss" @click="shareLink = ''">Done</button>
+          <p class="share-note settings-note">{{ shareNote }}</p>
         </div>
 
         <!-- Everything that is set once and then left alone. It used to be a
@@ -361,10 +408,13 @@ import {
   poolInfo,
 } from '@/lib/engine.js'
 import { libraryStatusText, pointlessLibraryWarning, slowRandomWarning } from '@/lib/library.js'
-import { fetchScenarioScript } from '@/lib/pbsScenarios.js'
+import { fetchScenarioScript, prettifyLabel } from '@/lib/pbsScenarios.js'
 import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
 import { randomSeed } from '@/lib/format.js'
+import { makeDocument, paramValuesFrom } from '@/lib/envelope.js'
+import { parseFragment, resolveFragment, shareFragment, shareUrl } from '@/lib/share.js'
+import { copyText } from '@/lib/clipboard.js'
 
 const STARTER = `# Write a dealer script, or pick a scenario on the left.
 condition hcp(north) >= 15 && shape(north, any 4333 + any 4432 + any 5332)
@@ -723,6 +773,13 @@ watch(leveledScript, (text) => {
 })
 
 onMounted(async () => {
+  // First, and not awaited with the rest: a shared script should be on screen
+  // while the engine is still loading, exactly as a restored one is.
+  openSharedLink()
+  // A link pasted into the address bar of a tab that is already here changes
+  // the fragment without reloading anything, and without this the page would
+  // sit there having visibly done nothing.
+  window.addEventListener('hashchange', openSharedLink)
   await ready()
   engineReady.value = true
   engineVersion.value = version()
@@ -798,7 +855,13 @@ async function pickScenario(item) {
   loadingFile.value = item.file
   error.value = ''
   try {
-    script.value = await fetchScenarioScript(item.file)
+    const text = await fetchScenarioScript(item.file)
+    script.value = text
+    // What the list served, kept so Share can tell an untouched scenario from
+    // an edited one. An untouched one travels as its name; one changed by a
+    // character cannot, or the recipient would open a different script under
+    // the right name.
+    pristine.value = { file: item.file, text }
     selectedFile.value = item.file
     result.value = null
     // Let the editor take the new buffer and re-validate before running.
@@ -873,6 +936,201 @@ async function onDownload(kind) {
 // nothing to the bundle.
 function onPrint() {
   window.print()
+}
+
+// --- Sharing, and opening what somebody shared ---------------------------
+//
+// A link carries the script and the settings in its fragment, so it reaches no
+// server: there is nothing to store, nothing to expire, and nothing logged.
+// `share.js` holds the encoding and the three forms; here is only what the page
+// does with them.
+
+/// The script as the scenario list served it. Share compares against this to
+/// decide whether the script itself has to travel.
+const pristine = ref({ file: '', text: '' })
+
+/// The link most recently made, shown until it is dismissed.
+const shareLink = ref('')
+const shareNote = ref('')
+const shareField = ref(null)
+
+/// What opening a link did, and what went wrong if it did not open.
+const sharedNotice = ref('')
+const shareError = ref('')
+
+/// What the editor held before a link replaced it.
+///
+/// Kept here rather than read back from the session: the autosave overwrites
+/// the stored copy within half a second of the shared script arriving, and this
+/// also covers work done since the page was opened, which the stored copy would
+/// not have.
+const displaced = ref(null)
+const canRestore = computed(() => !!displaced.value)
+
+/// Everything a link can change, as it stands.
+function currentState() {
+  return {
+    script: script.value,
+    seed: seed.value,
+    produce: produce.value,
+    maxGenerate: maxGenerate.value,
+    format: format.value,
+    roundRobin: roundRobin.value,
+    dealSource: dealSource.value,
+    scenario: selectedFile.value,
+    paramValues: paramValues.value,
+    newSeedEachRun: newSeedEachRun.value,
+    measureSeconds: measureSeconds.value,
+    autoLevel: autoLevel.value,
+    autoLevelTouched: autoLevelTouched.value,
+    pristine: pristine.value,
+  }
+}
+
+function sharedMeasureSeconds() {
+  if (!autoLevel.value || !hasHandTypes.value || measureSeconds.value == null) return undefined
+  const engineDefault = engineReady.value ? defaultMeasureSeconds() : null
+  return measureSeconds.value === engineDefault ? undefined : measureSeconds.value
+}
+
+async function onShare() {
+  shareError.value = ''
+  const doc = makeDocument(script.value, {
+    seed: seed.value,
+    produce: produce.value,
+    maxGenerate: maxGenerate.value,
+    format: format.value,
+    autoLevel: autoLevel.value && hasHandTypes.value,
+    roundRobin: roundRobinAsked.value,
+    // What the run would send, rather than what has been typed: a value for a
+    // parameter the script does not use would not change the run, and should
+    // not change the link either.
+    params: paramSpecs.value,
+    // Only when the run would use it, and only when it is not the engine's own
+    // number. A link saying twenty seconds when twenty is the default says
+    // nothing — and would go on saying it after the default had changed.
+    measureSeconds: sharedMeasureSeconds(),
+    dealSource: dealSource.value,
+    newSeedEachRun: newSeedEachRun.value,
+    scenario: selectedFile.value,
+  })
+  let fragment
+  try {
+    fragment = await shareFragment(doc, {
+      pristineScript: pristine.value.file === selectedFile.value ? pristine.value.text : null,
+    })
+  } catch (e) {
+    shareLink.value = ''
+    shareError.value = e?.message || String(e)
+    return
+  }
+  shareLink.value = shareUrl(window.location, fragment)
+  const copied = await copyText(shareLink.value)
+  // Short, because the panel it sits in is squeezed on a phone \u2014 which is
+  // where a link is most likely to be read.
+  shareNote.value =
+    (copied ? 'Copied. ' : 'The browser refused to copy \u2014 take it from here. ') +
+    (fragment.startsWith('#s=')
+      ? 'It names the scenario and your settings; the script comes from the same list.'
+      : `The whole script is in the link \u2014 ${shareLink.value.length} characters, and ` +
+        'nothing is uploaded.')
+  // Selected, so it can be taken by hand on the platforms where a copy is
+  // refused, which are the platforms this matters on.
+  await nextTick()
+  shareField.value?.select?.()
+}
+
+/// Open whatever the fragment names, and stop. Nothing runs: an unknown script
+/// can be expensive, the reader should see what they are about to run, and a
+/// page that starts work on open makes the back button surprising.
+async function openSharedLink() {
+  if (!parseFragment(window.location.hash)) return
+  // A second link, pasted after a first one failed, must not open underneath
+  // the first one's complaint.
+  shareError.value = ''
+  try {
+    const opened = await resolveFragment(window.location.hash, {
+      fetchScenario: fetchScenarioScript,
+    })
+    if (opened) applySharedDocument(opened)
+  } catch (e) {
+    shareError.value = e?.message || String(e)
+  }
+}
+
+function applySharedDocument({ source, doc }) {
+  const s = doc.settings
+  // Only worth keeping when there is something to lose. This is the only way
+  // back to it: the page has not navigated, so the back button would leave the
+  // site rather than undo this.
+  const before = currentState()
+  displaced.value = before.script.trim() && before.script !== doc.script ? before : null
+
+  script.value = doc.script
+  // A link that names no seed is about a script rather than about particular
+  // hands, so every visitor gets their own sample.
+  seed.value = s.seed ?? randomSeed()
+  produce.value = s.produce
+  maxGenerate.value = s.maxGenerate
+  format.value = s.format
+  roundRobin.value = s.roundRobin
+  dealSource.value = s.dealSource
+  newSeedEachRun.value = s.newSeedEachRun
+  selectedFile.value = s.scenario || ''
+  // The conversion this is easiest to miss: the link carries the engine's
+  // `N=TEXT`, the fields hold values by number. Without it a shared
+  // parameterised scenario arrives blank and runs on its declared defaults.
+  paramValues.value = paramValuesFrom(s.params)
+  if (s.measureSeconds != null) measureSeconds.value = s.measureSeconds
+  autoLevel.value = s.autoLevel
+  // The link had an opinion, so the box must not be re-ticked underneath it by
+  // the watcher that ticks it for a script naming hand types.
+  autoLevelTouched.value = true
+  // A shared scenario's script is the list's own, so Share can send it back the
+  // short way.
+  pristine.value = source === 'scenario' ? { file: s.scenario, text: doc.script } : { file: '', text: '' }
+
+  result.value = null
+  leveling.value = null
+  error.value = ''
+  editorTab.value = 'script'
+
+  const named = source === 'scenario' && s.scenario ? ` \u201c${prettifyLabel(s.scenario)}\u201d` : ''
+  // That nothing has run is the part worth saying: it is the difference between
+  // this and every other link, and the reason the page looks idle.
+  sharedNotice.value = `Opened a shared script${named}. Nothing has run yet.`
+}
+
+/// Put back what the link replaced.
+function restorePrevious() {
+  const was = displaced.value
+  sharedNotice.value = ''
+  displaced.value = null
+  // The link has been declined, so it must not open again on the next reload.
+  // The fragment goes; the page does not navigate.
+  try {
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+  } catch {
+    // Some embeddings refuse it. Losing the fragment is not worth an error.
+  }
+  if (!was) return
+  script.value = was.script
+  seed.value = was.seed
+  produce.value = was.produce
+  maxGenerate.value = was.maxGenerate
+  format.value = was.format
+  roundRobin.value = was.roundRobin
+  dealSource.value = was.dealSource
+  selectedFile.value = was.scenario || ''
+  paramValues.value = was.paramValues || {}
+  newSeedEachRun.value = was.newSeedEachRun ?? false
+  if (was.measureSeconds != null) measureSeconds.value = was.measureSeconds
+  // `scenario` is the picker's highlight, and it came back with the script.
+  autoLevel.value = was.autoLevel ?? false
+  autoLevelTouched.value = was.autoLevelTouched
+  pristine.value = was.pristine
+  result.value = null
+  leveling.value = null
 }
 
 async function run() {
@@ -1168,6 +1426,63 @@ input.num-seed { --num-digits: 10; }
   background: #fff; color: var(--fg-muted); cursor: pointer;
 }
 .cancel:hover { color: #b23b3b; border-color: #d8a9a9; }
+
+/* Quieter than Run, like Cancel, and the same height as both: the row is
+   `align-items: end`, so what makes these look level is their boxes matching
+   rather than any alignment property. */
+.share {
+  padding: 5px 12px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: #fff; color: var(--fg-muted); cursor: pointer;
+}
+.share:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.share:disabled { color: var(--line); cursor: default; }
+
+/* Opens under the row that made it, like the settings panel and for the same
+   reason: a disclosure belongs below the control that owns it. */
+.share-panel {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  padding: 8px 10px; margin: 0 0 6px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg-subtle);
+}
+/* Takes the row: a link that is cut off is one that gets pasted cut off.
+   `min-width: 0` because a flex item will otherwise refuse to shrink below the
+   width of its content, and this content is several hundred characters. */
+.share-input {
+  flex: 1; min-width: 0;
+  font: 12px/1.5 var(--mono);
+  padding: 4px 6px;
+  border: 1px solid var(--line); border-radius: 3px;
+  background: var(--bg); color: var(--fg);
+}
+/* The same size as the notes under the run controls, and for the same reason:
+   this is a line about a control, not body text. At 14px it was three lines on
+   a phone, and the panel is squeezed there already. */
+.share-note { color: var(--fg-muted); font-size: 11.5px; line-height: 1.45; }
+
+/* What a link did to the page, above the script it did it to. Not styled as a
+   warning: opening a shared script is the feature working. */
+.shared-notice {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 6px; padding: 6px 9px;
+  font-size: 11.5px; line-height: 1.45;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-subtle); color: var(--fg);
+}
+/* A link that could not be opened at all. */
+.shared-notice.bad {
+  border-left-color: var(--warn);
+  background: var(--warn-subtle);
+  color: var(--warn-fg);
+}
+.shared-restore, .shared-dismiss {
+  font: inherit; font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: 3px;
+  background: var(--bg); color: var(--fg-muted); cursor: pointer;
+}
+.shared-restore { color: var(--accent); border-color: var(--accent); }
+.shared-restore:hover, .shared-dismiss:hover { background: var(--bg-subtle); }
 
 /* The deal source, set apart from the numeric fields beside it: it is the one
    control on the row that changes what a run reads rather than how much of it.
