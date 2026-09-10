@@ -28,7 +28,9 @@ mod library;
 use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_parser::vocabulary;
 use dealer_parser::{Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printpbn, DdTags, PbnBoard, Vulnerability};
+use dealer_pbn::{
+    format_oneline, format_printall, format_printpbn, DdTags, PbnBoard, Vulnerability,
+};
 use dealer_run::{Deals, LevelingOptions, Phase, Produced, RunHost, RunOptions};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
