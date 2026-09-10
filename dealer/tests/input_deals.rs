@@ -908,3 +908,228 @@ fn the_window_switches_need_input_deals() {
         );
     }
 }
+
+// --- Writing back what came in (#64) --------------------------------------
+//
+// A deal that arrived solved can leave solved. These drive the real binary
+// both ways round — read a library, write PBN, read that PBN back — because
+// the encodings are the point and a unit test over our own writer alone would
+// prove only that it agrees with itself.
+
+/// Run a script over the fixture library and return what it wrote.
+fn library_pbn(tag: &str, extra: &[&str]) -> Output {
+    let library = temp_binary(tag, "zrd", LIBRARY);
+    let script = temp_file(&format!("script-{}", tag), "condition 1\n");
+    let mut all = vec![
+        script.to_str().expect("utf-8 path").to_string(),
+        "--input-deals".to_string(),
+        library.to_str().expect("utf-8 path").to_string(),
+        "-f".to_string(),
+        "pbn".to_string(),
+        "-p".to_string(),
+        "3".to_string(),
+        "-s".to_string(),
+        "1".to_string(),
+    ];
+    all.extend(extra.iter().map(|arg| arg.to_string()));
+    let borrowed: Vec<&str> = all.iter().map(String::as_str).collect();
+    run(&borrowed, None)
+}
+
+#[test]
+fn a_pbn_export_carries_the_table_a_deal_arrived_with() {
+    // The standard encoding by default: `OptimumResultTable` is PBN 2.1 §5.7,
+    // where `DoubleDummyTricks` is a Bridge Composer extension.
+    let out = library_pbn("dd-default", &[]);
+    assert!(out.success, "{}", out.stderr);
+    assert!(
+        out.stdout.contains("[OptimumResultTable "),
+        "the default writes the standard section:\n{}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("[DoubleDummyTricks "),
+        "and not the extension as well:\n{}",
+        out.stdout
+    );
+    // Twenty rows a board, three boards.
+    assert_eq!(
+        out.stdout
+            .lines()
+            .filter(|line| line.starts_with("N NT"))
+            .count(),
+        3,
+        "one table per board:\n{}",
+        out.stdout
+    );
+}
+
+#[test]
+fn the_result_column_is_as_wide_as_the_table_needs() {
+    // Header and rows come from one place for this reason: a header declaring
+    // one width over rows padded to another is what had Bridge Composer
+    // rewriting every single-digit table on open and save.
+    let out = library_pbn("dd-width", &[]);
+    let header = out
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("[OptimumResultTable "))
+        .expect("a table header");
+    let width: usize = if header.contains("Result\\2R") { 2 } else { 1 };
+    let row = out
+        .stdout
+        .lines()
+        .find(|line| line.starts_with("N NT"))
+        .expect("a table row");
+    let tricks = row.split_whitespace().last().expect("a trick count");
+    assert_eq!(
+        row.len(),
+        "N NT ".len() + width,
+        "the rows are padded to the width the header declares ({}): {:?}",
+        header,
+        row
+    );
+    assert!(
+        tricks.parse::<u8>().is_ok(),
+        "and end in a number: {:?}",
+        row
+    );
+}
+
+#[test]
+fn dd_tags_chooses_the_encoding() {
+    for (value, wants, not) in [
+        ("tricks", "[DoubleDummyTricks ", "[OptimumResultTable "),
+        ("optimum", "[OptimumResultTable ", "[DoubleDummyTricks "),
+    ] {
+        let out = library_pbn(&format!("dd-{}", value), &["--dd-tags", value]);
+        assert!(out.success, "{}", out.stderr);
+        assert!(
+            out.stdout.contains(wants),
+            "--dd-tags {} writes {}",
+            value,
+            wants
+        );
+        assert!(
+            !out.stdout.contains(not),
+            "--dd-tags {} writes only that:\n{}",
+            value,
+            out.stdout
+        );
+    }
+
+    let both = library_pbn("dd-both", &["--dd-tags", "both"]);
+    assert!(both.stdout.contains("[DoubleDummyTricks "));
+    assert!(both.stdout.contains("[OptimumResultTable "));
+
+    // Not free to carry: the section is twenty-two lines a board, where a whole
+    // board is a few hundred bytes.
+    let none = library_pbn("dd-none", &["--dd-tags", "none"]);
+    assert!(
+        !none.stdout.contains("DoubleDummy") && !none.stdout.contains("Optimum"),
+        "--dd-tags none writes neither:\n{}",
+        none.stdout
+    );
+}
+
+#[test]
+fn what_is_written_reads_back_as_the_same_analysis() {
+    // The test that matters. Both encodings go out and come back through the
+    // reader, and the answers have to survive the trip — a transposed axis
+    // yields a plausible table, and for the seat axis it yields the
+    // *opponents'* plausible table, so "it parsed" proves nothing on its own.
+    let script = temp_file(
+        "dd-roundtrip-script",
+        "condition 1\naction average \"nt\" tricks(north, notrump), \
+         average \"eh\" tricks(east, hearts)\n",
+    );
+    let script = script.to_str().expect("utf-8 path");
+
+    let library = temp_binary("dd-roundtrip", "zrd", LIBRARY);
+    let direct = run(
+        &[
+            script,
+            "--input-deals",
+            library.to_str().expect("utf-8 path"),
+            "-f",
+            "none",
+            "-p",
+            "3",
+            "-s",
+            "1",
+        ],
+        None,
+    );
+    assert!(direct.success, "{}", direct.stderr);
+    let expected = statistics(&direct.stdout);
+    assert!(
+        !expected.is_empty(),
+        "the run reported nothing:\n{}",
+        direct.stdout
+    );
+
+    for value in ["optimum", "tricks", "both"] {
+        let written = library_pbn(&format!("dd-rt-{}", value), &["--dd-tags", value]);
+        let file = temp_file(&format!("dd-rt-file-{}", value), &written.stdout);
+        let back = run(
+            &[
+                script,
+                "--input-deals",
+                file.to_str().expect("utf-8 path"),
+                "-f",
+                "none",
+                "-p",
+                "3",
+            ],
+            None,
+        );
+        assert!(back.success, "{}", back.stderr);
+        assert!(
+            back.stderr.contains("arrived with double-dummy tables"),
+            "--dd-tags {} produced a file the reader sees as solved:\n{}",
+            value,
+            back.stderr
+        );
+        assert_eq!(
+            statistics(&back.stdout),
+            expected,
+            "--dd-tags {} carried the same answers out and back",
+            value
+        );
+    }
+}
+
+/// The `average` lines of a run, which is where the double-dummy answers show.
+fn statistics(stdout: &str) -> Vec<String> {
+    stdout
+        .lines()
+        .filter(|line| line.contains(':'))
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+#[test]
+fn a_generated_deal_nobody_asked_about_is_not_solved_to_fill_a_tag() {
+    // The trap this switch must not become: `-f pbn` on a script that never
+    // mentions double-dummy would otherwise cost twenty searches a deal, and
+    // the output format would be deciding how long the run takes.
+    let script = temp_file("dd-unsolved", "condition 1\n");
+    let out = run(
+        &[
+            script.to_str().expect("utf-8 path"),
+            "-f",
+            "pbn",
+            "-p",
+            "2",
+            "-s",
+            "7",
+        ],
+        None,
+    );
+    assert!(out.success, "{}", out.stderr);
+    assert!(
+        !out.stdout.contains("OptimumResultTable") && !out.stdout.contains("DoubleDummyTricks"),
+        "a deal with no table carries no tags:\n{}",
+        out.stdout
+    );
+}

@@ -14,6 +14,7 @@ dealer-run = { path = "../dealer-run", features = ["parallel"] }
 dealer-eval = { path = "../dealer-eval" }
 dealer-pbn = { path = "../dealer-pbn" }
 bridge-encodings = { git = "https://github.com/bridge-craftwork/bridge-encodings" }
+bridge-types = { git = "https://github.com/bridge-craftwork/bridge-types" }
 clap = { version = "4.5", features = ["derive"] }
 
 [dev-dependencies]

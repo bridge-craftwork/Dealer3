@@ -24,7 +24,7 @@ UPDATE_DOCS=1 cargo test -p dealer
 
 <!-- BEGIN GENERATED: switches -->
 
-dealer3 implements **41 of the 51 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
+dealer3 implements **42 of the 51 switches** listed here. The dealer3 column is read from the argument parser itself, so it cannot drift; the other two columns are reference data (see `dealer/src/switches.rs` for their provenance).
 
 In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed and then refused with an explanation, so a script using it gets told rather than ignored. In the other two columns ✅ means the same meaning, ⚠️ a different one, and — not present at all.
 
@@ -56,6 +56,7 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | `-u` | Upper-case the honour cards in output | ✅ | ✅ | — | Accepted and ignored, because it does nothing in dealer.exe either: `-u` sets a flag read only by the `representation` macro in `dealer.c`, and that macro is never invoked — every output path uses `ucrep` directly. Verified; the reference binary's output is byte-identical with and without it. dealer3's honours are upper case too, so the switch is accepted rather than refused and a command line carrying it still runs. `-v` says so. |
 | `--interleave` | Order the output so each hand type appears before any repeats | ✅ | — | — | Needs `HandType_*` variables to classify against. Rare types are spread across the run rather than exhausted early. See `docs/leveling-guide.md`. |
 | `-f`, `--format` | Output format | ✅ | — | — | The original selects a format with an `action` statement instead. `-f none` writes no deals and keeps the statistics, for a run that only wants its `average` and `frequency` results. |
+| `--dd-tags` | Which double-dummy tags a PBN export writes | ✅ | — | — | dealer3's own. `none`, `optimum` (the default), `tricks` or `both`: the two PBN encodings are redundant and which one a consumer wants depends on the consumer. Only for a deal that already knows all twenty cells — one read from a solved library, or one whose script asked for every cell. Nothing is solved to fill a tag, so choosing an output format never decides how long a run takes. |
 | `-d`, `--dealer` | Dealer position | ✅ | — | — | The original uses the `dealer` statement, which dealer3 also accepts. |
 | `--vulnerable` | Vulnerability | ✅ | — | ⚠️ -P sets vulnerability for par | Long form only. `-v` is verbose, as in the original — this was the 0.2.0 breaking change. |
 | `-v`, `--verbose` | Toggle the closing statistics | ✅ | ✅ | ✅ |  |
@@ -113,7 +114,6 @@ In the dealer3 column ✅ is implemented and ⚠️ means the switch is parsed a
 | Switch | What it does | dealer3 | dealer.exe | DealerV2_4 | Notes |
 |---|---|---|---|---|---|
 | `-M` | Double-dummy solver mode — nothing to implement | ❌ | — | ✅ | It prints nothing. DealerV2_4's own docs describe it as "1 Single result mode; 2 all 20 strain-compass combinations" (`docs/Handstat_layout.txt`), so it chooses how the DDS library is called, not what comes out — and DealerV2_4 switches to mode 2 by itself whenever `par` or `trix` needs it. dealer3 has no such choice to offer: results are kept per (deal, denomination, declarer) and travel with their deal, so asking once costs one search, asking twenty costs twenty, and asking again costs nothing. |
-| `-Z` | Export in RP zrd format | ❌ | — | ✅ |  |
 | `-U` | DealerServer path | ❌ | — | ✅ |  |
 | `-O` | OPC evaluation for the opener | ❌ | — | ✅ |  |
 | `-D` | Debug verbosity 0-9 | ❌ | — | ✅ |  |

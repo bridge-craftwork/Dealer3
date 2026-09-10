@@ -158,8 +158,8 @@ shipped, it named `-l` twice for two different features, and it offered
 letters are dealer.exe's swapping switches and already taken.
 
 So what remains of it is in **What is left** below, which is generated from
-`dealer/src/roadmap.rs` and checked against the argument parser — `-M`, `-Z`,
-Library mode is a row in that table, with the switch collisions
+`dealer/src/roadmap.rs` and checked against the argument parser — `-M` and
+Library mode are rows in that table, with the switch collisions
 written down where they belong. Script parameters used to be a row there too,
 and are now finished: `--param` fills one, a `# param 0 = west` comment declares
 what it should be when nothing does, and `--params` lists what a script wants.
@@ -209,7 +209,27 @@ See `CHANGELOG.md` for the migration note.
 - [x] DDS integration - **COMPLETED** via `tricks()`, `score()`, `imps()`,
       solved by `bridge-solver` and remembered per deal (#14)
 - [ ] Library mode - `--input-deals` covers the common case; `-l` is rejected
-- [ ] ZRD: read a solved library, and write one ([#61](https://github.com/bridge-craftwork/Dealer3/issues/61))
+- [x] ZRD: **read** a solved library - **COMPLETED**. `--input-deals` takes a
+      Pavlicek `.zrd`, PBN or one-line, decided by the content, with
+      `--input-offset` to say where in a library to start. The tables come with
+      it: a deal read from a file carries its own `DdTable` — from a ZRD record,
+      a PBN `[DoubleDummyTricks]` or an `[OptimumResultTable]` — so `tricks()`,
+      `dds()` and `par()` are lookups rather than hundred-millisecond searches,
+      which is what made double-dummy affordable in the browser. The global
+      memo it was prototyped through is retired; a table travels with its deal
+      and goes with it when the filter throws it away (#61)
+- [x] Write a known table back out on a **PBN** export - **COMPLETED**.
+      `--dd-tags none|optimum|tricks|both` chooses which of the two redundant
+      encodings is written, `optimum` by default because
+      `[OptimumResultTable]` is the one PBN 2.1 specifies and
+      `[DoubleDummyTricks]` is a Bridge Composer extension. Only for a deal
+      that already knows all twenty cells: nothing is solved to fill a tag, so
+      an output format never decides how long a run takes
+      ([#64](https://github.com/bridge-craftwork/Dealer3/issues/64))
+- **Writing ZRD is not planned**, and there is nothing to be compatible with:
+  DealerV2 reads that format and does not write it — no `Z` in its option
+  string, none in its usage, and `.zrd` appears in its guide only as the
+  library `-L` reads. Any-to-any conversion belongs in bridge-wrangler
 - [x] Script parameters (`$0`-`$9`) - **COMPLETED**. `--param 1=west` rather than
       DealerV2_4's `-1`, which is dealer.exe's swapping switch; a script declares
       its own defaults in a `# param 1 = 15` comment, which the original's lexer
@@ -265,7 +285,6 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🟢 Someday | Read and write RP ZRD, Pavlicek's solved-deal library | Medium | Medium | [#61](https://github.com/bridge-craftwork/Dealer3/issues/61) | Reading is the valuable half: a ZRD record carries a deal *and* its twenty double-dummy results, so `tricks()`, `dds()` and `par()` become lookups rather than hundred-millisecond searches — which is also what would make them usable in the browser. The format work is bridge-encodings#20. |
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` — which the original ignores | Medium | Low |  | **The original accepts it and does nothing with it.** `predealarg : SUIT '(' COMPASS ')' CMPEQ NUMBER` in `defs.y` calls `bias_deal`, which writes `biasdeal[compass][suit]` — and nothing ever reads that array; `dealer.c` contains its declaration and no other mention. Measured rather than inferred: `predeal spades(north) == 5` over 200 deals gives North an average of 3.285 spades, the natural 3.25, on the macOS build and on the Windows one BBO's lineage comes from. So there is no behaviour to be compatible with. dealer3 rejects it loudly, which is the better of the two; implementing it would make dealer3 differ from the original rather than match it. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
 | 🔵 Unlikely | `bktfreq`: frequency in buckets, one and two dimensional | Medium | Low |  | Adjacent to the two-dimensional `frequency` below but not the same thing: that one is the original's, this one groups a range into buckets. |

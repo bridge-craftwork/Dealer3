@@ -252,7 +252,6 @@ dealer --vulnerable none  # Vulnerability (long form only)
 |--------|-------------|----------|--------|-------|
 | `-M MODE` | DDS mode | 🔵 Low | Very High | Requires DDS library |
 | `-R N` | Multi-threading | 🔵 Low | High | Performance feature |
-| `-Z FILE` | RP zrd export | 🔵 Low | Medium | Niche format |
 | `-L PATH` | Library source | 🔵 Low | High | Advanced feature |
 | `-O POS` | OPC evaluation | 🔵 Low | High | Advanced analysis |
 | `-P N` | Par vulnerability | 🔵 Low | High | Requires DDS |

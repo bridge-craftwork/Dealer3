@@ -64,6 +64,10 @@ export function loadSession() {
       // so a first visit takes the engine's own number instead of a copy of it
       // kept here — see `defaultMeasureSeconds`.
       measureSeconds: Number.isFinite(v.measureSeconds) ? v.measureSeconds : undefined,
+      // Whether a PBN export carries the double-dummy tables its deals
+      // arrived with. Stored as the engine's own word rather than a boolean,
+      // since the engine takes four values and the page offers two of them.
+      ddTags: v.ddTags === 'none' ? 'none' : 'optimum',
       // What was typed into the script's parameter fields, by parameter
       // number. Restored with the script, since a parameterised scenario is
       // only half itself without them.

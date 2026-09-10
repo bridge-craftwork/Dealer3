@@ -18,7 +18,7 @@ use dealer_level::{
 use dealer_parser::{ActionType, CsvTerm, Statement, VulnerabilityType};
 use dealer_pbn::{
     format_oneline, format_printall, format_printcompact, format_printew, format_printns,
-    format_printpbn, PbnBoard, Vulnerability,
+    format_printpbn, DdTags, PbnBoard, Vulnerability,
 };
 use dealer_run::{Phase, Produced, RunHost, RunOptions};
 use std::fs::OpenOptions;
@@ -56,6 +56,17 @@ struct Args {
     /// script's own `printes`, `printrpt` and `print(...)` output is unaffected.
     #[arg(short = 'f', long = "format")]
     format: Option<OutputFormat>,
+
+    /// Which double-dummy tags a PBN export writes: none, optimum, tricks or
+    /// both (defaults to optimum).
+    ///
+    /// Only for deals that already know all twenty cells — one read from a
+    /// solved library, or one whose script asked for every cell. **Nothing is
+    /// solved to satisfy this**: an output format that decided how long a run
+    /// takes would be a trap, and `-f pbn` on a script that never mentions
+    /// double-dummy would suddenly cost minutes a deal.
+    #[arg(long = "dd-tags", value_name = "WHICH", default_value = "optimum")]
+    dd_tags: DdTags,
 
     /// Dealer position (N/E/S/W) - used with PBN format (defaults to rotating, or value from input file if not specified)
     #[arg(short = 'd', long = "dealer")]
@@ -658,6 +669,8 @@ fn render_board(
     event_name: Option<&str>,
     seed: u32,
     input_file: Option<&str>,
+    dd_table: Option<&bridge_types::DdTable>,
+    dd_tags: DdTags,
 ) -> String {
     match format {
         OutputFormat::PrintAll => format_printall(deal, board_number),
@@ -673,6 +686,8 @@ fn render_board(
                 seed: Some(seed),
                 input_file,
                 hand_type,
+                dd_table,
+                dd_tags,
             },
         ),
         OutputFormat::PrintCompact => format_printcompact(deal),
@@ -1769,7 +1784,12 @@ fn main() {
             /// Held rather than printed when `--interleave` is on: the order is
             /// not known until every deal is in, and a board's number belongs to
             /// where it lands.
-            held: Vec<(Option<String>, Deal)>,
+            ///
+            /// The double-dummy table is held with it. It is twenty bytes and
+            /// `Copy`, and the alternative is `--interleave` quietly writing
+            /// PBN without the analysis every other path writes — a difference
+            /// nobody would think to look for.
+            held: Vec<(Option<String>, Deal, Option<bridge_types::DdTable>)>,
             printed_deals: Vec<Deal>,
             produced: usize,
             /// The progress meter's last report, in deals.
@@ -1879,9 +1899,15 @@ fn main() {
 
                 if !self.args.quiet {
                     if self.args.interleave {
-                        self.held
-                            .push((hand_type.map(str::to_string), deal.deal.clone()));
+                        self.held.push((
+                            hand_type.map(str::to_string),
+                            deal.deal.clone(),
+                            deal.dd_table(),
+                        ));
                     } else if self.print_deals {
+                        // Bound rather than passed inline: the renderer borrows
+                        // it, and a temporary would not outlive the call.
+                        let table = deal.dd_table();
                         print!(
                             "{}",
                             render_board(
@@ -1894,6 +1920,8 @@ fn main() {
                                 self.title.as_deref(),
                                 self.seed,
                                 self.args.input_file.as_deref(),
+                                table.as_ref(),
+                                self.args.dd_tags,
                             )
                         );
                     }
@@ -2082,7 +2110,7 @@ fn main() {
         // rather than meeting them as they happen to fall.
         if args.interleave && !held.is_empty() {
             let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-            for (index, (hand_type, _)) in held.iter().enumerate() {
+            for (index, (hand_type, _, _)) in held.iter().enumerate() {
                 match buckets.iter_mut().find(|(name, _)| name == hand_type) {
                     Some((_, deals)) => deals.push(index),
                     None => buckets.push((hand_type.clone(), vec![index])),
@@ -2113,7 +2141,7 @@ fn main() {
                 if !print_deals {
                     continue;
                 }
-                let (hand_type, deal) = &held[index];
+                let (hand_type, deal, table) = &held[index];
                 print!(
                     "{}",
                     render_board(
@@ -2126,6 +2154,8 @@ fn main() {
                         title.as_deref(),
                         seed,
                         args.input_file.as_deref(),
+                        table.as_ref(),
+                        args.dd_tags,
                     )
                 );
             }

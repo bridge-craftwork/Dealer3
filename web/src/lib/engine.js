@@ -12,6 +12,7 @@ import init, {
   measure_budget_seconds as wasmMeasureBudgetSeconds,
   version as wasmVersion,
 } from '@/wasm/dealer3_wasm.js'
+import { DD_TAGS_DEFAULT } from './envelope.js'
 
 let loading = null
 let loaded = false
@@ -119,6 +120,11 @@ function runInWorker(script, options) {
         format: options.format,
         autoLevel: options.autoLevel,
         roundRobin: options.roundRobin,
+        // Which double-dummy tags a PBN export carries. Filled only from what
+        // a deal already knows — a deal from the pre-solved library knows all
+        // twenty cells — so this changes what a file holds and never how long
+        // a run takes.
+        ddTags: options.ddTags,
         // Seconds to spend characterizing, which is a limit on the pass the
         // reader did not ask for. Deliberately not `maxGenerate`: that bounds
         // the run they did ask for, and one number cannot be set for both.
@@ -227,6 +233,12 @@ export async function generate(
     /// budget for the run that was asked for, and used to cut the measuring
     /// short with seconds of the clock still unspent.
     measureSeconds = undefined,
+    /// Which double-dummy tags a PBN export carries: `optimum` for the
+    /// `[OptimumResultTable]` section PBN 2.1 specifies, or `none`. Filled from
+    /// what a deal already knows — a deal from the pre-solved library knows all
+    /// twenty cells — and never solved for, so this changes what the file holds
+    /// and never how long the run takes.
+    ddTags = DD_TAGS_DEFAULT,
     /// What to put where `$0`-`$9` stand, in `--param`'s own `N=TEXT` spelling.
     /// A parameter left out here falls back to the script's own `# param`
     /// default, and fails the run if it has none.
@@ -254,6 +266,7 @@ export async function generate(
     autoLevel,
     roundRobin,
     measureSeconds,
+    ddTags,
     source,
     params,
     onProgress,

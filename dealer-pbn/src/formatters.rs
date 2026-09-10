@@ -1,3 +1,4 @@
+use bridge_types::DdTable;
 use chrono::{Datelike, Local};
 use dealer_core::{Deal, Position, Rank, Suit};
 
@@ -165,6 +166,69 @@ pub struct PbnBoard<'a> {
     /// variables. Written as `[HandType "..."]`, which is not a standard tag —
     /// readers ignore what they do not know, so the file stays a PBN file.
     pub hand_type: Option<&'a str>,
+    /// This deal's double-dummy table, when all twenty cells are known.
+    ///
+    /// Never solved for: a table is here because the deal arrived with one or
+    /// because the script asked for every cell of it. Writing PBN must not
+    /// start a search — that would make the output format decide how long a
+    /// run takes.
+    pub dd_table: Option<&'a DdTable>,
+    /// Which of the two redundant encodings to write it in.
+    pub dd_tags: DdTags,
+}
+
+/// Which double-dummy encoding a PBN export writes.
+///
+/// The two say the same thing, so this is the consumer's choice rather than
+/// ours. `[OptimumResultTable]` is the one with a specification — PBN 2.1 §5.7
+/// — while `[DoubleDummyTricks]` is a Bridge Composer extension that appears
+/// nowhere in the standard, which is why the standard form is the default.
+///
+/// Writing only the standard form is safe for Bridge Composer users: its own
+/// help says its Double Dummy commands "make sure that both the
+/// DoubleDummyTricks tag and the OptimumResultTable tag are set properly", so
+/// it fills in its own tag when it analyses a board. That cannot be assumed of
+/// every tool, which is why `Tricks` and `Both` exist rather than the
+/// extension being dropped outright.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DdTags {
+    /// No analysis tags, even for a deal that knows its table.
+    ///
+    /// Not free to carry: the section is twenty-two lines a board against one
+    /// for the tag, where a whole board is a few hundred bytes. An export
+    /// nobody will read the analysis in should be able to say so.
+    None,
+    /// `[OptimumResultTable]` alone.
+    #[default]
+    Optimum,
+    /// `[DoubleDummyTricks]` alone.
+    Tricks,
+    /// Both, as `bridge-solver`'s CLI writes.
+    Both,
+}
+
+impl std::str::FromStr for DdTags {
+    type Err = String;
+
+    /// The spellings both front ends accept.
+    ///
+    /// Here rather than in either caller: the command line and the page read
+    /// the same word out of the same envelope, and two lists would be two
+    /// chances to disagree about what `tricks` means. The tag names are
+    /// accepted as well as the short words, because someone reaching for this
+    /// is looking at a PBN file and those are what it says.
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_lowercase().as_str() {
+            "none" | "no" | "off" => Ok(DdTags::None),
+            "optimum" | "optimumresulttable" | "table" => Ok(DdTags::Optimum),
+            "tricks" | "doubledummytricks" | "tag" => Ok(DdTags::Tricks),
+            "both" | "all" => Ok(DdTags::Both),
+            _ => Err(format!(
+                "Invalid dd-tags value '{}'. Valid options: none, optimum, tricks, both",
+                value
+            )),
+        }
+    }
 }
 
 /// Format a deal in PBN (Portable Bridge Notation) format.
@@ -181,6 +245,8 @@ pub fn format_printpbn(deal: &Deal, board: &PbnBoard) -> String {
         seed,
         input_file,
         hand_type,
+        dd_table,
+        dd_tags,
     } = *board;
     let mut result = String::new();
 
@@ -281,10 +347,40 @@ pub fn format_printpbn(deal: &Deal, board: &PbnBoard) -> String {
     }
     result.push_str("\"]\n");
 
+    // What is known of this deal's double-dummy results, in whichever encoding
+    // was asked for. The tag goes with the tags; the section has to come after
+    // all of them, since its rows run until a blank line and a tag after them
+    // would read as part of the table.
+    let writes_tricks = matches!(dd_tags, DdTags::Tricks | DdTags::Both);
+    if let (Some(table), true) = (dd_table, writes_tricks) {
+        result.push_str(&format!(
+            "[DoubleDummyTricks \"{}\"]\n",
+            bridge_encodings::pbn::dd_table_to_pbn(table)
+        ));
+    }
+
     // Placeholder tags for game info
     result.push_str("[Declarer \"?\"]\n");
     result.push_str("[Contract \"?\"]\n");
     result.push_str("[Result \"?\"]\n");
+
+    let writes_optimum = matches!(dd_tags, DdTags::Optimum | DdTags::Both);
+    if let (Some(table), true) = (dd_table, writes_optimum) {
+        // The `Result` column is one character wide when no declarer takes ten
+        // tricks and two when one does. Header and rows come from the same
+        // place for that reason: a header declaring one width over rows padded
+        // to another is what had Bridge Composer rewriting every single-digit
+        // table on open and save.
+        result.push_str(&format!(
+            "[OptimumResultTable \"{}\"]\n",
+            bridge_encodings::pbn::optimum_result_table_header(table)
+        ));
+        for row in bridge_encodings::pbn::optimum_result_table_rows(table) {
+            result.push_str(&row);
+            result.push('\n');
+        }
+    }
+
     result.push('\n');
 
     result

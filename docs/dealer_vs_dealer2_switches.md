@@ -69,7 +69,6 @@ These switches are new features added in DealerV2_4:
 |--------|-------------|----------|
 | `-C FILE` | CSV Report filename | Export |
 | `-X FILE` | Export predeal holdings | Export |
-| `-Z FILE` | RP zrd format export | Export |
 
 ### Advanced Features
 
@@ -187,7 +186,12 @@ Based on this analysis, dealer3 should:
 ### Low Priority (Advanced Features)
 9. ~~Swapping modes~~ - done, using dealer.exe's `-0`/`-2`/`-3` rather than V2_4's `-x MODE`
 10. DDS integration (`-M`, `-R`) - High effort, requires external library
-11. Export formats (`-Z` RP ZRD) - niche, but reading ZRD is not: see #61
+11. ~~Export formats (`-Z` RP ZRD)~~ - **there is no such switch.** DealerV2_4's
+    option string carries no `Z`, its usage message does not list one, and neither
+    its user guide nor its README mentions a ZRD export; `.zrd` appears there only
+    as the library `-L` *reads*, built by Pavlicek's own `xxdd.exe`. Reading it is
+    the valuable half and is done — see the closed #61. Writing it is not wanted:
+    any-to-any conversion belongs in bridge-wrangler
 
 ### Avoid Conflicts
 - **DO NOT** implement dealer.exe's `-l` (library.dat reader) to avoid confusion with V2_4

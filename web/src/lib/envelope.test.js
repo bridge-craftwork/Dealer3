@@ -35,6 +35,7 @@ describe('runEnvelope', () => {
     // was not made there fails the run rather than being ignored.
     expect(Object.keys(parsed('condition 1\n', settings).settings).sort()).toEqual([
       'autoLevel',
+      'ddTags',
       'format',
       'maxGenerate',
       'params',
@@ -83,6 +84,7 @@ describe('a document', () => {
     autoLevel: false,
     roundRobin: false,
     params: [],
+    ddTags: 'optimum',
     dealSource: 'library',
     newSeedEachRun: true,
     scenario: 'Sup_X_By_Advancer',
@@ -104,6 +106,7 @@ describe('a document', () => {
     const envelope = JSON.parse(runEnvelope(doc.script, doc.settings))
     expect(Object.keys(envelope.settings).sort()).toEqual([
       'autoLevel',
+      'ddTags',
       'format',
       'maxGenerate',
       'params',
@@ -226,5 +229,59 @@ describe('the formats a document may name', () => {
       (m) => m[1],
     )
     expect(offered).toEqual(DOCUMENT_FORMATS)
+  })
+})
+
+describe('double-dummy tags', () => {
+  it('default to the encoding PBN specifies, as the command line does', () => {
+    // `--dd-tags` defaults to `optimum` too, so a file saved from the page and
+    // one saved from the terminal hold the same thing.
+    const settings = JSON.parse(runEnvelope('c\n', { seed: 1, produce: 1 })).settings
+    expect(settings.ddTags).toBe('optimum')
+  })
+
+  it('read back only the two values the page can show', () => {
+    // The engine also takes `tricks` and `both`. A link carrying one would
+    // arrive with no control to show it in, and would quietly change what the
+    // recipient's next PBN download held.
+    const read = (ddTags) =>
+      readDocument({ v: 1, script: 'c\n', settings: { ddTags } }).settings.ddTags
+    expect(read('none')).toBe('none')
+    expect(read('optimum')).toBe('optimum')
+    expect(read('both')).toBe('optimum')
+    expect(read(undefined)).toBe('optimum')
+  })
+})
+
+describe('what the page sends and what the engine reads', () => {
+  // The bug this exists for: `generate()` takes its options apart into named
+  // parameters and puts them back together for the worker, so a setting added
+  // to the envelope but not to both of those lists is silently dropped — and
+  // the engine, seeing no field, uses its default. The run works. It just
+  // quietly ignores what was asked for, which is how a ticked box wrote
+  // double-dummy tables into a file that was meant not to have them.
+  const source = readFileSync(new URL('./engine.js', import.meta.url), 'utf8')
+  const accepted = source.slice(
+    source.indexOf('export async function generate('),
+    source.indexOf('const message = await runInWorker('),
+  )
+  const forwarded = source.slice(
+    source.indexOf('const message = await runInWorker('),
+    source.indexOf('const raw = JSON.parse(message.raw)'),
+  )
+
+  const settings = Object.keys(
+    JSON.parse(runEnvelope('condition 1\n', { seed: 1, produce: 1, measureSeconds: 5 })).settings,
+  )
+
+  it('finds both halves of the projection to check', () => {
+    expect(accepted.length).toBeGreaterThan(200)
+    expect(forwarded.length).toBeGreaterThan(50)
+    expect(settings.length).toBeGreaterThan(6)
+  })
+
+  it.each(settings)('generate() accepts and forwards %s', (name) => {
+    expect(accepted).toContain(`${name} =`)
+    expect(forwarded).toContain(name)
   })
 })

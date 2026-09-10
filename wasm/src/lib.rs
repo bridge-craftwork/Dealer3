@@ -28,7 +28,9 @@ mod library;
 use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_parser::vocabulary;
 use dealer_parser::{Statement, VulnerabilityType};
-use dealer_pbn::{format_oneline, format_printall, format_printpbn, PbnBoard, Vulnerability};
+use dealer_pbn::{
+    format_oneline, format_printall, format_printpbn, DdTags, PbnBoard, Vulnerability,
+};
 use dealer_run::{Deals, LevelingOptions, Phase, Produced, RunHost, RunOptions};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -96,6 +98,7 @@ impl Format {
         index: usize,
         ctx: &OutputContext,
         hand_type: Option<&str>,
+        table: Option<&bridge_types::DdTable>,
     ) -> String {
         match self {
             Format::OneLine => format_oneline(deal).trim_end().to_string(),
@@ -112,6 +115,11 @@ impl Format {
                     vulnerability: ctx.vulnerability,
                     seed: Some(ctx.seed),
                     hand_type,
+                    // A deal from the pre-solved library arrives with all
+                    // twenty cells, so a set saved from the page carries its
+                    // analysis the way one saved from the command line does.
+                    dd_table: table,
+                    dd_tags: ctx.dd_tags,
                     ..Default::default()
                 },
             ),
@@ -379,6 +387,8 @@ struct OutputContext {
     dealer: Option<Position>,
     vulnerability: Option<Vulnerability>,
     seed: u32,
+    /// Which double-dummy tags a PBN board carries, when it has a table at all.
+    dd_tags: DdTags,
 }
 
 /// Wall-clock milliseconds. `std::time::SystemTime::now()` panics on
@@ -482,7 +492,12 @@ struct Page<'a> {
     /// Deals to hand back, capped: a large `produce` used to gather statistics
     /// does not have to ship every deal to JS. Left empty altogether under
     /// `Format::None`, which is the whole point of that format.
-    held: Vec<(Option<usize>, Deal)>,
+    ///
+    /// The double-dummy table travels with each one. It is twenty bytes and
+    /// `Copy`, and a deal from the pre-solved library always has one — so a
+    /// PBN saved from the page can carry the analysis it was dealt with
+    /// instead of quietly dropping it.
+    held: Vec<(Option<usize>, Deal, Option<bridge_types::DdTable>)>,
     /// Whether the chosen format has any use for a deal. False only under
     /// `Format::None`, and then nothing is cloned, rendered or shipped.
     collects_deals: bool,
@@ -610,7 +625,8 @@ impl RunHost for Page<'_> {
         // The deal itself, which `Format::None` has no use for: no clone here,
         // no render after the run, and nothing to serialise across to the page.
         if self.collects_deals {
-            self.held.push((deal.hand_type, deal.deal.clone()));
+            self.held
+                .push((deal.hand_type, deal.deal.clone(), deal.dd_table()));
         }
         Ok(())
     }
@@ -683,6 +699,14 @@ struct RunSettings {
     /// Absent means [`MEASURE_BUDGET_MS`], as it did when this was an argument.
     #[serde(default)]
     measure_seconds: Option<f64>,
+    /// Which double-dummy tags a PBN export carries: `none`, `optimum`,
+    /// `tricks` or `both`. Absent means `optimum`, which is what `--dd-tags`
+    /// defaults to — so the page and the command line write the same file.
+    ///
+    /// Only ever fills a tag from what is already known. Nothing is solved for
+    /// it, so ticking the box cannot turn a fast run into a slow one.
+    #[serde(default)]
+    dd_tags: Option<String>,
 }
 
 /// Run a script, described by an envelope, and return the report as JSON.
@@ -771,6 +795,14 @@ fn run_envelope(
         None => DealSource::Shuffled,
     };
 
+    // Refused by name rather than quietly defaulted: a page asking for a
+    // spelling this build does not know should hear about it, exactly as a
+    // misspelled setting does.
+    let dd_tags = match s.dd_tags.as_deref() {
+        Some(value) => value.parse::<DdTags>()?,
+        None => DdTags::default(),
+    };
+
     run_script(
         &envelope.script,
         s.seed,
@@ -781,6 +813,7 @@ fn run_envelope(
         s.round_robin,
         &s.params,
         s.measure_seconds,
+        dd_tags,
         on_progress,
         source,
     )
@@ -804,6 +837,7 @@ fn run_script(
     round_robin: bool,
     params: &[String],
     measure_seconds: Option<f64>,
+    dd_tags: DdTags,
     on_progress: Option<js_sys::Function>,
     source: DealSource,
 ) -> Result<String, String> {
@@ -845,6 +879,7 @@ fn run_script(
         dealer: None,
         vulnerability: None,
         seed,
+        dd_tags,
     };
     let mut predeal = FastDealConfig::new();
     for statement in &program.statements {
@@ -1003,7 +1038,7 @@ fn run_script(
     let labels: Vec<String> = report.hand_types.iter().map(|(n, _)| n.clone()).collect();
     let order: Vec<usize> = if report.leveling.is_some() && !labels.is_empty() {
         let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-        for (index, (matched, _)) in page.held.iter().enumerate() {
+        for (index, (matched, _, _)) in page.held.iter().enumerate() {
             let label = matched.map(|i| labels[i].clone());
             match buckets.iter_mut().find(|(name, _)| *name == label) {
                 Some((_, deals)) => deals.push(index),
@@ -1018,9 +1053,9 @@ fn run_script(
     let mut deals = Vec::with_capacity(order.len());
     let mut deal_types = Vec::with_capacity(order.len());
     for (position, index) in order.into_iter().enumerate() {
-        let (matched, deal) = &page.held[index];
+        let (matched, deal, table) = &page.held[index];
         let label = matched.map(|i| labels[i].as_str());
-        deals.push(format.render(deal, position, &output, label));
+        deals.push(format.render(deal, position, &output, label, table.as_ref()));
         deal_types.push(label.map(str::to_string));
     }
 
@@ -1854,6 +1889,7 @@ mod tests {
             false,
             &[],
             None,
+            DdTags::default(),
             None,
             DealSource::Supplied {
                 deals: supplied,
@@ -2049,6 +2085,7 @@ mod tests {
             false,
             &[],
             None,
+            DdTags::default(),
             None,
             DealSource::Shuffled,
         )

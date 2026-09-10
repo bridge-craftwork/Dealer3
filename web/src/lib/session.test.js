@@ -22,6 +22,7 @@ const session = {
   maxGenerate: 100000,
   format: 'printall',
   dealSource: 'library',
+  ddTags: 'optimum',
   scenario: 'Weak_2_Bids',
   pickerOpen: true,
   settingsOpen: false,
@@ -182,5 +183,21 @@ describe('the checkbox settings', () => {
     saveSession(session)
     expect(loadSession().autoLevel).toBeUndefined()
     expect(loadSession().newSeedEachRun).toBeUndefined()
+  })
+})
+
+describe('double-dummy tags', () => {
+  it('reads a session saved before the box existed as writing them', () => {
+    // The box is on by default, so a session from before it must not come back
+    // with the tables switched off: a deal from the pre-solved library knows
+    // all twenty cells, and dropping them is the whole reason for reading it.
+    const { ddTags, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    expect(loadSession().ddTags).toBe('optimum')
+  })
+
+  it('keeps an explicit no', () => {
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, ddTags: 'none' }))
+    expect(loadSession().ddTags).toBe('none')
   })
 })

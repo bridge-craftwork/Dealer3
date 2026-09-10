@@ -20,6 +20,15 @@
 /// out of date. The engine refuses a version it does not recognise.
 export const ENVELOPE_VERSION = 1
 
+/// What a PBN export carries when nobody has said.
+///
+/// `optimum` is `[OptimumResultTable]`, the encoding PBN 2.1 specifies, and it
+/// is what `--dd-tags` defaults to on the command line — the page and the
+/// terminal write the same file. `none` is the other value this page offers;
+/// the engine also takes `tricks` and `both`.
+export const DD_TAGS_DEFAULT = 'optimum'
+export const DD_TAGS_OFF = 'none'
+
 /**
  * Describe a run as the JSON string `run_json` takes.
  *
@@ -49,6 +58,10 @@ export function runEnvelope(script, options = {}) {
     autoLevel: !!options.autoLevel,
     roundRobin: !!options.roundRobin,
     params: options.params || [],
+    // Which double-dummy tags a PBN export carries. The engine fills them only
+    // from what a deal already knows and never solves to fill one, so this
+    // changes what a file holds and never how long a run takes.
+    ddTags: options.ddTags || DD_TAGS_DEFAULT,
   }
   // Omitted rather than sent as null: the engine reads an absent field as
   // "use the default budget", and `null` would have to mean the same thing in
@@ -108,6 +121,7 @@ export const DOCUMENT_DEFAULTS = Object.freeze({
   autoLevel: false,
   roundRobin: false,
   params: [],
+  ddTags: DD_TAGS_DEFAULT,
   dealSource: 'random',
   newSeedEachRun: false,
   scenario: '',
@@ -139,6 +153,7 @@ export function makeDocument(script, options = {}) {
     autoLevel: !!options.autoLevel,
     roundRobin: !!options.roundRobin,
     params: options.params || [],
+    ddTags: options.ddTags || DD_TAGS_DEFAULT,
     dealSource: options.dealSource === 'library' ? 'library' : 'random',
     newSeedEachRun: !!options.newSeedEachRun,
   }
@@ -200,6 +215,10 @@ export function readDocument(value) {
     newSeedEachRun: from.newSeedEachRun === true,
     scenario: typeof from.scenario === 'string' ? from.scenario : '',
     params: readParams(from.params),
+    // Only the two the page offers. The engine takes `tricks` and `both` as
+    // well, but a value with no control to show it in would arrive invisible
+    // and change a file nobody could see it changing.
+    ddTags: from.ddTags === DD_TAGS_OFF ? DD_TAGS_OFF : DD_TAGS_DEFAULT,
   }
   // Left out rather than defaulted, both of them. An absent seed means the
   // reader rolls one; an absent budget means the engine's own.

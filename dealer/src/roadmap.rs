@@ -34,7 +34,12 @@ pub enum DoneWhen {
 impl DoneWhen {
     fn is_done(self) -> bool {
         match self {
-            DoneWhen::Switch(flag) => support(flag, "") == Support::Yes,
+            // Passed as both, because `support` matches a short against
+            // `-c` and a long against `--word` and ignores the one that
+            // cannot match. Passing the flag only as `short` — which this
+            // did — meant a row waiting on a long switch could never be
+            // satisfied, and would have outlived the work it described.
+            DoneWhen::Switch(flag) => support(flag, flag) == Support::Yes,
             DoneWhen::Function(name) => vocabulary::FUNCTIONS.contains(&name),
             DoneWhen::Statement(name) => vocabulary::STATEMENT_KEYWORDS.contains(&name),
         }
@@ -195,19 +200,6 @@ pub const REMAINING: &[WorkItem] = &[
         effort: Effort::High,
         value: Value::Low,
         note: Some("`--input-deals` already covers the common case in dealer3's own way."),
-    },
-    WorkItem {
-        what: "Read and write RP ZRD, Pavlicek's solved-deal library",
-        done_when: Some(DoneWhen::Switch("-Z")),
-        issue: Some(61),
-        effort: Effort::Medium,
-        value: Value::Medium,
-        note: Some(
-            "Reading is the valuable half: a ZRD record carries a deal *and* its twenty \
-             double-dummy results, so `tricks()`, `dds()` and `par()` become lookups rather \
-             than hundred-millisecond searches — which is also what would make them usable \
-             in the browser. The format work is bridge-encodings#20.",
-        ),
     },
     WorkItem {
         what: "Exhaust mode — which no build of the original ships",
