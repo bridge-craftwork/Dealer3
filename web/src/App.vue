@@ -122,7 +122,13 @@
             :aria-expanded="settingsOpen ? 'true' : 'false'"
             @click="settingsOpen = !settingsOpen"
           >
-            <span aria-hidden="true">⚙</span>
+            <!-- U+FE0E, the text variation selector. U+2699 has no default
+                 presentation, so a platform chooses: macOS draws the glyph,
+                 iOS draws a colour emoji, and the button showed a shaded 3D
+                 cog on a phone and a flat one on a desktop. This asks for the
+                 text form, which also keeps it in `currentColor` with the
+                 rest of the button. -->
+            <span aria-hidden="true">⚙︎</span>
           </button>
 
           <button
@@ -1037,7 +1043,13 @@ body {
 .settings-panel input, .settings-panel select, .run-row input {
   font: inherit; font-size: 12px; padding: 3px 5px;
   border: 1px solid var(--line); border-radius: 3px; background: var(--bg); color: var(--fg);
+  /* The widths below are in `ch` and `em`, so they follow the font. If anything
+     ever inflates it again — a platform, a user's setting — a field grows and
+     its row does not. These two stop it from taking the page with it: a label
+     that may shrink, and a field that may not exceed what holds it. */
+  max-width: 100%; min-width: 0;
 }
+.settings-panel label, .run-row label { min-width: 0; }
 /* Numeric fields sized for the values they actually hold.
    A number input draws its spinner INSIDE its own box, and the box also carries
    the field's padding and border, so the digits are clipped well before the

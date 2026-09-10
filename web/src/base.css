@@ -1,0 +1,27 @@
+/* Rules that have to reach `html`, which a scoped component stylesheet cannot.
+ *
+ * ## Text that inflates itself
+ *
+ * iOS Safari's default is `-webkit-text-size-adjust: auto`, which inflates text
+ * in blocks it judges too small for the viewport **while leaving layout widths
+ * alone**. Everything measured in `ch` or `em` — every number field on this
+ * page, and CodeMirror's own content width, which it computes from the font's
+ * metrics — grows with the font, and the containers holding them do not.
+ *
+ * The result on an iPhone 16 Pro Max: the editor's 13px script rendered at
+ * about 18px, a 1.4x boost, and the editor box and the Run button hung off the
+ * right of a page that fit perfectly in every desktop measurement, including
+ * one taken at 300px with the same script.
+ *
+ * `100%` turns the boost off; it does not stop pinch-zoom, and it does not
+ * disable Dynamic Type for text set in a system font. normalize.css and
+ * Tailwind's preflight both set it, for this reason.
+ *
+ * The wider lesson is worth keeping: a layout verified only in a desktop
+ * browser at a phone's *width* has not been verified on a phone. The width was
+ * never what differed.
+ */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
