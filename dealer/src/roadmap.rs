@@ -199,7 +199,7 @@ pub const REMAINING: &[WorkItem] = &[
     WorkItem {
         what: "Write RP ZRD, and write double-dummy tables back on export",
         done_when: Some(DoneWhen::Switch("-Z")),
-        issue: Some(61),
+        issue: Some(64),
         effort: Effort::Medium,
         value: Value::Medium,
         note: Some(
@@ -209,8 +209,8 @@ pub const REMAINING: &[WorkItem] = &[
              `[OptimumResultTable]` — so `tricks()`, `dds()` and `par()` are lookups rather \
              than hundred-millisecond searches, which is what made them affordable in the \
              browser. What is left is the other direction: writing a table back out, as a \
-             PBN tag and as ZRD records, so a run's deals can be saved solved. \
-             bridge-craftwork/Dealer3#64 chooses which encoding a PBN export writes. The \
+             PBN tag and as ZRD records, so a run's deals can be saved solved — which is \
+             what this issue now covers, the encoding a PBN export writes included. The \
              format work is bridge-encodings#20.",
         ),
     },

@@ -219,9 +219,10 @@ See `CHANGELOG.md` for the migration note.
       memo it was prototyped through is retired; a table travels with its deal
       and goes with it when the filter throws it away (#61)
 - [ ] ZRD: **write** one — the half that is left. Export writing tables back,
-      as a PBN tag and as ZRD records, is `-Z`; [#64](https://github.com/bridge-craftwork/Dealer3/issues/64)
-      chooses which encoding a PBN export writes
-      ([#61](https://github.com/bridge-craftwork/Dealer3/issues/61))
+      as a PBN tag and as ZRD records, is `-Z`, and it lives in
+      [#64](https://github.com/bridge-craftwork/Dealer3/issues/64) along with
+      the choice of which encoding a PBN export writes. #61, which was the
+      reading half, is closed
 - [x] Script parameters (`$0`-`$9`) - **COMPLETED**. `--param 1=west` rather than
       DealerV2_4's `-1`, which is dealer.exe's swapping switch; a script declares
       its own defaults in a `# param 1 = 15` comment, which the original's lexer
@@ -277,7 +278,7 @@ Priority is derived from effort and value rather than written down beside them.
 
 | Priority | What | Effort | Value | Issue | Notes |
 |---|---|---|---|---|---|
-| 🟢 Someday | Write RP ZRD, and write double-dummy tables back on export | Medium | Medium | [#61](https://github.com/bridge-craftwork/Dealer3/issues/61) | **Reading has shipped**, which was the valuable half: `--input-deals` takes a `.zrd`, and a deal read from any format arrives with the double-dummy table it carried — a ZRD record's twenty results, a PBN `[DoubleDummyTricks]` or an `[OptimumResultTable]` — so `tricks()`, `dds()` and `par()` are lookups rather than hundred-millisecond searches, which is what made them affordable in the browser. What is left is the other direction: writing a table back out, as a PBN tag and as ZRD records, so a run's deals can be saved solved. bridge-craftwork/Dealer3#64 chooses which encoding a PBN export writes. The format work is bridge-encodings#20. |
+| 🟢 Someday | Write RP ZRD, and write double-dummy tables back on export | Medium | Medium | [#64](https://github.com/bridge-craftwork/Dealer3/issues/64) | **Reading has shipped**, which was the valuable half: `--input-deals` takes a `.zrd`, and a deal read from any format arrives with the double-dummy table it carried — a ZRD record's twenty results, a PBN `[DoubleDummyTricks]` or an `[OptimumResultTable]` — so `tricks()`, `dds()` and `par()` are lookups rather than hundred-millisecond searches, which is what made them affordable in the browser. What is left is the other direction: writing a table back out, as a PBN tag and as ZRD records, so a run's deals can be saved solved — which is what this issue now covers, the encoding a PBN export writes included. The format work is bridge-encodings#20. |
 | 🔵 Unlikely | The length-bias form of `predeal`, `spades(north) == 5` — which the original ignores | Medium | Low |  | **The original accepts it and does nothing with it.** `predealarg : SUIT '(' COMPASS ')' CMPEQ NUMBER` in `defs.y` calls `bias_deal`, which writes `biasdeal[compass][suit]` — and nothing ever reads that array; `dealer.c` contains its declaration and no other mention. Measured rather than inferred: `predeal spades(north) == 5` over 200 deals gives North an average of 3.285 spades, the natural 3.25, on the macOS build and on the Windows one BBO's lineage comes from. So there is no behaviour to be compatible with. dealer3 rejects it loudly, which is the better of the two; implementing it would make dealer3 differ from the original rather than match it. |
 | 🔵 Unlikely | `--bbo-strict`: warn when a script will behave differently on BBO | Medium | Low | [#13](https://github.com/bridge-craftwork/Dealer3/issues/13) | Rick judged it unlikely to bite. |
 | 🔵 Unlikely | `bktfreq`: frequency in buckets, one and two dimensional | Medium | Low |  | Adjacent to the two-dimensional `frequency` below but not the same thing: that one is the original's, this one groups a range into buckets. |
