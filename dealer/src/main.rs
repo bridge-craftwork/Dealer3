@@ -66,7 +66,7 @@ struct Args {
     /// takes would be a trap, and `-f pbn` on a script that never mentions
     /// double-dummy would suddenly cost minutes a deal.
     #[arg(long = "dd-tags", value_name = "WHICH", default_value = "optimum")]
-    dd_tags: DdTagsArg,
+    dd_tags: DdTags,
 
     /// Dealer position (N/E/S/W) - used with PBN format (defaults to rotating, or value from input file if not specified)
     #[arg(short = 'd', long = "dealer")]
@@ -360,49 +360,6 @@ enum OutputFormat {
     /// dealer.exe script or command line means changes. The browser offers the
     /// same choice in its format list, where there is no `-q` to reach for.
     None,
-}
-
-/// `--dd-tags`, as the command line spells it.
-///
-/// A separate type from [`dealer_pbn::DdTags`] so that the formatter crate
-/// needs no argument parser, and so the spellings this accepts are decided
-/// here, where every other switch's are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DdTagsArg {
-    None,
-    Optimum,
-    Tricks,
-    Both,
-}
-
-impl From<DdTagsArg> for DdTags {
-    fn from(value: DdTagsArg) -> Self {
-        match value {
-            DdTagsArg::None => DdTags::None,
-            DdTagsArg::Optimum => DdTags::Optimum,
-            DdTagsArg::Tricks => DdTags::Tricks,
-            DdTagsArg::Both => DdTags::Both,
-        }
-    }
-}
-
-impl std::str::FromStr for DdTagsArg {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // The tag names as well as the short words, because someone writing
-        // this switch is looking at a PBN file and those are what it says.
-        match s.to_lowercase().as_str() {
-            "none" | "no" | "off" => Ok(DdTagsArg::None),
-            "optimum" | "optimumresulttable" | "table" => Ok(DdTagsArg::Optimum),
-            "tricks" | "doubledummytricks" | "tag" => Ok(DdTagsArg::Tricks),
-            "both" | "all" => Ok(DdTagsArg::Both),
-            _ => Err(format!(
-                "Invalid --dd-tags value '{}'. Valid options: none, optimum, tricks, both",
-                s
-            )),
-        }
-    }
 }
 
 impl std::str::FromStr for OutputFormat {
@@ -1964,7 +1921,7 @@ fn main() {
                                 self.seed,
                                 self.args.input_file.as_deref(),
                                 table.as_ref(),
-                                self.args.dd_tags.into(),
+                                self.args.dd_tags,
                             )
                         );
                     }
@@ -2198,7 +2155,7 @@ fn main() {
                         seed,
                         args.input_file.as_deref(),
                         table.as_ref(),
-                        args.dd_tags.into(),
+                        args.dd_tags,
                     )
                 );
             }

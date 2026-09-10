@@ -207,6 +207,30 @@ pub enum DdTags {
     Both,
 }
 
+impl std::str::FromStr for DdTags {
+    type Err = String;
+
+    /// The spellings both front ends accept.
+    ///
+    /// Here rather than in either caller: the command line and the page read
+    /// the same word out of the same envelope, and two lists would be two
+    /// chances to disagree about what `tricks` means. The tag names are
+    /// accepted as well as the short words, because someone reaching for this
+    /// is looking at a PBN file and those are what it says.
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_lowercase().as_str() {
+            "none" | "no" | "off" => Ok(DdTags::None),
+            "optimum" | "optimumresulttable" | "table" => Ok(DdTags::Optimum),
+            "tricks" | "doubledummytricks" | "tag" => Ok(DdTags::Tricks),
+            "both" | "all" => Ok(DdTags::Both),
+            _ => Err(format!(
+                "Invalid dd-tags value '{}'. Valid options: none, optimum, tricks, both",
+                value
+            )),
+        }
+    }
+}
+
 /// Format a deal in PBN (Portable Bridge Notation) format.
 ///
 /// Writes the standard tags — Event, Site, Date, Board, the four player

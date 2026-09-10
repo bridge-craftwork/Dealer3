@@ -263,6 +263,17 @@
               <option value="none">None — statistics only</option>
             </select>
           </label>
+          <!-- Only beside PBN, because that is the only format with anywhere to
+               put a table: one line for the tag, or twenty-two for the section
+               PBN 2.1 specifies. Filled from what a deal already knows and
+               never solved for, so this changes what the file holds and never
+               how long the run takes — which is why it is a plain checkbox and
+               not a warning about cost. -->
+          <label v-if="format === 'pbn'" class="check" :title="ddTagsHint">
+            <input v-model="ddTables" type="checkbox" />
+            Double-dummy tables
+          </label>
+
           <!-- Divides Produce among the hand types instead of taking deals as
                they come. It answers the same question as Auto-level below —
                what mix comes out — and only one of them can, which is why the
@@ -452,6 +463,30 @@ const roundRobin = ref(restored?.roundRobin ?? false)
 // truncated run is a worse outcome than a second of waiting.
 const maxGenerate = ref(restored?.maxGenerate ?? 1000000)
 const format = ref(restored?.format || 'oneline')
+
+// Whether a PBN export carries the double-dummy tables its deals arrived with.
+//
+// A boolean here and one of the engine's four words on the wire: the page
+// offers the standard `[OptimumResultTable]` or nothing at all, where the
+// command line can also ask for the Bridge Composer extension. Two controls for
+// an encoding almost nobody chooses between would be two controls to explain.
+//
+// On by default, matching `--dd-tags`: a deal drawn from the pre-solved library
+// knows all twenty cells, and dropping them on the way out would throw away the
+// whole reason for reading from it.
+const ddTables = ref((restored?.ddTags ?? 'optimum') !== 'none')
+const ddTags = computed(() => (ddTables.value ? 'optimum' : 'none'))
+
+const ddTagsHint = computed(() =>
+  ddTables.value
+    ? 'Each deal that already knows its double-dummy table writes it into the file, as the ' +
+      '[OptimumResultTable] section PBN 2.1 specifies. Deals from the pre-solved library all ' +
+      'know theirs; a shuffled deal only knows what the script asked about. Nothing is solved ' +
+      'to fill one in.'
+    : 'No analysis tags, even for deals that know their table. Worth it for a large set nobody ' +
+      'will read the analysis in: the table is twenty-two lines a board, where a whole board is ' +
+      'a few hundred bytes.',
+)
 
 // Where the deals come from: 'random' shuffles them here, as this page always
 // has; 'library' draws them from the published solved-deal library, where every
@@ -802,6 +837,7 @@ watch(
     roundRobin,
     maxGenerate,
     format,
+    ddTables,
     dealSource,
     selectedFile,
     pickerOpen,
@@ -821,6 +857,7 @@ watch(
         roundRobin: roundRobin.value,
         maxGenerate: maxGenerate.value,
         format: format.value,
+        ddTags: ddTags.value,
         dealSource: dealSource.value,
         scenario: selectedFile.value,
         pickerOpen: pickerOpen.value,
@@ -887,6 +924,7 @@ async function onDownload(kind) {
         roundRobin: roundRobinAsked.value,
         maxGenerate: maxGenerate.value,
         format: 'pbn',
+        ddTags: ddTags.value,
         params: paramSpecs.value,
         // Saving re-runs the script, so it has to read from the same place the
         // run on screen did — otherwise the file would hold different deals
@@ -975,6 +1013,7 @@ function currentState() {
     produce: produce.value,
     maxGenerate: maxGenerate.value,
     format: format.value,
+    ddTables: ddTables.value,
     roundRobin: roundRobin.value,
     dealSource: dealSource.value,
     scenario: selectedFile.value,
@@ -1002,6 +1041,7 @@ async function onShare() {
     format: format.value,
     autoLevel: autoLevel.value && hasHandTypes.value,
     roundRobin: roundRobinAsked.value,
+    ddTags: ddTags.value,
     // What the run would send, rather than what has been typed: a value for a
     // parameter the script does not use would not change the run, and should
     // not change the link either.
@@ -1073,6 +1113,7 @@ function applySharedDocument({ source, doc }) {
   produce.value = s.produce
   maxGenerate.value = s.maxGenerate
   format.value = s.format
+  ddTables.value = s.ddTags !== 'none'
   roundRobin.value = s.roundRobin
   dealSource.value = s.dealSource
   newSeedEachRun.value = s.newSeedEachRun
@@ -1119,6 +1160,7 @@ function restorePrevious() {
   produce.value = was.produce
   maxGenerate.value = was.maxGenerate
   format.value = was.format
+  ddTables.value = was.ddTables
   roundRobin.value = was.roundRobin
   dealSource.value = was.dealSource
   selectedFile.value = was.scenario || ''
@@ -1181,6 +1223,7 @@ async function run() {
       roundRobin: roundRobinAsked.value,
       maxGenerate: maxGenerate.value,
       format: format.value,
+      ddTags: ddTags.value,
       params: paramSpecs.value,
       autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
       // Left out while the field is still empty, so the engine's own default
