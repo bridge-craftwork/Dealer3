@@ -1,8 +1,10 @@
 // Cloudflare Pages configuration.
 //
-// The site is a static build: the engine runs in the visitor's browser, so there
-// is nothing server-side to deploy. Everything the deploy needs lives here
-// rather than in dashboard settings, so a hosting change is a reviewable diff.
+// The site is a static build: the engine runs in the visitor's browser. The one
+// thing server-side is the short-link service (#103) — Pages Functions under
+// `functions/`, holding links in the KV namespace below. Everything the deploy
+// needs lives here rather than in dashboard settings, so a hosting change is a
+// reviewable diff.
 //
 // Deploy with `npx wrangler pages deploy` after `npm --prefix web run build:all`.
 //
@@ -15,5 +17,17 @@
 
   // Vite writes here. `web/public/` is copied in verbatim, which is how
   // `_headers` reaches the root of the deploy.
-  "pages_build_output_dir": "web/dist"
+  "pages_build_output_dir": "web/dist",
+
+  // Short links, for sending a script by text message. Each is the `#d=`
+  // payload of a long link, kept for thirty days by `expirationTtl` and then
+  // deleted by Cloudflare — nothing here cleans up. See
+  // web/src/lib/shortLinks.js. Created with
+  // `wrangler kv namespace create DEALER3_SHORT_LINKS`.
+  "kv_namespaces": [
+    {
+      "binding": "SHORT_LINKS",
+      "id": "9572ffba399749d6af78ca3fa11c1fcd"
+    }
+  ]
 }

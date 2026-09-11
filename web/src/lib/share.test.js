@@ -190,7 +190,8 @@ describe('a scenario nobody changed', () => {
 })
 
 describe('a link that is not what it claims', () => {
-  it('says a short link cannot be opened yet, rather than opening nothing', async () => {
+  it('says a short link cannot be opened without the service, rather than opening nothing', async () => {
+    // Opening one for real is in shortLinks.test.js, against the service.
     await expect(open('#k=Ab3x9')).rejects.toThrow(/short link/i)
   })
 

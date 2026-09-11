@@ -69,3 +69,6 @@ web/public/llms.txt
 
 # Agent worktrees, created inside the repo directory and never part of it.
 .claude/worktrees/
+
+# Local state from `wrangler pages dev`, including its simulated KV
+.wrangler/

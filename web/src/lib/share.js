@@ -17,7 +17,7 @@
 //
 //   #s=<scenario>   a scenario from the list, unmodified, plus what was changed
 //   #d=<base64url>  the document itself, deflated — no network at all
-//   #k=<key>        fetched from the short-link service (#103, not built)
+//   #k=<key>        fetched from the short-link service (#103), `shortLinks.js`
 //
 // All three resolve to the same document, so opening one is one path with
 // three sources rather than three features.
@@ -35,6 +35,7 @@
 // email and still strictly better than sending a PDF nobody can run.
 
 import { DOCUMENT_VERSION, readDocument, settingsDelta } from './envelope.js'
+import { EXPIRED, SHORT_LINK_PATH, normalizeKey } from './shortKey.js'
 
 /// Longer than this and it is not a link anyone made from this page: the whole
 /// point of the `#s=` form is that the big ones are rare. Refusing early keeps
@@ -70,7 +71,9 @@ export function parseFragment(hash) {
   const data = query.get('d')
   if (data) return { kind: 'document', data }
   const key = query.get('k')
-  if (key) return { kind: 'key', key }
+  // Normalised here so a key a phone has lower-cased still opens; one that is
+  // not a key at all is still a short link, just a broken one, and is said so.
+  if (key) return { kind: 'key', key: normalizeKey(key) ?? key }
   return null
 }
 
@@ -81,23 +84,26 @@ export function parseFragment(hash) {
  * without a network, and so the one caller that needs a scenario is the one
  * that supplies the way to get it.
  *
+ * `fetchShort` likewise: it answers `{d, expires}` for a key, the `d` being
+ * exactly what a long link would carry — so a short link opens by the same path
+ * as a `#d=` one, and differs only in knowing when it stops working.
+ *
  * @param {string} hash `location.hash`
- * @param {{fetchScenario: (slug: string) => Promise<string>}} sources
- * @returns {Promise<{source: string, doc: object}|null>}
+ * @param {{fetchScenario?: (slug: string) => Promise<string>,
+ *          fetchShort?: (key: string) => Promise<{d: string, expires: string|null}>}} sources
+ * @returns {Promise<{source: string, doc: object, expires?: string|null}|null>}
  * @throws {Error} with a message meant to be shown
  */
-export async function resolveFragment(hash, { fetchScenario } = {}) {
+export async function resolveFragment(hash, { fetchScenario, fetchShort } = {}) {
   const found = parseFragment(hash)
   if (!found) return null
 
   if (found.kind === 'key') {
-    // Recognised rather than ignored. Nothing produces these yet — the service
-    // behind them is #103 — but a link that arrives from one deserves better
-    // than a page that opens as though there had been no link.
-    throw new Error(
-      'This is a short link, and short links are not available yet. Ask whoever sent it ' +
-        'for the long form — it opens the same script.',
-    )
+    if (typeof fetchShort !== 'function') {
+      throw new Error('This is a short link, and there is no way to open one here.')
+    }
+    const { d, expires = null } = await fetchShort(found.key)
+    return { source: 'short', doc: readDocument(await decodeDocument(d)), expires }
   }
 
   if (found.kind === 'document') {
@@ -153,6 +159,95 @@ export function scenarioFragment(doc) {
     }
   }
   return `#${query.toString()}`
+}
+
+// --- Short links (#103) ---------------------------------------------------
+//
+// The service is `shortLinks.js`, behind `functions/`. These are the page's
+// half: asking for a key, opening one, and the link a key makes.
+
+/**
+ * The short link for a key: `<this page>/30-days/<key>`.
+ *
+ * Built against the page's own directory, so it is `/dealer3/30-days/…` on the
+ * apex and `/30-days/…` on pages.dev, with nothing hard-coded to either.
+ */
+export function shortLinkUrl(location, key) {
+  return new URL(`${SHORT_LINK_PATH}/${key}`, `${location.origin}${location.pathname}`).href
+}
+
+/**
+ * The key a `?k=` names, if it names one.
+ *
+ * A short link arrives as `/?k=<key>` — see `redirectShortLink` for why a query
+ * and not a fragment — and the page moves it into the fragment on arrival, so
+ * there is still one place a link is read from.
+ */
+export function shortKeyFromQuery(search) {
+  const key = new URLSearchParams(String(search || '')).get('k')
+  return key ? key.slice(0, 32) : null
+}
+
+/// Where the service answers, relative to the page — so `/dealer3/api/short`
+/// through the apex and `/api/short` on pages.dev.
+const SERVICE = 'api/short'
+
+/**
+ * Store a document and get its short link's key.
+ *
+ * @param {object} doc a document, from `makeDocument`
+ * @param {{base: string, fetch?: typeof fetch}} options `base` is the page's URL
+ * @returns {Promise<{key: string, expires: string}>}
+ * @throws {Error} with a message meant to be shown
+ */
+export async function requestShortLink(doc, { base, fetch: get = fetch } = {}) {
+  const payload = await encodeDocument(doc)
+  let response
+  try {
+    response = await get(new URL(SERVICE, base).href, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: payload,
+    })
+  } catch {
+    throw new Error('Could not reach the short-link service. The long link works without it.')
+  }
+  const body = await readJson(response)
+  if (response.ok && body?.key) return { key: body.key, expires: body.expires ?? null }
+  throw new Error(
+    body?.error ||
+      // A static host with no service behind it — a local build, say — answers
+      // 404 or 405 with a page, not with JSON.
+      'Short links are not available from this copy of the page. The long link works without them.',
+  )
+}
+
+/**
+ * What a short link's key holds. Shaped to be passed as `fetchShort`.
+ *
+ * @param {string} key
+ * @param {{base: string, fetch?: typeof fetch}} options
+ * @returns {Promise<{d: string, expires: string|null}>}
+ * @throws {Error} with a message meant to be shown
+ */
+export async function fetchShortLink(key, { base, fetch: get = fetch } = {}) {
+  let response
+  try {
+    response = await get(new URL(`${SERVICE}/${encodeURIComponent(key)}`, base).href)
+  } catch {
+    throw new Error('Could not reach the short-link service to open this link. Try again shortly.')
+  }
+  const body = await readJson(response)
+  if (response.ok && typeof body?.d === 'string') return { d: body.d, expires: body.expires ?? null }
+  throw new Error(response.status === 404 ? body?.error || EXPIRED : body?.error || 'This short link could not be opened.')
+}
+
+async function readJson(response) {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
 }
 
 /** The whole link: this page, wherever it is being served from, plus the fragment. */
