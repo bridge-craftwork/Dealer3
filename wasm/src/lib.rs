@@ -774,8 +774,6 @@ fn run_envelope(
             ENVELOPE_VERSION, envelope.v
         ));
     }
-    let s = envelope.settings;
-
     // One decoder, two front ends. Anything read here that the command line
     // would not read the same way is a bug in one of them, not a difference
     // between a page and a terminal.
@@ -795,53 +793,54 @@ fn run_envelope(
         None => DealSource::Shuffled,
     };
 
-    // Refused by name rather than quietly defaulted: a page asking for a
-    // spelling this build does not know should hear about it, exactly as a
-    // misspelled setting does.
-    let dd_tags = match s.dd_tags.as_deref() {
-        Some(value) => value.parse::<DdTags>()?,
-        None => DdTags::default(),
-    };
-
-    run_script(
-        &envelope.script,
-        s.seed,
-        s.produce,
-        s.max_generate,
-        &s.format,
-        s.auto_level,
-        s.round_robin,
-        &s.params,
-        s.measure_seconds,
-        dd_tags,
-        on_progress,
-        source,
-    )
+    run_script(&envelope.script, envelope.settings, on_progress, source)
 }
 
 /// The run itself: everything except where the deals came from.
+///
+/// Takes the settings whole rather than as an argument each (#121). This was
+/// twelve positional arguments — the list #106 removed from the boundary,
+/// surviving one call in — where `produce` and `max_generate` are both `usize`
+/// and `auto_level` and `round_robin` both `bool`, so transposing either pair
+/// compiled and returned a plausible report for a run nobody asked for.
+///
+/// The destructuring below names every field and has no `..`, which is the
+/// point of it: a setting added to [`RunSettings`] that this function does not
+/// read is a compile error here, not a value decoded, carried and silently
+/// dropped. That is exactly how a ticked checkbox once reached the envelope and
+/// never reached the file.
 ///
 /// Speaks `String` rather than `JsError` so that it can be called from an
 /// ordinary test. `JsError::new` reaches for JavaScript's `Error`, which does
 /// not exist off wasm — a failure raised in here would abort the test process
 /// instead of being an error a test can assert on, and the failures are
 /// precisely what wants asserting.
-#[allow(clippy::too_many_arguments)]
 fn run_script(
     script: &str,
-    seed: u32,
-    produce: usize,
-    max_generate: usize,
-    format: &str,
-    auto_level: bool,
-    round_robin: bool,
-    params: &[String],
-    measure_seconds: Option<f64>,
-    dd_tags: DdTags,
+    settings: RunSettings,
     on_progress: Option<js_sys::Function>,
     source: DealSource,
 ) -> Result<String, String> {
-    let format = Format::parse(format)?;
+    let RunSettings {
+        seed,
+        produce,
+        max_generate,
+        format,
+        auto_level,
+        round_robin,
+        params,
+        measure_seconds,
+        dd_tags,
+    } = settings;
+
+    let format = Format::parse(&format)?;
+    // Refused by name rather than quietly defaulted: a page asking for a
+    // spelling this build does not know should hear about it, exactly as a
+    // misspelled setting does.
+    let dd_tags = match dd_tags.as_deref() {
+        Some(value) => value.parse::<DdTags>()?,
+        None => DdTags::default(),
+    };
     let started = now_ms();
 
     // Progress, for a caller that can paint it — which means a worker, since
@@ -854,7 +853,7 @@ fn run_script(
     // than once and a single bar would appear to restart.
     let progress = Progress::new(on_progress);
 
-    let params = script_params_from(params)?;
+    let params = script_params_from(&params)?;
     let preprocessed = dealer_parser::preprocess_all(script, &params)?;
     let program =
         dealer_parser::parse_program(&preprocessed).map_err(|e| format!("Parse error: {}", e))?;
@@ -1876,27 +1875,34 @@ mod tests {
     }
 
     /// The same, in a named format — which is the only thing `none` changes.
+    ///
+    /// Through [`run_envelope`] rather than straight into [`run_script`]: the
+    /// page's own path, settings by name, and one less caller of a function
+    /// whose argument list used to be where the transpositions hid (#121).
     fn over_as(deals: &[u8], script: &str, format: &str) -> Result<serde_json::Value, String> {
-        let (supplied, report) =
-            dealer_run::deals_from_bytes(deals, dealer_run::deal_input::Window::all())?;
-        let json = run_script(
-            script,
-            1,
-            1000,
-            1_000_000,
-            format,
-            false,
-            false,
-            &[],
+        let json = run_envelope(
+            &settings_for(script, 1000, 1_000_000, format),
+            Some(deals),
             None,
-            DdTags::default(),
-            None,
-            DealSource::Supplied {
-                deals: supplied,
-                report,
-            },
         )?;
         serde_json::from_str(&json).map_err(|e| e.to_string())
+    }
+
+    /// An envelope for a test, every setting named.
+    fn settings_for(script: &str, produce: usize, max_generate: usize, format: &str) -> String {
+        serde_json::json!({
+            "v": ENVELOPE_VERSION,
+            "script": script,
+            "settings": {
+                "seed": 1,
+                "produce": produce,
+                "maxGenerate": max_generate,
+                "format": format,
+                "autoLevel": false,
+                "roundRobin": false,
+            },
+        })
+        .to_string()
     }
 
     /// The `input` block, which every supplied run must carry.
@@ -2075,19 +2081,10 @@ mod tests {
     fn predeal_still_works_when_the_deals_are_shuffled() {
         // The refusal above has to be about supplied deals rather than about
         // predeal, which the browser has always honoured.
-        let json = run_script(
-            "predeal north SAKQ\ncondition 1\n",
-            1,
-            3,
-            100_000,
-            "oneline",
-            false,
-            false,
-            &[],
+        let json = run_envelope(
+            &settings_for("predeal north SAKQ\ncondition 1\n", 3, 100_000, "oneline"),
             None,
-            DdTags::default(),
             None,
-            DealSource::Shuffled,
         )
         .expect("a shuffled run predeals as it always did");
         let result: serde_json::Value =
