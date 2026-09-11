@@ -188,6 +188,23 @@
             :value="shareLink"
             @focus="$event.target.select()"
           />
+          <!-- Offered rather than made: every short link spends one of the
+               day's few writes, and most links are sent where length does
+               not matter. Only when the long one is long enough to be a
+               problem in a text message. -->
+          <button
+            v-if="shareShortOffered"
+            class="shared-restore"
+            :disabled="shareShortPending"
+            :title="`A link short enough to text. It stops working after ${SHORT_LINK_DAYS} days.`"
+            @click="onShareShort"
+          >{{ shareShortPending ? 'Making\u2026' : 'Short link' }}</button>
+          <button
+            v-else-if="shareLong && shareLink !== shareLong"
+            class="shared-dismiss"
+            title="The link that carries the script itself, and never expires"
+            @click="showLongLink"
+          >Long link</button>
           <button class="shared-dismiss" @click="shareLink = ''">Done</button>
           <p class="share-note settings-note">{{ shareNote }}</p>
         </div>
@@ -424,7 +441,17 @@ import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
 import { randomSeed } from '@/lib/format.js'
 import { makeDocument, paramValuesFrom } from '@/lib/envelope.js'
-import { parseFragment, resolveFragment, shareFragment, shareUrl } from '@/lib/share.js'
+import {
+  fetchShortLink,
+  parseFragment,
+  requestShortLink,
+  resolveFragment,
+  shareFragment,
+  shareUrl,
+  shortKeyFromQuery,
+  shortLinkUrl,
+} from '@/lib/share.js'
+import { SHORT_LINK_DAYS } from '@/lib/shortKey.js'
 import { copyText } from '@/lib/clipboard.js'
 
 const STARTER = `# Write a dealer script, or pick a scenario on the left.
@@ -808,6 +835,10 @@ watch(leveledScript, (text) => {
 })
 
 onMounted(async () => {
+  // A short link arrives as `?k=<key>` (see `redirectShortLink`). Moved into the
+  // fragment, where every other link is read from and where a reload finds it,
+  // and out of the query, which is otherwise sent with every request.
+  adoptShortKey()
   // First, and not awaited with the rest: a shared script should be on screen
   // while the engine is still loading, exactly as a restored one is.
   openSharedLink()
@@ -980,8 +1011,9 @@ function onPrint() {
 //
 // A link carries the script and the settings in its fragment, so it reaches no
 // server: there is nothing to store, nothing to expire, and nothing logged.
-// `share.js` holds the encoding and the three forms; here is only what the page
-// does with them.
+// The one exception is a short link, made only when asked for, which stores the
+// long link's payload for thirty days (#103). `share.js` holds the encoding and
+// the forms; here is only what the page does with them.
 
 /// The script as the scenario list served it. Share compares against this to
 /// decide whether the script itself has to travel.
@@ -989,6 +1021,19 @@ const pristine = ref({ file: '', text: '' })
 
 /// The link most recently made, shown until it is dismissed.
 const shareLink = ref('')
+/// The long form of it, and the document it holds, kept so a short link can be
+/// made from the same thing and the long one offered back.
+const shareLong = ref('')
+const shareDoc = ref(null)
+const shareShortPending = ref(false)
+/// What the long link's note said, to say again if it is shown again.
+const shareLongNote = ref('')
+/// Past this, a link is a nuisance in a text message and a short one is worth
+/// a write. A scenario's `#s=` link is usually well under it.
+const SHORT_LINK_WORTH = 100
+const shareShortOffered = computed(
+  () => !!shareDoc.value && shareLink.value === shareLong.value && shareLong.value.length > SHORT_LINK_WORTH,
+)
 const shareNote = ref('')
 const shareField = ref(null)
 
@@ -1064,20 +1109,82 @@ async function onShare() {
     shareError.value = e?.message || String(e)
     return
   }
-  shareLink.value = shareUrl(window.location, fragment)
+  shareDoc.value = doc
+  shareLong.value = shareUrl(window.location, fragment)
+  shareLink.value = shareLong.value
   const copied = await copyText(shareLink.value)
   // Short, because the panel it sits in is squeezed on a phone \u2014 which is
   // where a link is most likely to be read.
+  shareLongNote.value = fragment.startsWith('#s=')
+    ? 'It names the scenario and your settings; the script comes from the same list.'
+    : `The whole script is in the link \u2014 ${shareLink.value.length} characters, and ` +
+      'nothing is uploaded.'
   shareNote.value =
-    (copied ? 'Copied. ' : 'The browser refused to copy \u2014 take it from here. ') +
-    (fragment.startsWith('#s=')
-      ? 'It names the scenario and your settings; the script comes from the same list.'
-      : `The whole script is in the link \u2014 ${shareLink.value.length} characters, and ` +
-        'nothing is uploaded.')
-  // Selected, so it can be taken by hand on the platforms where a copy is
-  // refused, which are the platforms this matters on.
+    (copied ? 'Copied. ' : 'The browser refused to copy \u2014 take it from here. ') + shareLongNote.value
+  await selectShareField()
+}
+
+/// A short link for the document just shared. This one IS uploaded, and says so.
+async function onShareShort() {
+  if (!shareDoc.value || shareShortPending.value) return
+  shareShortPending.value = true
+  shareError.value = ''
+  try {
+    const { key, expires } = await requestShortLink(shareDoc.value, { base: window.location.href })
+    shareLink.value = shortLinkUrl(window.location, key)
+    const copied = await copyText(shareLink.value)
+    shareNote.value =
+      (copied ? 'Copied. ' : 'The browser refused to copy \u2014 take it from here. ') +
+      `Short enough to text. The script is stored for it, and the link stops working ` +
+      `${expires ? `on ${formatDay(expires)}` : `after ${SHORT_LINK_DAYS} days`}; the long link never does.`
+    await selectShareField()
+  } catch (e) {
+    shareNote.value = e?.message || String(e)
+  } finally {
+    shareShortPending.value = false
+  }
+}
+
+async function showLongLink() {
+  shareLink.value = shareLong.value
+  const copied = await copyText(shareLink.value)
+  shareNote.value =
+    (copied ? 'Copied. ' : 'The browser refused to copy \u2014 take it from here. ') + shareLongNote.value
+  await selectShareField()
+}
+
+/// Selected, so it can be taken by hand on the platforms where a copy is
+/// refused, which are the platforms this matters on.
+async function selectShareField() {
   await nextTick()
   shareField.value?.select?.()
+}
+
+/// "10 October 2026", in the reader's own words for it.
+function formatDay(iso) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+/// `?k=<key>` becomes `#k=<key>`, without navigating.
+function adoptShortKey() {
+  const key = shortKeyFromQuery(window.location.search)
+  if (!key) return
+  const query = new URLSearchParams(window.location.search)
+  query.delete('k')
+  const rest = query.toString()
+  try {
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${rest ? `?${rest}` : ''}#k=${encodeURIComponent(key)}`,
+    )
+  } catch {
+    // Some embeddings refuse it. Setting the hash instead would fire
+    // `hashchange` and open the link a second time, over the first — and the
+    // second opening would find nothing displaced, so the way back would go.
+  }
 }
 
 /// Open whatever the fragment names, and stop. Nothing runs: an unknown script
@@ -1091,6 +1198,7 @@ async function openSharedLink() {
   try {
     const opened = await resolveFragment(window.location.hash, {
       fetchScenario: fetchScenarioScript,
+      fetchShort: (key) => fetchShortLink(key, { base: window.location.href }),
     })
     if (opened) applySharedDocument(opened)
   } catch (e) {
@@ -1098,7 +1206,7 @@ async function openSharedLink() {
   }
 }
 
-function applySharedDocument({ source, doc }) {
+function applySharedDocument({ source, doc, expires }) {
   const s = doc.settings
   // Only worth keeping when there is something to lose. This is the only way
   // back to it: the page has not navigated, so the back button would leave the
@@ -1140,6 +1248,14 @@ function applySharedDocument({ source, doc }) {
   // That nothing has run is the part worth saying: it is the difference between
   // this and every other link, and the reason the page looks idle.
   sharedNotice.value = `Opened a shared script${named}. Nothing has run yet.`
+  // A short link is the one kind that stops working, and the person holding one
+  // is about to bookmark it. The editor keeps the script whatever happens to
+  // the link; Share makes one that lasts.
+  if (source === 'short') {
+    sharedNotice.value +=
+      ` This short link stops working ${expires ? `on ${formatDay(expires)}` : `${SHORT_LINK_DAYS} days after it was made`}` +
+      ' \u2014 to keep a link to it, press Share for one that never expires.'
+  }
 }
 
 /// Put back what the link replaced.

@@ -1,7 +1,9 @@
 # dealer3 web
 
 Write and run dealer scripts in the browser. The engine is dealer3 compiled to
-WebAssembly, so nothing — script, deal or keystroke — leaves the machine.
+WebAssembly, so nothing — script, deal or keystroke — leaves the machine. The
+one exception is a short link, which is made only when asked for and says so;
+see [Short links](#short-links).
 
 ## Running it
 
@@ -30,6 +32,8 @@ src/
 │   ├── library.js        the solved-deal library: fetching, caching, wording
 │   ├── envelope.js       the run the engine takes, and the document a link carries
 │   ├── share.js          a document to a URL fragment and back
+│   ├── shortKey.js       what a short link's key looks like, for both ends
+│   ├── shortLinks.js     the short-link service, behind ../functions/
 │   ├── clipboard.js      copying text, with the fallback the platforms need
 │   └── download.js       saving results as PBN or text
 ├── Reference.vue         the language reference page
@@ -160,7 +164,7 @@ Three forms, cheapest first, all of which open the same way:
 |---|---|
 | `#s=<scenario>` | a scenario from the list, unmodified, plus what was changed |
 | `#d=<base64url>` | the document itself, deflated — no network at all |
-| `#k=<key>` | the short-link service (#103), which is not built |
+| `#k=<key>` | a short link's key, fetched from the service below (#103) |
 
 Sharing an untouched scenario needs no encoding at all: the recipient's page
 fetches the same script from the same list, so the link is
@@ -171,8 +175,46 @@ link. That form is `JSON.stringify` → `CompressionStream('deflate-raw')` →
 base64url, native in Safari 16.4, Chrome and Firefox, so no library: 600–900
 bytes of script comes out around 350–550 characters.
 
-`#k=` is recognised and refused with a sentence, rather than opening a page that
-looks as though there was no link. Nothing produces one yet.
+### Short links
+
+A `#d=` link is fine in an email and too long for a text message. For that one
+case the share panel offers **Short link**, which stores the script and gives
+back `bridge-craftwork.com/dealer3/30-days/AB3K9M2P`. It is the only part of the
+page with a back end: Pages Functions in the repo's `functions/`, thin wrappers
+around `lib/shortLinks.js`, holding links in a KV namespace bound in
+`wrangler.jsonc`.
+
+- **What is stored is the long link.** The value under a key is the `#d=`
+  payload, so a short link is an alias for a long one and opens by the same
+  `decodeDocument` and `readDocument`. The service runs both on the way in and
+  refuses what a page could not open. It does not run the parser: someone
+  asking for help with a script that will not parse is a good reason to send
+  one.
+- **Thirty days, fixed, and the link says so.** `expirationTtl` on the put, so
+  Cloudflare deletes it. Not refreshed on read — a sliding expiry would be
+  invisible to the person holding the link, and every refresh would spend a
+  write. Fixed means the page can name the day: the share panel does, and so
+  does the notice a recipient sees on opening one.
+- **Offered, never automatic.** Every short link spends one of the free tier's
+  daily writes, so the button appears only when the long link is over 100
+  characters, and a plain Share still uploads nothing.
+- **Keys** are eight characters of Crockford base32, read leniently (case, `O`
+  for zero, `I` and `L` for one), so a phone's autocorrect does not break one.
+- **Abuse control** is an 8 KB cap on the compressed body, the document having
+  to open, the `Origin` header, and the daily write allowance, which fails
+  closed: a flood costs short links for the rest of the day and nothing else.
+  There is no per-IP limit, because Pages Functions cannot take the rate-limit
+  binding and a KV counter would spend a write per share. A zone rate-limiting
+  rule is where one would go.
+
+`/30-days/<key>` redirects to `/?k=<key>` rather than `/#k=<key>`, because the
+apex proxy does not carry a fragment through a redirect. The page moves the key
+into the fragment on arrival, so there is still one place links are read from.
+
+To run the Functions locally, build the site and then, from the repo root:
+`npx wrangler pages dev --kv SHORT_LINKS`. `pages dev` does not pick the
+binding up from `wrangler.jsonc`, so without `--kv` every short link is refused
+as not set up.
 
 ### What a link carries, and what it does not
 

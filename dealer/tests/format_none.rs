@@ -18,12 +18,18 @@ fn run(script: &str, args: &[&str]) -> (String, String, bool) {
         .stderr(Stdio::piped())
         .spawn()
         .expect("dealer should run");
-    child
+    // A run refused at argument parsing can exit before reading its script, and
+    // the write then meets a closed pipe. That is the refusal the test is after,
+    // not a fault in the harness — and whether it happens is a race, so it
+    // failed on one CI runner in several rather than everywhere.
+    if let Err(e) = child
         .stdin
         .as_mut()
         .expect("stdin")
         .write_all(script.as_bytes())
-        .expect("write");
+    {
+        assert_eq!(e.kind(), std::io::ErrorKind::BrokenPipe, "write: {e}");
+    }
     let out = child.wait_with_output().expect("output");
     (
         String::from_utf8_lossy(&out.stdout).into_owned(),

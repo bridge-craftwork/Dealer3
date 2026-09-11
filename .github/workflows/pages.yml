@@ -13,6 +13,8 @@ on:
       - 'dealer*/**'
       - 'wasm/**'
       - 'web/**'
+      # The short-link service (#103). Pages deploys these with the site.
+      - 'functions/**'
       - 'Cargo.toml'
       # The levelling guide page inlines this file with `?raw` at build time,
       # so editing the markdown is editing the site. Without this the guide
