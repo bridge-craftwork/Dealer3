@@ -1643,6 +1643,35 @@ input.num-seed { --num-digits: 10; }
   .picker-open { height: auto; flex-direction: row; padding: 6px 10px; }
   .picker-open-label { writing-mode: horizontal-tb; }
   .col-results { border-left: 0; border-top: 1px solid var(--line); }
+
+  /* Stacked, the editor column has a fixed share of the height, and opening a
+     panel in it — settings, the share link — used to take every pixel of the
+     deficit out of the script pane. Its root is `height: 100%; min-height: 0`
+     with no flex of its own, so nothing stopped it at zero: the reader saw the
+     Run row, the panel, and the status strip with no script between them, and
+     the column's overflow was painted over the results below (#119).
+
+     Two rules, and they need each other. The column scrolls, so what does not
+     fit is scrolled to rather than drawn over the next row. And the panes have
+     a floor, so shrinking stops somewhere that still shows a few lines — a
+     scroll container alone was tried first, and the pane collapsed inside it
+     just the same, since `height: 100%` resolves against the scroller's own
+     height and flex still shrinks it to fit.
+
+     The floor is chosen against what the pane gets with nothing open, measured
+     at 390x844 before this change: 152px plain, 82px on the page a shared link
+     lands on (the notice above it), 78px with the Pre-solved warning showing.
+     4rem is 64px — the status strip and about two lines of script — which sits
+     below all three with room to spare. It first went in at 5rem, 80px, which
+     cleared the link's page by two pixels and fell inside the 78: every one of
+     those states would then have scrolled that did not before, and a real
+     phone's font metrics are not a desktop's at phone width. So none of them
+     move; only a panel pushing past the floor starts the column scrolling.
+     Both panes, because the Leveled tab's viewer is built the same way and
+     collapses the same way. */
+  .col-editor { overflow-y: auto; }
+  .col-editor > .editor,
+  .col-editor > .viewer-wrap { min-height: 4rem; }
 }
 
 /* A phone is where someone reads a run, not where they write one — the script
