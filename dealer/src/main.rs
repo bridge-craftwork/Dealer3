@@ -2046,6 +2046,9 @@ fn main() {
         }
         let hand_type_counts: Vec<usize> =
             report.hand_types.iter().map(|(_, count)| *count).collect();
+        // Labelled already, and empty unless the script levels on a
+        // decomposition of its own.
+        let level_types: Vec<(String, usize)> = report.level_types.clone();
         let averages = report.stats.averages.clone();
         let frequencies = report.stats.frequencies.clone();
 
@@ -2214,6 +2217,29 @@ fn main() {
                 out.push_str("  ");
             }
             out.push_str("],\n");
+
+            // The categories the keeps were computed over, when they are not
+            // the hand types. Checking a levelling means checking these: the
+            // hand types then group the deals for presentation and say nothing
+            // about what was levelled. Absent when the two are the same.
+            if !level_types.is_empty() {
+                out.push_str("  \"level_types\": [");
+                for (i, (label, count)) in level_types.iter().enumerate() {
+                    let share = if produced > 0 {
+                        *count as f64 / produced as f64
+                    } else {
+                        0.0
+                    };
+                    out.push_str(if i == 0 { "\n" } else { ",\n" });
+                    out.push_str(&format!(
+                        "    {{ \"name\": {}, \"produced\": {}, \"share\": {} }}",
+                        json_string(label),
+                        count,
+                        json_number(share)
+                    ));
+                }
+                out.push_str("\n  ],\n");
+            }
 
             out.push_str("  \"averages\": [");
             for (i, average) in averages.iter().enumerate() {

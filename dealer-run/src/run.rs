@@ -190,6 +190,13 @@ pub struct RunReport {
     pub hit_limit: bool,
     /// The script's hand types and how many produced deals matched each.
     pub hand_types: Vec<(String, usize)>,
+    /// The categories the keeps were computed over, and how many produced deals
+    /// matched each. Empty unless the script declares `LevelType_` variables:
+    /// without them the levelling categories are the hand types above.
+    ///
+    /// This is what says a levelled run delivered its mix, when the two
+    /// decompositions differ — `hand_types` then counts something else.
+    pub level_types: Vec<(String, usize)>,
     /// What a round-robin run was aiming at, when it was one: the count every
     /// hand type is owed, and how many deals were left over for a partial round
     /// at the end. Against `hand_types` it says which types came up short.
@@ -982,6 +989,9 @@ struct Pass {
     generated: usize,
     measurement: dealer_level::Measurement,
     hand_types: Vec<(String, usize)>,
+    /// The levelling categories and their counts, empty unless the script
+    /// declares a decomposition of its own.
+    level_types: Vec<(String, usize)>,
     joint: Vec<Vec<usize>>,
     stats: Stats,
     retained: Retained,
@@ -1497,6 +1507,18 @@ fn run_pass(
         .cloned()
         .zip(accumulator.hand_type_counts().iter().copied())
         .collect();
+    // Empty when the levelling categories are the hand types: the same counts
+    // under the same names, and a caller would only print them twice.
+    let level_types: Vec<(String, usize)> = if accumulator.levels_on_level_types() {
+        accumulator
+            .leveling_labels()
+            .iter()
+            .cloned()
+            .zip(accumulator.leveling_counts().iter().copied())
+            .collect()
+    } else {
+        Vec::new()
+    };
     let joint = measurement.joint.clone();
     Ok(Pass {
         hit_limit: produced < opts.produce && generated >= opts.max_generate,
@@ -1504,6 +1526,7 @@ fn run_pass(
         generated,
         measurement,
         hand_types,
+        level_types,
         joint,
         stats: accumulator.finish(),
         retained,
@@ -1605,6 +1628,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             generated: pass.generated,
             hit_limit: pass.hit_limit,
             hand_types: pass.hand_types,
+            level_types: pass.level_types,
             round_robin,
             stats: pass.stats,
             leveling: None,
@@ -1711,6 +1735,10 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             .as_ref()
             .map(|p| p.hand_types.clone())
             .unwrap_or_else(|| characterizing.hand_types.clone()),
+        level_types: producing
+            .as_ref()
+            .map(|p| p.level_types.clone())
+            .unwrap_or_else(|| characterizing.level_types.clone()),
         round_robin,
         stats: match producing {
             Some(ref p) => p.stats.clone(),
