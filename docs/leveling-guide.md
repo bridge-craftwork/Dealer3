@@ -513,6 +513,15 @@ a text table, and `hand_types` means a scenario needs no `average` statement per
 type to be told what it produced. Pair it with `-q` for a stdout that is nothing
 but JSON.
 
+A scenario that levels on `LevelType_` gets a second array, `level_types`, in
+the same shape — and **that is the one to check**. The keeps were computed over
+those categories, and they are what the generated file's mix table names.
+`hand_types` then answers a different question, the bands the deals are grouped
+by, and will not match the mix: check both, but expect the mix only from the
+level types. The array is absent, not empty, when a scenario declares no level
+types, because its levelling categories are then its hand types and the two
+would be the same counts under the same names.
+
 **10,000 produced is a good default** for this check — about ±1 point for
 anything from three bands to ten, and a second or two.
 

@@ -140,6 +140,50 @@ fn awkward_labels_survive() {
     assert_eq!(v["averages"][0]["label"], label);
 }
 
+/// A scenario that levels on `LevelType_` is checked against *those* counts:
+/// its hand types group the deals for presentation and say nothing about what
+/// the keeps were computed over. Reporting only the hand types leaves a caller
+/// comparing the mix table against names that are not there.
+#[test]
+fn a_scenario_that_levels_on_level_types_reports_them() {
+    let script = "\
+HandType_Low = hcp(north) <= 11
+HandType_High = hcp(north) >= 12
+LevelType_A = hcp(north) <= 9
+LevelType_B = hcp(north) >= 10 and hcp(north) <= 11
+LevelType_C = hcp(north) >= 12
+condition 1
+";
+    let v = json(&["-q", "--stats-json", "-p", "300", "-s", "3"], script);
+    let hand = v["hand_types"].as_array().expect("hand_types");
+    let level = v["level_types"].as_array().expect("level_types");
+    assert_eq!(hand.len(), 2);
+    assert_eq!(level.len(), 3);
+    assert_eq!(level[0]["name"], "A");
+    assert_eq!(level[2]["name"], "C");
+    // Each decomposition partitions the deals on its own.
+    for types in [hand, level] {
+        let produced: u64 = types
+            .iter()
+            .map(|t| t["produced"].as_u64().expect("produced"))
+            .sum();
+        assert_eq!(produced, 300);
+    }
+}
+
+/// Absent, not empty, when the two are the same: the levelling categories are
+/// then the hand types, and printing them twice invites a reader to look for a
+/// difference that cannot be there.
+#[test]
+fn level_types_are_left_out_when_they_are_the_hand_types() {
+    let v = json(
+        &["-q", "--stats-json", "-p", "50", "-s", "1"],
+        "HandType_Low = hcp(north) <= 11\nHandType_High = hcp(north) >= 12\ncondition 1\n",
+    );
+    assert_eq!(v["hand_types"].as_array().expect("hand_types").len(), 2);
+    assert!(v.get("level_types").is_none());
+}
+
 #[test]
 fn a_script_with_no_statistics_still_gives_an_object() {
     let v = json(

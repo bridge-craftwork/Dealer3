@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--stats-json` reports `level_types` for a scenario that levels on them.**
+  It carries the same shape as `hand_types` (`name`, `produced`, `share`), and
+  the array is left out when a scenario declares no `LevelType_`. Checking a
+  levelling means comparing the mix against the categories the keeps were
+  computed over. When a scenario declares `LevelType_`, those are not its hand
+  types, and the JSON used to report only the hand types. A build step comparing
+  the generated file's mix table with `hand_types` found none of the names, and
+  read every category as never dealt. Found on Practice-Bidding-Scenarios
+  `NT_Ladder`, which groups by five HCP bands and levels on each HCP.
 - **A solved-deal library is read from an offset, and only as far as the run
   needs** (#65). It used to be read whole into memory before the run started,
   which for the published 241 MB library is 10,485,760 deals whether the script

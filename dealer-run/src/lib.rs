@@ -725,6 +725,15 @@ impl<'a> RunAccumulator<'a> {
         &self.leveling_counts
     }
 
+    /// Whether the script declares a levelling decomposition of its own.
+    ///
+    /// False says the levelling categories *are* the hand types, so the two
+    /// sets of counts are the same numbers under the same names, and a caller
+    /// reporting both would print each twice.
+    pub fn levels_on_level_types(&self) -> bool {
+        !self.level_type_names.is_empty()
+    }
+
     /// What was measured, in the form the levelling arithmetic reads.
     ///
     /// `generated` is the caller's: this counts what the condition accepted and
