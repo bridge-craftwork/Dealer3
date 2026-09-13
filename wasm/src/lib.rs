@@ -24,6 +24,7 @@
 //! so the Tier 2 regression hashes pin this build too.
 
 mod library;
+mod library_stream;
 
 use dealer_core::{Deal, FastDealConfig, Position};
 use dealer_parser::vocabulary;
@@ -322,6 +323,21 @@ struct InputSummary {
     /// Worth saying, but not a failure — chiefly a file whose name disagrees
     /// with what is inside it.
     notes: Vec<String>,
+    /// Where in the solved-deal library the run started, and whether it read
+    /// all of it. Absent for text.
+    library: Option<LibrarySummary>,
+}
+
+/// Where a run over a library started, and how far round it got.
+#[derive(Serialize)]
+struct LibrarySummary {
+    /// The record the run started at, counting from zero.
+    first_record: u64,
+    /// How many records the library holds.
+    records: u64,
+    /// Whether the run read every one of them. A run that did, and wanted more,
+    /// would have been coming round to deals it had already seen.
+    read_whole: bool,
 }
 
 /// Skipped records named individually before the rest are merely counted. A
@@ -350,6 +366,11 @@ impl InputSummary {
                 .collect(),
             skipped_count: report.skipped.len(),
             notes: report.notes.clone(),
+            library: report.library.map(|span| LibrarySummary {
+                first_record: span.first_record,
+                records: span.records,
+                read_whole: span.read_whole,
+            }),
         }
     }
 }
@@ -367,6 +388,9 @@ enum DealSource {
         deals: Vec<dealer_run::run::SolvedDeal>,
         report: dealer_run::deal_input::InputReport,
     },
+    /// Read as the run asks for them — the solved-deal library, a slice at a
+    /// time. What it read is only known once the run is over.
+    Streamed(Box<dyn dealer_run::DealStream>),
 }
 
 /// How a round robin was shaped, for a page that has to word it. The counts
@@ -765,15 +789,7 @@ fn run_envelope(
     deals: Option<&[u8]>,
     on_progress: Option<js_sys::Function>,
 ) -> Result<String, String> {
-    let envelope: RunEnvelope = serde_json::from_str(envelope)
-        .map_err(|e| format!("The run envelope could not be read: {}", e))?;
-    if envelope.v != ENVELOPE_VERSION {
-        return Err(format!(
-            "This build reads run envelope version {}, and was given version {}. \
-             A newer envelope needs a newer build; an older one needs its version raised.",
-            ENVELOPE_VERSION, envelope.v
-        ));
-    }
+    let envelope = read_envelope(envelope)?;
     // One decoder, two front ends. Anything read here that the command line
     // would not read the same way is a bug in one of them, not a difference
     // between a page and a terminal.
@@ -794,6 +810,85 @@ fn run_envelope(
     };
 
     run_script(&envelope.script, envelope.settings, on_progress, source)
+}
+
+/// An envelope, refused by name when it is not one this build reads.
+///
+/// One place for both entry points, so a page calling either hears the same
+/// thing about the same mistake.
+fn read_envelope(envelope: &str) -> Result<RunEnvelope, String> {
+    let envelope: RunEnvelope = serde_json::from_str(envelope)
+        .map_err(|e| format!("The run envelope could not be read: {}", e))?;
+    if envelope.v != ENVELOPE_VERSION {
+        return Err(format!(
+            "This build reads run envelope version {}, and was given version {}. \
+             A newer envelope needs a newer build; an older one needs its version raised.",
+            ENVELOPE_VERSION, envelope.v
+        ));
+    }
+    Ok(envelope)
+}
+
+/// Run a script over the solved-deal library, fetching it a slice at a time as
+/// the run reads it (#21).
+///
+/// `manifest_url` is the library to read — `rpdd_manifest_url()` for the one we
+/// publish. `fetch_bytes(url)` must return that URL's bytes as a `Uint8Array`,
+/// **synchronously**, or throw: a run is one synchronous call and asks for its
+/// next deal in the middle of it, so there is nowhere to await a promise. A page
+/// runs the engine in a worker, where a synchronous request is allowed.
+///
+/// Where the run starts is the seed's business, reduced through the same mapping
+/// `dealer -s N --input-deals rpdd.zrd` uses, and it reads once round the
+/// library at most. It stops when it has produced what was asked for, when it
+/// reaches `maxGenerate`, or when it has read the whole library — and `input`
+/// says where it started and whether it read all of it, so a page can say
+/// which of those it was.
+///
+/// Memory stays at a slice: the pieces a slice needed are released once it is
+/// decoded, and only matches a levelled run's second pass will want are kept.
+#[wasm_bindgen]
+pub fn run_library_json(
+    envelope: &str,
+    manifest_url: &str,
+    fetch_bytes: js_sys::Function,
+    on_progress: Option<js_sys::Function>,
+) -> Result<String, JsError> {
+    let fetch = move |url: &str| -> Result<Vec<u8>, String> {
+        let bytes = fetch_bytes
+            .call1(&JsValue::NULL, &JsValue::from_str(url))
+            .map_err(|thrown| thrown_message(&thrown, url))?;
+        Ok(js_sys::Uint8Array::new(&bytes).to_vec())
+    };
+    run_library_envelope(envelope, manifest_url, fetch, on_progress).map_err(|e| JsError::new(&e))
+}
+
+/// [`run_library_json`]'s body, with the fetch as a closure a test can supply.
+fn run_library_envelope(
+    envelope: &str,
+    manifest_url: &str,
+    fetch: impl FnMut(&str) -> Result<Vec<u8>, String> + 'static,
+    on_progress: Option<js_sys::Function>,
+) -> Result<String, String> {
+    let envelope = read_envelope(envelope)?;
+    let stream = library_stream::LibraryDeals::new(manifest_url, envelope.settings.seed, fetch);
+    run_script(
+        &envelope.script,
+        envelope.settings,
+        on_progress,
+        DealSource::Streamed(Box::new(stream)),
+    )
+}
+
+/// What a page's fetch threw, as a sentence. An `Error` carries its own; a
+/// thrown string is taken as it is; anything else gets one naming the URL.
+fn thrown_message(thrown: &JsValue, url: &str) -> String {
+    use wasm_bindgen::JsCast;
+    thrown
+        .dyn_ref::<js_sys::Error>()
+        .map(|error| String::from(error.message()))
+        .or_else(|| thrown.as_string())
+        .unwrap_or_else(|| format!("Could not fetch {} from the solved-deal library.", url))
 }
 
 /// The run itself: everything except where the deals came from.
@@ -860,17 +955,18 @@ fn run_script(
 
     // Split before the script is read, so the statements can be checked against
     // what the run is actually going to deal from.
-    let (given, input) = match source {
-        DealSource::Shuffled => (None, None),
+    let (given, streamed, input) = match source {
+        DealSource::Shuffled => (None, None, None),
         DealSource::Supplied { deals, report } => {
             let summary = InputSummary::new(&report, deals.len());
-            (Some(deals), Some(summary))
+            (Some(deals), None, Some(summary))
         }
+        DealSource::Streamed(stream) => (None, Some(stream), None),
     };
     // Whether this run is dealing its own cards rather than reading cards it
     // was handed. It decides what may bound the characterizing pass, so it is
     // read here, before `given` is moved into the options below.
-    let has_own_deals = given.is_none();
+    let has_own_deals = given.is_none() && streamed.is_none();
 
     // Settings that affect how a deal is labelled rather than which deals are
     // produced, and the predeal the run starts from.
@@ -896,7 +992,7 @@ fn run_script(
             // supplied deals there is nothing for it to do, and quietly
             // ignoring it would leave a script looking as though its predealt
             // cards were honoured. The command line refuses the same pair.
-            Statement::Predeal { .. } if given.is_some() => {
+            Statement::Predeal { .. } if !has_own_deals => {
                 return Err(
                     "predeal arranges cards into deals this program shuffles, so it has \
                      nothing to do with deals supplied to it"
@@ -962,9 +1058,10 @@ fn run_script(
             // The supplied deals, or the shuffle. Moved rather than cloned:
             // a library is large, and copying it to choose between two arms
             // would double the peak the page has to hold.
-            deals: match given {
-                Some(deals) => Deals::Given(deals),
-                None => Deals::Shuffled {
+            deals: match (given, streamed) {
+                (Some(deals), _) => Deals::Given(deals),
+                (None, Some(stream)) => Deals::Streamed(stream),
+                (None, None) => Deals::Shuffled {
                     predeal,
                     swap: dealer_core::SwapMode::None,
                 },
@@ -1030,6 +1127,13 @@ fn run_script(
         &mut page,
     )
     .map_err(|e| e.to_string())?;
+    // A stream knows what it read only now it has read it.
+    let input = input.or_else(|| {
+        report
+            .input
+            .as_ref()
+            .map(|found| InputSummary::new(found, found.solved + found.unsolved))
+    });
 
     // Interleaved, a set walks through the categories rather than meeting them
     // as they fall. Numbered by where they land, so a reader that sorts on the

@@ -436,7 +436,7 @@ const pdfHint = computed(() =>
 /// could not make sense of. Null for an ordinary shuffled run, which reads
 /// nothing and has nothing to say.
 const inputReport = computed(() =>
-  props.result?.input ? describeInput(props.result.input, props.result.library) : null,
+  props.result?.input ? describeInput(props.result.input) : null,
 )
 
 // The script's hand types, in the order it declares them, which is the order

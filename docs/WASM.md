@@ -55,8 +55,9 @@ cover this build too: it is the same generator.
 | Export | Returns | Notes |
 |---|---|---|
 | `run_json(envelope, deals, on_progress)` | JSON | The one way to run a script. `envelope` is the JSON below; `deals` is a `Uint8Array` to run over, or `undefined` to shuffle |
-| `new Library(manifestUrl)` | object | The published solved-deal library, fetched a piece at a time; see below |
-| `rpdd_manifest_url()` | string | The manifest of the library we host, for `new Library(...)` |
+| `run_library_json(envelope, manifestUrl, fetchBytes, on_progress)` | JSON | Run over the solved-deal library, fetched a piece at a time **as the run reads it**; see below |
+| `new Library(manifestUrl)` | object | The published solved-deal library, for a caller that wants a fixed window of it as bytes; see below |
+| `rpdd_manifest_url()` | string | The manifest of the library we host, for `run_library_json` or `new Library(...)` |
 | `record_for_seed(seed, records)` | number | Which record a run's seed starts at — the CLI's own mapping, not a page's |
 | `script_uses_double_dummy(script, params)` | bool \| undefined | Whether anything in the script can reach the solver |
 | `check_script(script, params)` | JSON | Never throws — safe to call per keystroke |
@@ -236,7 +237,7 @@ still what `rnd()` draws from and what orders an interleaved set.
 program shuffles, and there is nothing for it to do to deals that arrived
 already dealt. The command line refuses the same combination.
 
-The bytes are decoded in full, so the caller decides how much to hand over: a
+Bytes handed to `run_json` are decoded in full, so the caller decides how much to hand over: a
 library is 23 bytes a record, and slicing the `Uint8Array` before passing it
 reads a window of one. (Issue #65 covers an offset and limit in the engine
 itself.)
@@ -297,10 +298,56 @@ and every chunk's path and first deal come from the manifest, and chunk paths
 are resolved relative to it. Point `new Library(...)` at a different manifest of
 the same shape and it works.
 
-The browser app uses this behind its **Pre-solved deals** radio: `web/src/lib/library.js`
-holds the page's half — fetching, caching and how much to ask for — and drives it
-from inside the engine worker, since a `Library` is a handle into one wasm
-instance's memory and cannot be passed to another thread.
+The browser app does **not** use this any more: it runs over the library with
+[`run_library_json`](#run_library_json), which lets the run decide how much to
+read instead of the page deciding before it starts. `Library` stays for a caller
+that genuinely wants a fixed window as bytes.
+
+### `run_library_json`
+
+```js
+const fetchBytes = (url) => {
+  const request = new XMLHttpRequest()
+  request.open('GET', url, false)          // synchronous: see below
+  request.responseType = 'arraybuffer'
+  request.send()
+  if (request.status !== 200) throw new Error(`HTTP ${request.status} for ${url}`)
+  return new Uint8Array(request.response)
+}
+
+const result = JSON.parse(w.run_library_json(envelope, rpdd_manifest_url(), fetchBytes))
+```
+
+A run over the solved-deal library that reads it **as the run goes** (#21). The
+engine asks for a deal; when the piece in hand is spent it calls `fetchBytes`
+for the next one, decodes it through the same reader as everything else, and
+lets the bytes go. So a run that finds its matches in the first piece fetches
+one, and a run that needs every deal in the library reads all of them while
+holding one piece at a time.
+
+It starts where the envelope's seed says — the same record `dealer -s N
+--input-deals rpdd.zrd` starts at — and goes once round the library at most. It
+stops when it has produced what was asked for, reached `maxGenerate`, or read
+the whole library, and `input.library` says which:
+
+| field | what it says |
+|---|---|
+| `first_record` | where the run started |
+| `records` | how many deals the library holds |
+| `read_whole` | whether the run read every one of them |
+
+**`fetchBytes` must be synchronous.** A run is one synchronous call and asks
+for its next deal in the middle of it, so there is nowhere to await a promise.
+Call this from a worker, where a synchronous request is allowed and blocks only
+that worker. A thrown error ends the run with its message.
+
+It replaced a page-side loop that fetched a window before the run began, and
+had to cap that window — 65,536 deals — so a large `maxGenerate` could not pull
+megabytes to look at twenty deals. The cap cut short the runs that needed more.
+A run that pulls needs no cap: once it has what it wants, it stops asking.
+
+Nothing here caches. The pieces are served `immutable`, so the browser's HTTP
+cache answers a repeat, and evicts what goes unused.
 
 ### `record_for_seed`
 

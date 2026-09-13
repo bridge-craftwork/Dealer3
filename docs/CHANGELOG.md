@@ -182,6 +182,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which has nothing to walk through.
 
 ### Changed
+- **A pre-solved run reads the library a slice at a time, and `--input-deals`
+  streams a library** (#21). A browser run over the solved-deal library used to
+  fetch at most 65,536 deals before it started, whatever `Max generate` said, so
+  a selective script stopped after a couple of hundred matches with nothing to
+  say why. The engine now pulls deals as the run needs them — a 640 KiB piece at
+  a time, decoded and let go — until it has produced what was asked for, reached
+  `Max generate`, or read the whole library.
+
+  Memory follows what a run keeps rather than what it reads, at the terminal
+  too: `--input-deals rpdd.zrd` no longer decodes its window into memory before
+  the run, and a levelled run's second pass is handed the matches the first one
+  kept instead of going back to the file. Text formats are still read whole.
+
+  The page no longer keeps pieces in the Cache API, which earlier versions did
+  for good; the browser's own HTTP cache holds them while it has room, and the
+  old store is deleted.
+
 - **Double-dummy in an `action` now uses every core.** A script calling
   `tricks()`, `dds()` or `par()` from its *condition* already solved in
   parallel, because the workers evaluate the condition; the same call in an

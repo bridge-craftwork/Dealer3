@@ -70,23 +70,63 @@ pub fn deals_from_bytes(
     Ok((to_solved(records), report))
 }
 
+/// Deals to run over, as [`open_input_deals`] found them.
+pub enum InputDeals {
+    /// Read whole, with what reading found: text, which has to be read to be
+    /// counted.
+    Given(Vec<run::SolvedDeal>, deal_input::InputReport),
+    /// A library, read as the run asks for deals. What it found is in the
+    /// run's report, once there is something to say.
+    Streamed(Box<dyn run::DealStream>),
+}
+
+/// Deals from a file or standard input, streamed when they are a library (#21).
+///
+/// [`deals_from_file`] reads a library into memory before the run begins; this
+/// hands the run a reader instead, so a run over ten million records holds a
+/// batch of them. Text is read whole either way.
+pub fn open_input_deals(source: &str, window: deal_input::Window) -> Result<InputDeals, String> {
+    Ok(match deal_input::open(source, window)? {
+        deal_input::Opened::Library(stream) => InputDeals::Streamed(Box::new(stream)),
+        deal_input::Opened::Read(records, report) => InputDeals::Given(to_solved(records), report),
+    })
+}
+
+impl<R: std::io::Read + std::io::Seek> run::DealStream for deal_input::LibraryStream<R> {
+    fn next_deal(&mut self) -> Result<Option<run::SolvedDeal>, String> {
+        Ok(self.next_input().map(solved))
+    }
+
+    fn carries_tables(&self) -> bool {
+        deal_input::LibraryStream::carries_tables(self)
+    }
+
+    fn report(&self) -> deal_input::InputReport {
+        deal_input::LibraryStream::report(self).clone()
+    }
+}
+
 /// Pair each deal with what is already known of its double-dummy answers.
 fn to_solved(records: Vec<deal_input::InputDeal>) -> Vec<run::SolvedDeal> {
-    records
-        .into_iter()
-        .map(|record| {
-            let known = match &record.table {
-                Some(table) => dealer_dds::DealTricks::from_table(table),
-                None => dealer_dds::DealTricks::nothing(),
-            };
-            (record.deal, known)
-        })
-        .collect()
+    records.into_iter().map(solved).collect()
+}
+
+/// One deal with what is already known of its double-dummy answers.
+///
+/// Public for a front end streaming deals of its own: the pairing is the
+/// engine's, and a second copy of it would be a second answer to what an
+/// unsolved record means.
+pub fn solved(record: deal_input::InputDeal) -> run::SolvedDeal {
+    let known = match &record.table {
+        Some(table) => dealer_dds::DealTricks::from_table(table),
+        None => dealer_dds::DealTricks::nothing(),
+    };
+    (record.deal, known)
 }
 
 pub use run::{
-    run, Deals, LevelingOptions, LevelingReport, MeasureDeals, Phase, Produced, Rows, RunHost,
-    RunOptions, RunReport,
+    run, DealStream, Deals, LevelingOptions, LevelingReport, MeasureDeals, Phase, Produced, Rows,
+    RunHost, RunOptions, RunReport,
 };
 
 use dealer_core::Deal;

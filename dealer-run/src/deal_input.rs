@@ -213,6 +213,21 @@ pub struct InputReport {
     /// What a caller may want to say about the input that was not a failure —
     /// chiefly a file whose name disagrees with what is inside it.
     pub notes: Vec<String>,
+    /// Where in a library the read began, and how far round it got. Absent for
+    /// text, which has no records to start at.
+    pub library: Option<LibrarySpan>,
+}
+
+/// Where a read of a library began, and whether it went all the way round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibrarySpan {
+    /// The record the read started at, counting from zero.
+    pub first_record: u64,
+    /// How many records the library holds.
+    pub records: u64,
+    /// Whether every record was read. A run that reads the whole library and
+    /// wants more would be coming round to deals it has already seen.
+    pub read_whole: bool,
 }
 
 /// Read deals from `source`, keeping any double-dummy tables they carry.
@@ -258,6 +273,37 @@ pub struct InputReport {
 /// caller that wants the file as it stands. Text is read entire whatever the
 /// window says, bar its limit — see [`Window`].
 pub fn read(source: &str, window: Window) -> Result<(Vec<InputDeal>, InputReport), String> {
+    Ok(match open(source, window)? {
+        Opened::Library(stream) => collect(stream),
+        Opened::Read(deals, report) => (deals, report),
+    })
+}
+
+/// A source of bytes a library can be read from: a file, or a pipe's bytes held
+/// in a `Cursor`. Named so the two can be one type once opened.
+pub trait ReadSeek: std::io::Read + std::io::Seek {}
+
+impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
+
+/// What [`open`] found.
+pub enum Opened {
+    /// A library, to be read a record at a time as a run asks for deals.
+    Library(LibraryStream<Box<dyn ReadSeek>>),
+    /// Text, which has to be read to be counted, already read.
+    Read(Vec<InputDeal>, InputReport),
+}
+
+/// Open deals from `source` without reading a library into memory (#21).
+///
+/// [`read`] is this collected. The difference is only when the reading happens:
+/// a library comes back as a [`LibraryStream`] that reads each record when it is
+/// asked for, so a run over ten million records holds a batch of them rather
+/// than all of them. Text is read here, as it always was — it has to be parsed
+/// to be counted, and nobody's PBN file is ten million boards.
+///
+/// Everything [`read`] documents about telling a library from text holds here,
+/// because it is the same code.
+pub fn open(source: &str, window: Window) -> Result<Opened, String> {
     if is_tables_only_path(source) {
         return Err(format!(
             "'{}' holds double-dummy tables with no deals in it. Read the .zrd built \
@@ -272,23 +318,37 @@ pub fn read(source: &str, window: Window) -> Result<(Vec<InputDeal>, InputReport
         std::io::stdin()
             .read_to_end(&mut bytes)
             .map_err(|e| format!("reading deals from standard input: {}", e))?;
-        return read_named(&bytes, "standard input", window);
+        if looks_like_library(&bytes) {
+            let reader = ZrdReader::new(Box::new(std::io::Cursor::new(bytes)) as Box<dyn ReadSeek>)
+                .map_err(|e| format!("reading standard input as a library: {}", e))?;
+            return Ok(Opened::Library(LibraryStream::new(reader, window)));
+        }
+        let (deals, report) = read_named(&bytes, "standard input", window)?;
+        return Ok(Opened::Read(deals, report));
     }
 
     // A named library is streamed rather than read into memory to be sniffed:
     // the published one is 241 MB, and its head settles the question.
     let library = path_holds_library(source)?;
-    let mut read = if library {
-        read_library(source, window)?
+    let mut opened = if library {
+        let file = std::fs::File::open(source)
+            .map_err(|e| format!("opening input deals file '{}': {}", source, e))?;
+        let reader = ZrdReader::new(Box::new(std::io::BufReader::new(file)) as Box<dyn ReadSeek>)
+            .map_err(|e| format!("opening input deals file '{}': {}", source, e))?;
+        Opened::Library(LibraryStream::new(reader, window))
     } else {
         let bytes = std::fs::read(source)
             .map_err(|e| format!("opening input deals file '{}': {}", source, e))?;
-        read_named(&bytes, &format!("'{}'", source), window)?
+        let (deals, report) = read_named(&bytes, &format!("'{}'", source), window)?;
+        Opened::Read(deals, report)
     };
     if let Some(note) = name_disagrees(source, library) {
-        read.1.notes.push(note);
+        match &mut opened {
+            Opened::Library(stream) => stream.report.notes.push(note),
+            Opened::Read(_, report) => report.notes.push(note),
+        }
     }
-    Ok(read)
+    Ok(opened)
 }
 
 /// Read deals from bytes already in hand: a pipe, a download, a dropped file.
@@ -538,122 +598,207 @@ pub fn read_library(path: &str, window: Window) -> Result<(Vec<InputDeal>, Input
     Ok(read_records(reader, window))
 }
 
-/// The window's records of an open library, in file order from its start.
+/// The window's records of an open library, collected.
 ///
-/// Returns the deals with their tables or `None`, and a report of what else was
-/// in there. Unreadable records are skipped rather than fatal — a library is
-/// millions of records and one bad one should not cost the rest — but they are
-/// all named in the report so a caller can decide.
+/// [`LibraryStream`] is the walk; this only keeps what it yields. One loop, so
+/// a library read whole and a library streamed cannot come to different answers
+/// about what a separator is or where a repeat begins.
+fn read_records<R: std::io::Read + std::io::Seek>(
+    reader: ZrdReader<R>,
+    window: Window,
+) -> (Vec<InputDeal>, InputReport) {
+    collect(LibraryStream::new(reader, window))
+}
+
+/// Everything a stream has left, and what it found.
+fn collect<R: std::io::Read + std::io::Seek>(
+    mut stream: LibraryStream<R>,
+) -> (Vec<InputDeal>, InputReport) {
+    let mut deals = Vec::new();
+    while let Some(deal) = stream.next_input() {
+        deals.push(deal);
+    }
+    (deals, stream.report)
+}
+
+/// A library read a record at a time, in the order a run will use its deals.
+///
+/// Holds the reader and one record, never the library: ten million records are
+/// 241 MB on disk and far more decoded, and a run that stops after forty
+/// matches has no use for the rest.
+///
+/// Unreadable records are skipped rather than fatal — a library is millions of
+/// records and one bad one should not cost the rest — but they are all named in
+/// the report so a caller can decide.
 ///
 /// ## The file is a ring
 ///
 /// Reading runs from the window's first record to the end and then round to it
 /// again, so a start near the end of the file still yields a whole library
-/// rather than a tail. One pass at most: coming back to where it began is
-/// where a pass stops, whatever the limit says, because everything past that
-/// point is a deal this run has already seen.
+/// rather than a tail. One lap at most: coming back to where it began is where
+/// a lap stops, whatever the limit says, because everything past that point is
+/// a deal this run has already seen.
 ///
-/// [`Take::Exactly`] is the one caller that wants more than a pass, and it
-/// repeats what the pass found rather than reading the file again — the same
-/// records would come back, at the price of reading them twice.
-///
-/// Generic over the source because that is the only difference between a
-/// library on disk and one that came down a pipe: the pipe's bytes arrive in a
-/// `Cursor`, and everything after that is the same decoding. Two copies of this
-/// loop would be two answers to what a separator is.
-fn read_records<R: std::io::Read + std::io::Seek>(
-    mut reader: ZrdReader<R>,
-    window: Window,
-) -> (Vec<InputDeal>, InputReport) {
-    let mut deals = Vec::new();
-    let mut report = InputReport {
-        format: "zrd",
-        ..Default::default()
-    };
-
-    let records = reader.len();
-    if records == 0 {
-        return (deals, report);
-    }
-
-    let start = window.start.record(records);
-    if let Some(note) = window.start.note(start, records) {
-        report.notes.push(note);
-    }
-    let limit = window.take.limit();
-
-    for step in 0..records {
-        if limit.is_some_and(|want| deals.len() >= want) {
-            break;
-        }
-        // The offset counts records rather than deals, which is what makes it
-        // a seek: `index` is the ordinal the file itself numbers by, and a
-        // separator spends one of them.
-        let index = (start + step) % records;
-        match reader.record(index) {
-            Ok(Record::Separator) => report.separators += 1,
-            Ok(Record::Deal { deal, table }) => match Deal::try_from(&deal) {
-                Ok(deal) => {
-                    if table.is_some() {
-                        report.solved += 1;
-                    } else {
-                        report.unsolved += 1;
-                    }
-                    deals.push(InputDeal { deal, table });
-                }
-                Err(e) => report
-                    .skipped
-                    .push(format!("record {} is not a whole deal: {}", index, e)),
-            },
-            Err(e) => report
-                .skipped
-                .push(format!("record {} could not be read: {}", index, e)),
-        }
-    }
-
-    if let Take::Exactly(want) = window.take {
-        repeat_to(&mut deals, &mut report, want);
-    }
-
-    (deals, report)
-}
-
-/// Go round the library again until `want` deals are in hand, and say so.
-///
-/// The repeats are the deals already read, in the order they were read: going
-/// back to the file would return the same records at the price of reading them
-/// twice.
-///
-/// ## Why this is worth a note
-///
-/// A run that wraps sees some deals more than once, and `average` and
+/// [`Take::Exactly`] is the one window that goes round again, and it says so:
+/// a run that wraps sees some deals more than once, and `average` and
 /// `frequency` count each sighting. That is a sample with replacement drawn in
 /// a correlated order — fine for "deal me hands to look at", misleading for
 /// "what fraction of deals are like this". Neither this module nor the run can
-/// tell which of the two the caller wanted, so it says what happened and lets
-/// them judge.
+/// tell which the caller wanted, so it says what happened and lets them judge.
 ///
-/// A library with no deals in it is left alone: repeating nothing yields
-/// nothing, and looping to find that out would never end.
-fn repeat_to(deals: &mut Vec<InputDeal>, report: &mut InputReport, want: usize) {
-    let pass = deals.len();
-    if pass == 0 || pass >= want {
-        return;
+/// Separators and skipped records are counted on the first lap only, since a
+/// later lap meets the same ones. `solved` and `unsolved` count every deal
+/// handed over, repeats included, because they describe what the caller got.
+pub struct LibraryStream<R> {
+    reader: ZrdReader<R>,
+    records: u64,
+    start: u64,
+    /// Records visited in the current lap.
+    step: u64,
+    /// Laps finished.
+    laps: usize,
+    take: Take,
+    /// Deals handed over, across every lap.
+    yielded: usize,
+    /// Deals the first lap found, which is how many the library holds.
+    in_a_lap: usize,
+    /// Whether the library's deals come with tables, judged from its head.
+    carries_tables: bool,
+    report: InputReport,
+}
+
+impl<R: std::io::Read + std::io::Seek> LibraryStream<R> {
+    /// A stream over `window` of an open library. Nothing is read yet beyond
+    /// the few records it takes to see whether the deals come solved.
+    pub fn new(mut reader: ZrdReader<R>, window: Window) -> Self {
+        let records = reader.len();
+        let mut report = InputReport {
+            format: "zrd",
+            ..Default::default()
+        };
+        let start = if records == 0 {
+            0
+        } else {
+            window.start.record(records)
+        };
+        if records > 0 {
+            if let Some(note) = window.start.note(start, records) {
+                report.notes.push(note);
+            }
+            report.library = Some(LibrarySpan {
+                first_record: start,
+                records,
+                read_whole: false,
+            });
+        }
+        // A library is solved throughout or not at all, in practice, so its
+        // first deal speaks for it. Looking costs a seek and nothing is kept.
+        let carries_tables = (0..records.min(SNIFF_RECORDS as u64)).any(|step| {
+            matches!(
+                reader.record((start + step) % records),
+                Ok(Record::Deal { table: Some(_), .. })
+            )
+        });
+        LibraryStream {
+            reader,
+            records,
+            start,
+            step: 0,
+            laps: 0,
+            take: window.take,
+            yielded: 0,
+            in_a_lap: 0,
+            carries_tables,
+            report,
+        }
     }
 
-    report.notes.push(format!(
-        "the library holds {} deals and the run asked for {}; deals repeat from the start \
-         after the first pass, so `average` and `frequency` count the repeats.",
-        pass, want
-    ));
-
-    while deals.len() < want {
-        // From the front each time, which is the same thing as carrying on
-        // round the ring: every copy but the last is a whole pass.
-        let more = (want - deals.len()).min(pass);
-        deals.extend_from_within(..more);
+    /// The next deal and its table, or `None` once the window is spent.
+    pub fn next_input(&mut self) -> Option<InputDeal> {
+        loop {
+            if self.records == 0 {
+                return None;
+            }
+            if self.take.limit().is_some_and(|want| self.yielded >= want) {
+                return None;
+            }
+            if self.step == self.records {
+                if let Some(span) = self.report.library.as_mut() {
+                    span.read_whole = true;
+                }
+                match self.take {
+                    // Round again, from the front, which is the same thing as
+                    // carrying on round the ring. A library with no deals in it
+                    // is not gone round: repeating nothing yields nothing, and
+                    // looping to find that out would never end.
+                    Take::Exactly(want) if self.in_a_lap > 0 && self.yielded < want => {
+                        if self.laps == 0 {
+                            self.report.notes.push(format!(
+                                "the library holds {} deals and the run asked for {}; deals \
+                                 repeat from the start after the first pass, so `average` and \
+                                 `frequency` count the repeats.",
+                                self.in_a_lap, want
+                            ));
+                        }
+                        self.laps += 1;
+                        self.step = 0;
+                    }
+                    _ => return None,
+                }
+            }
+            // The offset counts records rather than deals, which is what makes
+            // it a seek: `index` is the ordinal the file itself numbers by, and a
+            // separator spends one of them.
+            let index = (self.start + self.step) % self.records;
+            self.step += 1;
+            let first_lap = self.laps == 0;
+            match self.reader.record(index) {
+                Ok(Record::Separator) => {
+                    if first_lap {
+                        self.report.separators += 1;
+                    }
+                }
+                Ok(Record::Deal { deal, table }) => match Deal::try_from(&deal) {
+                    Ok(deal) => {
+                        if table.is_some() {
+                            self.report.solved += 1;
+                        } else {
+                            self.report.unsolved += 1;
+                        }
+                        self.yielded += 1;
+                        if first_lap {
+                            self.in_a_lap += 1;
+                        }
+                        return Some(InputDeal { deal, table });
+                    }
+                    Err(e) => {
+                        if first_lap {
+                            self.report
+                                .skipped
+                                .push(format!("record {} is not a whole deal: {}", index, e));
+                        }
+                    }
+                },
+                Err(e) => {
+                    if first_lap {
+                        self.report
+                            .skipped
+                            .push(format!("record {} could not be read: {}", index, e));
+                    }
+                }
+            }
+        }
     }
-    recount(deals, report);
+
+    /// Whether the library's deals arrive with double-dummy tables.
+    pub fn carries_tables(&self) -> bool {
+        self.carries_tables
+    }
+
+    /// What reading has found so far.
+    pub fn report(&self) -> &InputReport {
+        &self.report
+    }
 }
 
 /// Is this the tables-only companion format, which has no deals in it?

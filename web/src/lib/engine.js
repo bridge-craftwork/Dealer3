@@ -250,9 +250,9 @@ export async function generate(
     source = 'random',
     /// Called with `{ phase, produced, generated, target }` as the run goes.
     onProgress = null,
-    /// Called with `{ stage, done, total, url }` while pieces of the library
-    /// are being fetched. Only a library run reports this, and it reports it
-    /// before any deal has been looked at.
+    /// Called with `{ stage, url, pieces }` as pieces of the library are
+    /// fetched. Only a library run reports this, and it reports it while the
+    /// run goes, since the engine fetches as it reads.
     onLibrary = null,
     /// Resolves — or rejects — if the caller abandons the run.
     signal = null,
@@ -278,13 +278,11 @@ export async function generate(
     deals: raw.deals,
     generated: raw.generated,
     produced: raw.produced,
-    // The engine's own time plus what it took to get the deals to it. For a
-    // library run the fetch and the rebuilding from indexes are most of the
-    // work, and they happen before the engine is called — so its figure alone
-    // reports a fraction of the wait and calls it the total.
-    seconds: raw.seconds + (message.librarySeconds || 0),
-    // Kept apart as well, for anyone who wants to know which half was which.
-    engineSeconds: raw.seconds,
+    // The engine's own clock, which for a library run includes waiting on the
+    // library: the engine fetches pieces while it reads them.
+    seconds: raw.seconds,
+    // Split out, for anyone who wants to know which half was which.
+    engineSeconds: Math.max(0, raw.seconds - (message.librarySeconds || 0)),
     librarySeconds: message.librarySeconds || 0,
     hitLimit: raw.hit_limit,
     averages: raw.averages,
@@ -317,10 +315,6 @@ export async function generate(
     // `hitLimit` can, since a run that exhausts its deals has not hit its
     // budget. Absent for a run that shuffled.
     input: raw.input || null,
-    // Where in the library this run started, how big the library is and how
-    // many deals were asked for. From the worker rather than the engine: it is
-    // what the page asked for, against which `input.read` is worth reading.
-    library: message.library || null,
     // Whether the format asked for renders deals at all: false only under
     // `none`, which keeps the statistics and collects no hands. It travels with
     // the result rather than being read off the format control, so changing

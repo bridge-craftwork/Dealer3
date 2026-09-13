@@ -77,6 +77,41 @@ pub enum Deals {
     /// its lifetime is then the deal's, a deal the filter rejects takes its
     /// table with it, and how many deals a file holds stops mattering.
     Given(Vec<SolvedDeal>),
+    /// Read as the run asks for them (#21).
+    ///
+    /// A deal that did not match is gone once its batch is. One that did is
+    /// kept only when a levelled run's second pass will want it, and only up to
+    /// the same budget a shuffled run keeps handles for — so memory follows
+    /// what the run matched, not how much it read.
+    Streamed(Box<dyn DealStream>),
+}
+
+/// Deals a run pulls one at a time, rather than being handed all at once.
+///
+/// A solved-deal library is ten million records, and a run after forty matches
+/// has no use for most of them. Reading each one only when the run is ready
+/// for it is what lets a run look through the whole library while holding a
+/// batch.
+///
+/// Deliberately not `Send`. Only the run's own thread reads from a stream — the
+/// worker threads are handed deals, never the reader — and a browser's stream
+/// fetches through a JavaScript callback, which cannot leave the thread that
+/// made it.
+pub trait DealStream {
+    /// The next deal, `None` once there are no more, or why reading failed.
+    ///
+    /// A failure ends the run with that message: a library that cannot be
+    /// reached half-way through is not something to carry on past quietly.
+    fn next_deal(&mut self) -> Result<Option<SolvedDeal>, String>;
+
+    /// Whether the deals arrive already solved, as far as can be told before
+    /// they are read. It decides whether answers are carried at all, so a
+    /// stream that cannot tell should say yes.
+    fn carries_tables(&self) -> bool;
+
+    /// What reading has found so far. Counted as deals are read, so it is
+    /// complete once the run is over — which is when it is asked for.
+    fn report(&self) -> crate::deal_input::InputReport;
 }
 
 /// One supplied deal and whatever double-dummy answers it arrived with.
@@ -205,6 +240,10 @@ pub struct RunReport {
     pub stats: Stats,
     /// Present only when the run was levelled.
     pub leveling: Option<LevelingReport>,
+    /// What a streamed source read, which is only known once the run has read
+    /// it. Absent for shuffled deals and for deals handed over whole, whose
+    /// caller had the report before the run began.
+    pub input: Option<crate::deal_input::InputReport>,
 }
 
 /// What levelling a scenario came to.
@@ -788,6 +827,9 @@ fn report_row(
 /// this keeps the deal, and remaking it costs a shuffle rather than a walk back
 /// through the stream. Keeping the `Deal` would be four heap allocations
 /// apiece: about 25 MB for a hundred thousand of them against 900 KB here.
+///
+/// A streamed deal has no seed to remake it from, so a match the second pass
+/// will want is copied out of its batch and kept as the deal itself.
 #[derive(Clone, Copy)]
 enum Handle {
     Shuffled {
@@ -796,101 +838,48 @@ enum Handle {
     },
     /// An index into the supplied deals.
     Given(usize),
+    /// An index into the batch a stream last handed over. Good until the next
+    /// batch is drawn, which is why a match is turned into [`Handle::Kept`]
+    /// before then.
+    Streamed(usize),
+    /// An index into the streamed matches kept for a later pass.
+    Kept(usize),
 }
 
-/// The stream a run draws from, and the only thing that knows how to go back to
-/// a deal it has already dealt.
-struct Source {
-    seed: u32,
-    deals: Deals,
+/// Where a run's deals come from, as the source holds them.
+///
+/// [`Deals`] with the stream taken out: a stream is not `Sync`, and this is
+/// read from every worker thread while a batch is built.
+enum Supply {
+    Shuffled {
+        predeal: FastDealConfig,
+        swap: SwapMode,
+    },
+    Given(Vec<SolvedDeal>),
+    Streamed,
+}
+
+/// Everything turning a handle into a deal reads, and nothing else — which is
+/// what lets the worker threads share it.
+struct Dealt {
+    supply: Supply,
     generator: FastDealGenerator,
-    /// Deals drawn so far, which is the position `Retained::through` counts in.
-    position: usize,
-    /// Arrangements a shuffle produced beyond what the last batch wanted. A
-    /// shuffle's arrangements have to stay together and in order, and a batch
-    /// size is not generally a multiple of the swap width.
-    pending: std::collections::VecDeque<Handle>,
+    /// The batch a stream last handed over. Replaced by the next one, which is
+    /// where a streamed run's misses go.
+    batch: Vec<SolvedDeal>,
+    /// Streamed matches kept for a later pass, bounded by [`Retained`]'s budget.
+    kept: Vec<Deal>,
 }
 
-impl Source {
-    fn new(deals: Deals, seed: u32) -> Self {
-        let generator = match &deals {
-            Deals::Shuffled { predeal, .. } => {
-                FastDealGenerator::with_config(seed as u64, predeal.clone())
-            }
-            Deals::Given(_) => FastDealGenerator::new(seed as u64),
-        };
-        Source {
-            seed,
-            deals,
-            generator,
-            position: 0,
-            pending: std::collections::VecDeque::new(),
-        }
-    }
-
-    /// Whether there can be any more deals at all.
-    fn exhausted(&self) -> bool {
-        match &self.deals {
-            Deals::Given(all) => self.position >= all.len() && self.pending.is_empty(),
-            Deals::Shuffled { .. } => false,
-        }
-    }
-
-    /// Handles for the next `want` deals, fewer only if the supply ran out.
-    ///
-    /// Cheap and serial — a seed is one step of the generator — so that the
-    /// expensive part, turning a seed into a deal, is left for whatever threads
-    /// there are. Drawing them here in order is also what keeps a run's output
-    /// independent of how many threads that turns out to be.
-    fn next_handles(&mut self, want: usize) -> Vec<Handle> {
-        let mut batch: Vec<Handle> = Vec::with_capacity(want);
-        while batch.len() < want {
-            if let Some(held) = self.pending.pop_front() {
-                batch.push(held);
-                self.position += 1;
-                continue;
-            }
-            match &self.deals {
-                Deals::Given(all) => {
-                    if self.position >= all.len() {
-                        break;
-                    }
-                    batch.push(Handle::Given(self.position));
-                    self.position += 1;
-                }
-                Deals::Shuffled { swap, .. } => {
-                    let seed = self.generator.next_seed();
-                    for variant in 0..swap.deals_per_shuffle() {
-                        self.pending.push_back(Handle::Shuffled {
-                            seed,
-                            variant: variant as u8,
-                        });
-                    }
-                }
-            }
-        }
-        batch
-    }
-
+impl Dealt {
     /// What this handle's deal arrived knowing, if anything.
     ///
     /// Only a supplied deal can arrive knowing something: a shuffled deal has
     /// never been solved by anybody.
-    /// Whether any supplied deal arrived already solved.
-    ///
-    /// Asked once a run rather than once a deal: it decides whether there is
-    /// anything to carry at all.
-    fn carries_tables(&self) -> bool {
-        match &self.deals {
-            Deals::Given(all) => all.iter().any(|(_, known)| !known.is_empty()),
-            Deals::Shuffled { .. } => false,
-        }
-    }
-
     fn tricks(&self, handle: Handle) -> &dealer_dds::DealTricks {
-        match (&self.deals, handle) {
-            (Deals::Given(all), Handle::Given(index)) => &all[index].1,
+        match (&self.supply, handle) {
+            (Supply::Given(all), Handle::Given(index)) => &all[index].1,
+            (_, Handle::Streamed(index)) => &self.batch[index].1,
             _ => &dealer_dds::NOTHING_KNOWN,
         }
     }
@@ -898,14 +887,16 @@ impl Source {
     /// The deal a handle stands for.
     fn build(&self, handle: Handle) -> Deal {
         match handle {
-            Handle::Shuffled { seed, variant } => match &self.deals {
-                Deals::Shuffled { swap, .. } => swap.apply(&self.shuffle(seed), variant as usize),
-                Deals::Given(_) => self.shuffle(seed),
+            Handle::Shuffled { seed, variant } => match &self.supply {
+                Supply::Shuffled { swap, .. } => swap.apply(&self.shuffle(seed), variant as usize),
+                Supply::Given(_) | Supply::Streamed => self.shuffle(seed),
             },
-            Handle::Given(index) => match &self.deals {
-                Deals::Given(all) => all[index].0.clone(),
-                Deals::Shuffled { .. } => Deal::new(),
+            Handle::Given(index) => match &self.supply {
+                Supply::Given(all) => all[index].0.clone(),
+                Supply::Shuffled { .. } | Supply::Streamed => Deal::new(),
             },
+            Handle::Streamed(index) => self.batch[index].0.clone(),
+            Handle::Kept(index) => self.kept[index].clone(),
         }
     }
 
@@ -916,6 +907,162 @@ impl Source {
             generate_deal_from_seed_no_predeal(seed)
         }
     }
+}
+
+/// The stream a run draws from, and the only thing that knows how to go back to
+/// a deal it has already dealt.
+struct Source {
+    seed: u32,
+    /// What building a deal reads. Apart from the stream, so the worker
+    /// threads can be lent it.
+    dealt: Dealt,
+    /// A streamed source's reader, which only this thread touches.
+    stream: Option<Box<dyn DealStream>>,
+    /// Whether the stream has said there are no more.
+    stream_done: bool,
+    /// Where in `dealt.batch` the deals not yet handed out begin. The whole
+    /// batch, normally; a pass resuming part-way through one moves it back.
+    unread: usize,
+    /// The stream position of `dealt.batch[0]`.
+    batch_base: usize,
+    /// Deals drawn so far, which is the position `Retained::through` counts in.
+    position: usize,
+    /// Arrangements a shuffle produced beyond what the last batch wanted. A
+    /// shuffle's arrangements have to stay together and in order, and a batch
+    /// size is not generally a multiple of the swap width.
+    pending: std::collections::VecDeque<Handle>,
+}
+
+impl Source {
+    fn new(deals: Deals, seed: u32) -> Self {
+        let (supply, stream) = match deals {
+            Deals::Shuffled { predeal, swap } => (Supply::Shuffled { predeal, swap }, None),
+            Deals::Given(all) => (Supply::Given(all), None),
+            Deals::Streamed(stream) => (Supply::Streamed, Some(stream)),
+        };
+        let generator = match &supply {
+            Supply::Shuffled { predeal, .. } => {
+                FastDealGenerator::with_config(seed as u64, predeal.clone())
+            }
+            Supply::Given(_) | Supply::Streamed => FastDealGenerator::new(seed as u64),
+        };
+        Source {
+            seed,
+            dealt: Dealt {
+                supply,
+                generator,
+                batch: Vec::new(),
+                kept: Vec::new(),
+            },
+            stream,
+            stream_done: false,
+            unread: 0,
+            batch_base: 0,
+            position: 0,
+            pending: std::collections::VecDeque::new(),
+        }
+    }
+
+    /// Whether there can be any more deals at all.
+    fn exhausted(&self) -> bool {
+        match &self.dealt.supply {
+            Supply::Given(all) => self.position >= all.len() && self.pending.is_empty(),
+            Supply::Shuffled { .. } => false,
+            Supply::Streamed => self.stream_done && self.unread >= self.dealt.batch.len(),
+        }
+    }
+
+    /// Handles for the next `want` deals, fewer only if the supply ran out.
+    ///
+    /// Cheap and serial — a seed is one step of the generator — so that the
+    /// expensive part, turning a seed into a deal, is left for whatever threads
+    /// there are. Drawing them here in order is also what keeps a run's output
+    /// independent of how many threads that turns out to be.
+    ///
+    /// A stream is read here too, and a stream can fail.
+    fn next_handles(&mut self, want: usize) -> Result<Vec<Handle>, String> {
+        if let Some(stream) = self.stream.as_mut() {
+            // The last batch goes, bar whatever a resumed pass has still to see.
+            // Its matches were kept as they were found and its misses are of no
+            // further use, so this is what holds a streamed run to a batch.
+            let spent = self.unread.min(self.dealt.batch.len());
+            self.dealt.batch.drain(..spent);
+            while self.dealt.batch.len() < want && !self.stream_done {
+                match stream.next_deal()? {
+                    Some(deal) => self.dealt.batch.push(deal),
+                    None => self.stream_done = true,
+                }
+            }
+            let take = self.dealt.batch.len().min(want);
+            self.batch_base = self.position;
+            self.unread = take;
+            self.position += take;
+            return Ok((0..take).map(Handle::Streamed).collect());
+        }
+
+        let mut batch: Vec<Handle> = Vec::with_capacity(want);
+        while batch.len() < want {
+            if let Some(held) = self.pending.pop_front() {
+                batch.push(held);
+                self.position += 1;
+                continue;
+            }
+            match &self.dealt.supply {
+                Supply::Given(all) => {
+                    if self.position >= all.len() {
+                        break;
+                    }
+                    batch.push(Handle::Given(self.position));
+                    self.position += 1;
+                }
+                Supply::Shuffled { swap, .. } => {
+                    let seed = self.dealt.generator.next_seed();
+                    for variant in 0..swap.deals_per_shuffle() {
+                        self.pending.push_back(Handle::Shuffled {
+                            seed,
+                            variant: variant as u8,
+                        });
+                    }
+                }
+                // Read above, and never reaches here.
+                Supply::Streamed => break,
+            }
+        }
+        Ok(batch)
+    }
+
+    /// Whether any supplied deal arrived already solved.
+    ///
+    /// Asked once a run rather than once a deal: it decides whether there is
+    /// anything to carry at all.
+    fn carries_tables(&self) -> bool {
+        match &self.dealt.supply {
+            Supply::Given(all) => all.iter().any(|(_, known)| !known.is_empty()),
+            Supply::Shuffled { .. } => false,
+            Supply::Streamed => self
+                .stream
+                .as_ref()
+                .is_some_and(|stream| stream.carries_tables()),
+        }
+    }
+
+    /// A matching deal a later pass will want, in a form that outlives its
+    /// batch. Only a streamed deal needs anything done: every other handle
+    /// already reproduces its deal.
+    fn keep(&mut self, handle: Handle, deal: &Deal) -> Handle {
+        match handle {
+            Handle::Streamed(_) => {
+                self.dealt.kept.push(deal.clone());
+                Handle::Kept(self.dealt.kept.len() - 1)
+            }
+            other => other,
+        }
+    }
+
+    /// What a streamed source read, for the report.
+    fn input_report(&self) -> Option<crate::deal_input::InputReport> {
+        self.stream.as_ref().map(|stream| stream.report())
+    }
 
     /// Wind to just past `position`, so a pass that has replayed everything up
     /// to there draws its next deal from the one after.
@@ -925,12 +1072,13 @@ impl Source {
     /// the replay covers the whole run, and wrong the moment it does not.
     fn resume_after(&mut self, position: usize) {
         self.pending.clear();
-        match &self.deals {
-            Deals::Given(_) => self.position = position,
-            Deals::Shuffled { swap, predeal } => {
+        match &self.dealt.supply {
+            Supply::Given(_) => self.position = position,
+            Supply::Shuffled { swap, predeal } => {
                 // Rebuilt rather than wound on: the characterizing pass left
                 // the generator well past here, and a stream only runs forward.
-                self.generator = FastDealGenerator::with_config(self.seed as u64, predeal.clone());
+                self.dealt.generator =
+                    FastDealGenerator::with_config(self.seed as u64, predeal.clone());
                 let width = swap.deals_per_shuffle();
                 // Whole shuffles only: a seed is one step of the generator with
                 // no shuffle behind it, so skipping a million costs less than
@@ -939,9 +1087,25 @@ impl Source {
                 // were never produced.
                 let shuffles = position / width;
                 for _ in 0..shuffles {
-                    self.generator.next_seed();
+                    self.dealt.generator.next_seed();
                 }
                 self.position = shuffles * width;
+            }
+            Supply::Streamed => {
+                // A stream cannot go back, and mostly need not. Everything before
+                // the batch in hand was kept already or did not match — or
+                // matched past the retention budget, and is not seen again,
+                // which changes which deals a run uses and never whether they
+                // are right.
+                //
+                // The batch in hand is still here, and has to be offered again
+                // from `position`: a characterizing pass that stopped on the
+                // match it needed never looked at the rest of its batch.
+                let from = position
+                    .saturating_sub(self.batch_base)
+                    .min(self.dealt.batch.len());
+                self.unread = from;
+                self.position = self.batch_base + from;
             }
         }
     }
@@ -973,6 +1137,11 @@ impl Retained {
 
     /// Offer a matching deal, kept if there is room. `position` is how many
     /// deals the stream had drawn, this one included.
+    /// Whether another match would be kept.
+    fn has_room(&self) -> bool {
+        self.handles.len() < self.budget
+    }
+
     fn offer(&mut self, handle: Handle, known: dealer_dds::DealTricks, position: usize) {
         if self.handles.len() < self.budget {
             self.handles.push((handle, known));
@@ -1235,7 +1404,7 @@ fn run_pass(
                 break;
             }
             let want = batch_size.min(opts.max_generate - generated);
-            let handles = source.next_handles(want);
+            let handles = source.next_handles(want)?;
             if handles.is_empty() {
                 break;
             }
@@ -1245,7 +1414,7 @@ fn run_pass(
             let carried: Vec<dealer_dds::DealTricks> = if dd_in_play {
                 handles
                     .iter()
-                    .map(|handle| *source.tricks(*handle))
+                    .map(|handle| *source.dealt.tricks(*handle))
                     .collect()
             } else {
                 Vec::new()
@@ -1295,13 +1464,14 @@ fn run_pass(
         let batch_generated = generated;
         let batch_from_stream = from_stream;
         let phase = opts.phase;
+        let dealt = &source.dealt;
         let built = workers.build_and_test_in_chunks(
             Batch {
                 count: handles.len(),
                 chunk,
                 variables: variables.len(),
             },
-            &|index| source.build(handles[index]),
+            &|index| dealt.build(handles[index]),
             &|index, deal, cache| test(known_at(&carried, index), deal, cache),
             dd_in_play,
             &mut |built_so_far| {
@@ -1453,9 +1623,10 @@ fn run_pass(
                     host.progress(opts.phase, done, dealt, target);
                 }
             }
-            if from_stream {
+            if from_stream && retained.has_room() {
+                let handle = source.keep(handles[index], deal);
                 retained.offer(
-                    handles[index],
+                    handle,
                     *known_at(&known, index),
                     batch_end - (built.len() - 1 - index),
                 );
@@ -1632,6 +1803,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             round_robin,
             stats: pass.stats,
             leveling: None,
+            input: source.input_report(),
         });
     };
 
@@ -1757,6 +1929,7 @@ pub fn run(script: &str, opts: RunOptions, host: &mut dyn RunHost) -> Result<Run
             characterized: characterizing.generated,
             additional: producing.as_ref().map(|p| p.generated).unwrap_or(0),
         }),
+        input: source.input_report(),
     })
 }
 
