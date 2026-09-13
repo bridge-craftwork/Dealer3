@@ -18,12 +18,7 @@
 
 import init, * as engine from '@/wasm/dealer3_wasm.js'
 import { runEnvelope } from './envelope.js'
-import {
-  createLibraryFetcher,
-  dealsToRequest,
-  learnLibrarySize,
-  supplyLibraryPieces,
-} from '@/lib/library.js'
+import { createSyncFetcher, forgetOldLibraryCache } from '@/lib/library.js'
 
 let ready = null
 
@@ -69,73 +64,18 @@ const MAX_THREADS = 12
 
 // --- The solved-deal library ----------------------------------------------
 //
-// The fetching lives HERE, in the worker, and not on the main thread, because
-// the wasm `Library` cannot leave the wasm instance that made it. There are two
-// instances — the page's, for the editor's instant calls, and this one, for
-// generating — and a `Library` is a handle into linear memory, not something
-// `postMessage` can clone. The main thread could fetch the bytes and send them
-// across, but only this side can say which URLs are wanted, because that answer
-// comes from `needs()`. Splitting the loop over the two would put a round trip
-// between every ask and its answer to no purpose.
+// The engine reads the library itself, a slice at a time as the run asks for
+// deals (#21), and calls back here for each piece it needs. The callback is
+// synchronous because the run is: a deal is asked for in the middle of one call
+// into the wasm, with nowhere to await. A synchronous request is allowed in a
+// worker, and blocks only this one — which is blocked in the run already.
 //
-// So the worker fetches, and the caching is arranged to survive the worker:
-// pieces go into the browser's Cache API, which outlives a `terminate()` — how
-// Cancel works — and a reload. The in-memory map on top of it is per worker and
-// merely saves the cache read. See `library.js`.
-//
-// The `Library` itself is kept between runs, so a second run in the same region
-// of the library fetches nothing at all.
+// Nothing is cached here. The pieces are served `immutable`, so the browser's
+// own cache answers a repeat and evicts what goes unused. See `library.js`.
 
-let library = null
-let fetchPiece = null
-let piecesHeld = 0
-
-/// Pieces to hold before releasing them all. Each is 640 KiB of tables inside
-/// the wasm's memory; the fetched bytes are still cached, so releasing costs a
-/// re-supply and not a download.
-const MAX_HELD_PIECES = 8
-
-/// The library, and the fetcher that feeds it, made once per worker.
-function libraryHandle() {
-  if (!library) {
-    library = new engine.Library(engine.rpdd_manifest_url())
-    fetchPiece = createLibraryFetcher({ manifestUrl: library.manifest_url })
-  }
-  return library
-}
-
-/// The deals this run should read, as `.zrd` bytes for `generate_from_deals`.
-///
-/// The order matters and is forced: the manifest says how big the library is,
-/// the size is what the seed is reduced against, and only then is there an
-/// index to say which pieces to fetch.
-async function dealsFromLibrary(options, report) {
-  const lib = libraryHandle()
-  const totalDeals = await learnLibrarySize(lib, fetchPiece, report)
-
-  // The engine's mapping, never one of ours. A JavaScript hash would send the
-  // page to a different deal from the one `dealer -s N --input-deals` reads,
-  // and nothing anywhere would say so — see `record_for_seed`.
-  const firstDeal = engine.record_for_seed(options.seed, totalDeals)
-  const requested = dealsToRequest({
-    produce: options.produce,
-    maxGenerate: options.maxGenerate,
-    totalDeals,
-  })
-
-  const { fetched } = await supplyLibraryPieces(lib, firstDeal, requested, {
-    fetchPiece,
-    onProgress: report,
-  })
-  piecesHeld += fetched
-
-  const zrd = lib.zrd(firstDeal, requested)
-  if (piecesHeld > MAX_HELD_PIECES) {
-    lib.forget_chunks()
-    piecesHeld = 0
-  }
-  return { zrd, info: { firstDeal, totalDeals, requested, fetched } }
-}
+// Versions of the page before #21 kept every piece in the Cache API for good.
+// Cleared once per worker, and never waited for.
+forgetOldLibraryCache()
 
 self.onmessage = async (event) => {
   const { id, type, script, options } = event.data || {}
@@ -178,37 +118,35 @@ self.onmessage = async (event) => {
       self.postMessage({ id, type: 'progress', message })
     }
 
-    // Two deal sources, one run, one call. The engine takes an envelope
-    // describing the run and, separately, the deals to run it over: bytes mean
-    // use these, nothing means shuffle. The filter, the statistics, the
-    // levelling and the output are the same either way.
+    // Two deal sources, one run. The engine takes an envelope describing the
+    // run; for the library it also takes a way to fetch pieces, and reads them
+    // as it goes. The filter, the statistics, the levelling and the output are
+    // the same either way.
     let raw
-    let libraryInfo = null
-    // Getting the deals is part of the run, so it is part of the time. The
-    // engine only times what it does itself, and for a library run most of the
-    // work happens before it is called: fetching the pieces, and rebuilding
-    // the deals from their indexes. Reporting the engine's figure alone showed
-    // a number that omitted the larger half.
+    // Time spent waiting on the library. It is inside the run now — the engine
+    // fetches as it reads — so the engine's own clock includes it; this is kept
+    // apart so a slow network is not blamed on the engine, or credited to it.
     let librarySeconds = 0
     if (options.source === 'library') {
-      const startedLibrary = performance.now()
-      const { zrd, info } = await dealsFromLibrary(options, (status) =>
-        self.postMessage({ id, type: 'library', status }),
-      )
-      librarySeconds = (performance.now() - startedLibrary) / 1000
-      libraryInfo = info
-      raw = engine.run_json(runEnvelope(script, options), zrd, onProgress)
+      const manifestUrl = engine.rpdd_manifest_url()
+      const fetcher = createSyncFetcher({
+        manifestUrl,
+        onFetch: (status) => self.postMessage({ id, type: 'library', status }),
+      })
+      try {
+        raw = engine.run_library_json(
+          runEnvelope(script, options),
+          manifestUrl,
+          fetcher.fetch,
+          onProgress,
+        )
+      } finally {
+        librarySeconds = fetcher.seconds()
+      }
     } else {
       raw = engine.run_json(runEnvelope(script, options), undefined, onProgress)
     }
-    self.postMessage({
-      id,
-      type: 'done',
-      raw,
-      threads: pool.threads,
-      library: libraryInfo,
-      librarySeconds,
-    })
+    self.postMessage({ id, type: 'done', raw, threads: pool.threads, librarySeconds })
   } catch (e) {
     // `Error` does not survive structured cloning with its message intact in
     // every browser, so send the text.

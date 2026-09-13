@@ -6,235 +6,108 @@
 // difference between double-dummy being usable in a tab and not.
 //
 // Only the tables are published, as 640 KiB pieces; the deals are a pure
-// function of their index and the engine recreates them. Everything about which
-// piece holds which deal — the boundaries, the stitching, the wrap at the end —
-// belongs to the wasm `Library`, and none of it is repeated here. What this
-// module holds is the page's side of the bargain:
+// function of their index and the engine recreates them. The engine also
+// decides which pieces a run needs, and when: it reads the library a slice at a
+// time as the run asks for deals (#21), so a run that finds its matches in the
+// first piece fetches one, and a run that needs the whole library reads all of
+// it while holding a piece at a time. What is left here is the page's side:
 //
-//   * fetching, because `fetch` is asynchronous and a wasm export cannot await
-//     one, so the library says what it needs and is told;
-//   * remembering what has been fetched, so changing a script does not spend
-//     another 640 KiB;
-//   * how much of the library one run should ask for;
-//   * and what to say about what came back.
+//   * fetching a URL when the engine asks, synchronously, because it asks in
+//     the middle of a run that has nowhere to await;
+//   * clearing out the copy of the library earlier versions of this page kept;
+//   * and what to say about what a run read.
 //
-// It does NOT work out where in the library a seed starts. That mapping is the
-// engine's `record_for_seed`, and doing it here in JavaScript is the one
-// mistake nothing would catch: a hash that looked perfectly reasonable would
-// simply read different deals from the same seed than the command line does,
-// with both runs looking healthy. See `wasm/verify.mjs`.
+// ## Why there is no cache here
+//
+// The pieces are served `immutable` with a year's lifetime, so the browser's
+// own HTTP cache answers a repeat — and that cache is bounded, and evicts what
+// has not been used. Before #21 the page also wrote every piece into the Cache
+// API, which is the site's own storage and is not evicted that way. With a run
+// capped at one piece that stayed small; a run reading the whole library would
+// have left 100 MB there for good.
 
-/// Where fetched pieces are kept between visits.
-///
-/// Versioned in the name so a change of shape is a new store rather than a
-/// migration. A piece never changes — `rpdd-042.zdd` is the same 640 KiB
-/// forever — so nothing here expires.
-export const CACHE_NAME = 'dealer3-library-v1'
-
-/// The most deals one run will ask the library for.
-///
-/// A download budget, not arithmetic: this is roughly one published piece, so
-/// a run costs one fetch, or two where it straddles a boundary. Asking for
-/// everything a `Max generate` of a million allows would be sixteen pieces —
-/// ten megabytes — to look at twenty deals.
-///
-/// It bounds how selective a filter the library can satisfy, and the run report
-/// says how many deals were actually read, so a script that filters harder than
-/// this can see that it ran out of deals rather than out of matches.
-export const MAX_LIBRARY_DEALS = 65536
-
-/// Pieces held in memory at once, beyond which the oldest is dropped.
-///
-/// Each is 640 KiB of tables. The browser's cache still has them, so dropping
-/// one costs a cache read rather than a fetch.
-const MEMORY_PIECES = 8
-
-/// How many ask/supply rounds before something is wrong.
-///
-/// The protocol takes two: the manifest, then the pieces it names. A third is
-/// slack; a fourth means the library is asking for something it is never
-/// satisfied by, and looping for ever on a network resource is worse than
-/// failing.
-const MAX_ROUNDS = 4
+/// Where versions of this page before #21 kept every piece they fetched.
+export const OLD_CACHE_NAME = 'dealer3-library-v1'
 
 /**
- * How many deals to ask the library for.
+ * Delete the copy of the library earlier versions of this page kept.
  *
- * Enough to filter through — `Max generate` is what the page already means by
- * "how much work is this allowed" — but never more than the budget above, and
- * never more than the library holds, which would ask it to come round to deals
- * it has already served.
+ * Best effort, and never a reason to fail anything: a browser with no Cache API,
+ * or one that refuses it, has nothing there to delete.
  *
- * At least `produce`, so that asking for more deals than the budget is a short
- * run reported honestly rather than a request refused.
+ * @param {CacheStorage} [cacheStorage] for tests; defaults to `caches`
+ * @returns {Promise<boolean>} whether anything was deleted
  */
-export function dealsToRequest({ produce = 1, maxGenerate = 0, totalDeals = 0 } = {}) {
-  const wanted = Math.max(1, Math.min(maxGenerate || MAX_LIBRARY_DEALS, MAX_LIBRARY_DEALS), produce)
-  return totalDeals > 0 ? Math.min(wanted, totalDeals) : wanted
+export async function forgetOldLibraryCache(cacheStorage = globalThis.caches) {
+  if (!cacheStorage || typeof cacheStorage.delete !== 'function') return false
+  try {
+    return await cacheStorage.delete(OLD_CACHE_NAME)
+  } catch {
+    return false
+  }
 }
 
 /**
- * Bytes for one library URL, remembered in memory and in the browser's cache.
+ * A synchronous fetch for the engine to call while a run reads the library.
  *
- * Two levels because they fail differently. The `Map` is free and lives as long
- * as the worker; the Cache API survives a cancelled run — which terminates the
- * worker — and a reload, and is where "changing the script does not refetch"
- * actually holds. Neither is required: a browser with no `caches` (an insecure
- * origin, a private window in some browsers) falls back to the map, and one
- * with neither still works, slowly.
+ * Synchronous because the engine asks for a piece in the middle of a run, which
+ * is one call into the wasm with nowhere to await. A synchronous request is
+ * allowed in a worker — which is where runs happen — and blocks only that
+ * worker, which is blocked in the run anyway. Cancel still works, because Cancel
+ * terminates the worker.
  *
- * Everything but the manifest is treated as immutable, because it is: a piece
- * is named after the deals in it. The manifest can gain chunks, so it is
- * remembered only in memory and re-read on the next visit.
- *
- * @param {object} options
- * @param {string} options.manifestUrl the one URL not written to the cache
- * @param {Function} [options.fetchImpl] for tests; defaults to global `fetch`
- * @param {CacheStorage} [options.cacheStorage] for tests; defaults to `caches`
- * @param {string} [options.cacheName]
- * @returns {(url: string) => Promise<Uint8Array>}
+ * @param {object} [options]
+ * @param {string} [options.manifestUrl] so the status can tell the index from a piece
+ * @param {(status: object) => void} [options.onFetch] told `{ stage, url, pieces }`
+ *   before each request and `{ stage: 'read', pieces }` after a piece arrives
+ * @param {Function} [options.XhrImpl] for tests; defaults to `XMLHttpRequest`
+ * @param {() => number} [options.now] for tests; defaults to `performance.now`
+ * @returns {{ fetch: (url: string) => Uint8Array, seconds: () => number, pieces: () => number }}
  */
-export function createLibraryFetcher({
-  manifestUrl = '',
-  fetchImpl = undefined,
-  cacheStorage = undefined,
-  cacheName = CACHE_NAME,
-} = {}) {
-  const doFetch = fetchImpl || ((url) => globalThis.fetch(url))
-  const storage = cacheStorage === undefined ? globalThis.caches : cacheStorage
-  const memory = new Map()
-  let opening = null
+export function createSyncFetcher({ manifestUrl = '', onFetch, XhrImpl, now } = {}) {
+  const Xhr = XhrImpl || globalThis.XMLHttpRequest
+  const clock = now || (() => globalThis.performance.now())
+  let spent = 0
+  let pieces = 0
 
-  // Opened once and never re-attempted: a browser that refuses the cache once
-  // refuses it every time, and asking again per piece would be a rejected
-  // promise per fetch.
-  const store = () => {
-    if (!storage) return Promise.resolve(null)
-    if (!opening) opening = Promise.resolve(storage.open(cacheName)).catch(() => null)
-    return opening
-  }
+  function fetch(url) {
+    const isManifest = url === manifestUrl
+    if (!isManifest) pieces += 1
+    onFetch?.(isManifest ? { stage: 'manifest', url } : { stage: 'piece', url, pieces })
 
-  const remember = (url, bytes) => {
-    memory.set(url, bytes)
-    while (memory.size > MEMORY_PIECES) {
-      const oldest = memory.keys().next().value
-      if (oldest === undefined) break
-      memory.delete(oldest)
-    }
-    return bytes
-  }
-
-  return async function piece(url) {
-    const held = memory.get(url)
-    if (held) return held
-
-    const persist = url !== manifestUrl
-    const cache = persist ? await store() : null
-    if (cache) {
-      const hit = await cache.match(url).catch(() => null)
-      if (hit && hit.ok) return remember(url, new Uint8Array(await hit.arrayBuffer()))
-    }
-
-    let response
+    const started = clock()
+    const request = new Xhr()
     try {
-      response = await doFetch(url)
+      request.open('GET', url, false)
+      request.responseType = 'arraybuffer'
+      request.send()
     } catch (e) {
-      // A network failure reads as "Failed to fetch", which says nothing about
-      // what was being fetched or why the page wanted it.
+      // A network failure reads as "NetworkError", which says nothing about what
+      // was being fetched or why the page wanted it.
       throw new Error(
         `Could not reach the solved-deal library at ${url} (${e?.message || e}). ` +
           'Check the connection, or switch back to random deals.',
       )
+    } finally {
+      spent += clock() - started
     }
-    if (!response.ok) {
+    if (request.status === 0) {
       throw new Error(
-        `The solved-deal library answered HTTP ${response.status} for ${url}. ` +
+        `Could not reach the solved-deal library at ${url}. ` +
+          'Check the connection, or switch back to random deals.',
+      )
+    }
+    if (request.status < 200 || request.status >= 300) {
+      throw new Error(
+        `The solved-deal library answered HTTP ${request.status} for ${url}. ` +
           'Switch back to random deals, or try again.',
       )
     }
-    const buffer = await response.arrayBuffer()
-    if (cache) {
-      // Failing to cache is not failing to fetch: a full quota should cost a
-      // refetch next time, not the run.
-      await cache.put(url, new Response(buffer)).catch(() => {})
-    }
-    return remember(url, new Uint8Array(buffer))
+    if (!isManifest) onFetch?.({ stage: 'read', pieces })
+    return new Uint8Array(request.response)
   }
-}
 
-/**
- * Learn how big the library is, fetching the manifest and nothing else.
- *
- * The size has to be known before the seed can name a starting deal, and the
- * starting deal before any piece can be chosen — so this round deliberately
- * fetches only the first URL `needs` asks for, which is the manifest. Taking
- * the whole list would pull a 640 KiB piece chosen by an index nobody has
- * worked out yet.
- *
- * @param {object} lib the wasm `Library`
- * @param {(url: string) => Promise<Uint8Array>} fetchPiece
- * @param {(status: object) => void} [onProgress]
- * @returns {Promise<number>} how many deals the library holds
- */
-export async function learnLibrarySize(lib, fetchPiece, onProgress) {
-  for (let round = 0; lib.total_deals === undefined && round < MAX_ROUNDS; round++) {
-    const [url] = lib.needs(0, 1)
-    if (!url) break
-    onProgress?.({ stage: 'manifest', done: 0, total: 1, url })
-    lib.supply(url, await fetchPiece(url))
-  }
-  if (lib.total_deals === undefined) {
-    throw new Error(
-      `The library at ${lib.manifest_url} did not say how many deals it holds.`,
-    )
-  }
-  return lib.total_deals
-}
-
-/**
- * Fetch and supply every piece the run needs, so `lib.zrd(...)` can answer.
- *
- * The loop is the protocol from `docs/WASM.md`: ask what is missing, fetch it,
- * hand it back, ask again. A piece already held — from an earlier run, or from
- * the cache — is not asked for, which is what makes a second run over the same
- * region free. What a round asks for, it fetches all at once; the rounds are
- * sequential because each depends on the last, but the pieces within one do
- * not depend on each other.
- *
- * @returns {Promise<{fetched: number}>} how many pieces this call had to get
- */
-export async function supplyLibraryPieces(lib, firstDeal, count, { fetchPiece, onProgress } = {}) {
-  let fetched = 0
-  for (let round = 0; round < MAX_ROUNDS; round++) {
-    const needed = lib.needs(firstDeal, count)
-    if (!needed.length) return { fetched }
-
-    // Together, not one after another. The round already knows every URL it
-    // wants before it asks for any of them, so awaiting them in turn spends a
-    // round trip per piece for nothing — and this is never one piece: a run of
-    // 100,000 deals is more than the 65,536 a piece holds, so it always
-    // straddles a boundary, and a cold fetch was paying both waits end to end.
-    let done = 0
-    onProgress?.({ stage: 'pieces', done, total: needed.length })
-    const arrived = await Promise.all(
-      needed.map(async (url) => {
-        const bytes = await fetchPiece(url)
-        // Counted as they land, so the count still only goes up even though
-        // the pieces may arrive in any order.
-        onProgress?.({ stage: 'pieces', done: ++done, total: needed.length, url })
-        return bytes
-      }),
-    )
-
-    // Handed over in the order asked for rather than the order they arrived,
-    // so what the library is given does not depend on what the network did.
-    needed.forEach((url, i) => lib.supply(url, arrived[i]))
-    fetched += needed.length
-  }
-  throw new Error(
-    'The solved-deal library kept asking for more pieces than it could use; ' +
-      'nothing was read. This is a bug — please report it.',
-  )
+  return { fetch, seconds: () => spent / 1000, pieces: () => pieces }
 }
 
 const count = (n) => Number(n || 0).toLocaleString()
@@ -243,24 +116,24 @@ const count = (n) => Number(n || 0).toLocaleString()
  * What to say about the deals a run read.
  *
  * A page has no stderr, and this is the half of a library run that nothing else
- * reports: a run handed forty deals from a library of four thousand produces
- * fewer matches and looks exactly like a selective filter. `read` against what
- * was asked for is the only thing that tells the two apart.
+ * reports. Where in the library the run started is what reproduces it, and
+ * whether it read the whole library is what tells a filter that found few
+ * matches in all of it from a run that stopped early.
  *
- * @param {object} input the engine's `input` report
- * @param {object} [library] `{ firstDeal, totalDeals, requested }` for a run
- *   drawn from the solved-deal library
+ * @param {object} input the engine's `input` report; `input.library` is
+ *   `{ first_record, records, read_whole }` for a run over the library
  * @returns {{summary: string, warnings: string[]}}
  */
-export function describeInput(input, library = null) {
+export function describeInput(input) {
   if (!input) return { summary: '', warnings: [] }
 
   const solved = input.solved || 0
   const read = input.read || 0
+  const library = input.library
   const where =
-    library && library.totalDeals
-      ? ` from the solved-deal library, starting at deal ${count(library.firstDeal)} of ${count(
-          library.totalDeals,
+    library && library.records
+      ? ` from the solved-deal library, starting at deal ${count(library.first_record)} of ${count(
+          library.records,
         )}`
       : ''
   const tables =
@@ -272,14 +145,6 @@ export function describeInput(input, library = null) {
   const summary = `Read ${count(read)} deal${read === 1 ? '' : 's'}${where}.${tables}`
 
   const warnings = []
-  const requested = library?.requested
-  if (requested && read < requested) {
-    warnings.push(
-      `Asked for ${count(requested)} deals and read ${count(read)}. ` +
-        'The run had fewer deals to filter than it expected, so a short result here ' +
-        'is not necessarily a selective condition.',
-    )
-  }
   if (input.unsolved) {
     warnings.push(
       `${count(input.unsolved)} deal${input.unsolved === 1 ? '' : 's'} arrived without a ` +
@@ -287,9 +152,9 @@ export function describeInput(input, library = null) {
         'library exists to avoid.',
     )
   }
-  if (library?.totalDeals && requested >= library.totalDeals) {
+  if (library?.read_whole) {
     warnings.push(
-      `This run read the whole library (${count(library.totalDeals)} deals). ` +
+      `This run read the whole library (${count(library.records)} deals) and stopped there. ` +
         'A longer one would come round to deals it has already seen, and average and ' +
         'frequency would count them twice.',
     )
@@ -307,20 +172,25 @@ export function describeInput(input, library = null) {
 }
 
 /**
- * The one line to show while pieces of the library are being fetched.
+ * The one line to show while a run is reading the library.
  *
- * Worth showing at all because this is the only part of a run that waits on
- * something outside the tab: generating is immediate, and a page that sits
- * still for a second and a half with nothing said reads as broken.
+ * Worth showing because fetching is the one part of a run that waits on
+ * something outside the tab, and it now happens while the run goes rather than
+ * before it — so the line says which piece, and that the run carries on.
  *
- * @param {object} status from `learnLibrarySize` and `supplyLibraryPieces`
- * @returns {string} empty once there is nothing left to fetch
+ * @param {object} status from `createSyncFetcher`'s `onFetch`
+ * @returns {string} empty when there is nothing to say
  */
 export function libraryStatusText(status) {
   if (!status) return ''
   if (status.stage === 'manifest') return "Reading the solved-deal library's index…"
-  if (status.done >= status.total) return 'Running the script over the library\u2019s deals…'
-  return `Fetching the solved-deal library — piece ${status.done + 1} of ${status.total}…`
+  if (status.stage === 'piece') return `Fetching the solved-deal library — piece ${status.pieces}…`
+  if (status.stage === 'read') {
+    return `Running the script over the library\u2019s deals — ${count(status.pieces)} piece${
+      status.pieces === 1 ? '' : 's'
+    } read…`
+  }
+  return ''
 }
 
 /**

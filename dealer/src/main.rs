@@ -508,30 +508,44 @@ fn print_frequency_2d(grid: &dealer_run::FrequencyGrid) {
 
 /// Escape a string for JSON. Labels come from the script, so they can hold
 /// quotes, backslashes and control characters.
-/// Read deals from a file, reporting what was in it the way a terminal would.
+/// Open deals from a file, reporting what was in it the way a terminal would.
 ///
 /// The reading, the format detection and the double-dummy tables are
 /// `dealer_run`'s, so a browser reading the same file behaves the same without
 /// implementing it again. What is left here is what a terminal does with the
 /// report: write it to stderr.
-fn read_input_deals(
+///
+/// A library is not read here at all. It is handed to the run as a stream (#21),
+/// and what it found is reported once the run has read it — see
+/// [`report_input_deals`].
+fn open_input_deals(
     source: &str,
     window: dealer_run::deal_input::Window,
     seed_given: bool,
-) -> Vec<dealer_run::run::SolvedDeal> {
-    let (deals, report) = dealer_run::deals_from_file(source, window).unwrap_or_else(|e| {
+) -> dealer_run::InputDeals {
+    let opened = dealer_run::open_input_deals(source, window).unwrap_or_else(|e| {
         eprintln!("Error {}", e);
         std::process::exit(1);
     });
-
-    // `-s` used to be ignored by every kind of supplied deal, and for text it
-    // still is: a PBN file is read in the order somebody wrote it. A library is
-    // the exception — the seed picks where in it to start — and the report says
-    // which record it picked, so the warning would contradict it.
-    if seed_given && report.format != "zrd" {
-        eprintln!("Warning: --seed is ignored when using --input-deals");
+    if let dealer_run::InputDeals::Given(deals, report) = &opened {
+        // `-s` used to be ignored by every kind of supplied deal, and for text
+        // it still is: a PBN file is read in the order somebody wrote it. A
+        // library is the exception — the seed picks where in it to start — and
+        // the report says which record it picked, so the warning would
+        // contradict it.
+        if seed_given && report.format != "zrd" {
+            eprintln!("Warning: --seed is ignored when using --input-deals");
+        }
+        report_input_deals(report, deals.len(), source);
     }
+    opened
+}
 
+/// What reading supplied deals found, written to stderr.
+///
+/// `read` is how many deals the run was handed, which for a library is only
+/// known once the run has read them.
+fn report_input_deals(report: &dealer_run::deal_input::InputReport, read: usize, source: &str) {
     // A name that disagreed with the content is worth a line: the file was read
     // as what it holds, which is not what the caller asked for by name.
     for note in &report.notes {
@@ -564,12 +578,9 @@ fn read_input_deals(
         eprintln!(
             "Note: {} of {} deals in '{}' arrived with double-dummy tables; those will not \
              be solved again.",
-            report.solved,
-            deals.len(),
-            source
+            report.solved, read, source
         );
     }
-    deals
 }
 
 fn json_string(s: &str) -> String {
@@ -1727,11 +1738,11 @@ fn main() {
         // dealer.exe behavior: stats hidden by default, -v shows them
         let verbose_stats = args.force_verbose || args.verbose;
 
-        // Which part of a supplied library to read. The window is read in full
-        // rather than streamed, because a levelled run looks at the deals twice
-        // — once to characterize the scenario, once to apply the keeps — and
-        // the second pass has to be able to go back to the first one's deals.
-        // What the window buys is not reading the rest of the file at all.
+        // Which part of a supplied library to read. A library is streamed: the
+        // run reads a record when it wants a deal, so memory follows what it
+        // keeps rather than what it reads (#21). A levelled run looks at the
+        // deals twice, and its second pass is handed the matches the first one
+        // kept rather than going back to the file.
         let input_window = dealer_run::deal_input::Window {
             // `-s` picks the record unless a record was named outright, which
             // is what makes a library run reproducible the way a generated one
@@ -1749,10 +1760,10 @@ fn main() {
                 None => dealer_run::deal_input::Take::AtMost(max_generate),
             },
         };
-        let input_deals: Option<Vec<dealer_run::run::SolvedDeal>> = args
+        let mut input_deals: Option<dealer_run::InputDeals> = args
             .input_deals
             .as_deref()
-            .map(|source| read_input_deals(source, input_window, args.seed.is_some()));
+            .map(|source| open_input_deals(source, input_window, args.seed.is_some()));
 
         // The switch wins over the script, as `-s` does over `seed`. Without
         // either, the script's own `_Share` declarations answer — and those
@@ -1984,8 +1995,13 @@ fn main() {
                     produce_count
                 },
                 max_generate,
-                deals: match &input_deals {
-                    Some(deals) => dealer_run::Deals::Given(deals.clone()),
+                deals: match input_deals.take() {
+                    Some(dealer_run::InputDeals::Given(deals, _)) => {
+                        dealer_run::Deals::Given(deals)
+                    }
+                    Some(dealer_run::InputDeals::Streamed(stream)) => {
+                        dealer_run::Deals::Streamed(stream)
+                    }
                     None => dealer_run::Deals::Shuffled {
                         predeal: fast_predeal_config.clone(),
                         swap: swapping,
@@ -2030,6 +2046,10 @@ fn main() {
                 std::process::exit(1);
             }
         };
+        // A streamed library knows what it read only now that it has been read.
+        if let (Some(input), Some(source)) = (&report.input, args.input_deals.as_deref()) {
+            report_input_deals(input, input.solved + input.unsolved, source);
+        }
         let timed_out = terminal.timed_out;
         terminal_timed_out = timed_out;
         let produced = report.produced;

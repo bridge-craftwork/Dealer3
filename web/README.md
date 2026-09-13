@@ -29,7 +29,7 @@ src/
 │   ├── reference.js      shaping the vocabulary into reference sections
 │   ├── guide.js          rendering a docs/ markdown file as a page
 │   ├── engine.worker.js  generation, off the main thread
-│   ├── library.js        the solved-deal library: fetching, caching, wording
+│   ├── library.js        the solved-deal library: the page's fetch, and wording
 │   ├── envelope.js       the run the engine takes, and the document a link carries
 │   ├── share.js          a document to a URL fragment and back
 │   ├── shortKey.js       what a short link's key looks like, for both ends
@@ -416,34 +416,45 @@ Three things the page says that a terminal would put on stderr:
 
 * **what arrived** — "Read 20,000 deals from the solved-deal library, starting
   at deal 246,427 of 10,485,760. Every one arrived with its double-dummy
-  table…", with warnings when fewer deals arrived than were asked for, when some
-  came unsolved, or when a run read the whole library and a longer one would
-  start repeating deals;
+  table…", with warnings when some came unsolved, or when a run read the whole
+  library and a longer one would start repeating deals;
 * **the fetch**, while it happens, since it is the one part of a run that waits
-  on something outside the tab;
+  on something outside the tab — and it happens *during* the run now, a piece
+  at a time;
 * **that pre-solved buys this script nothing**, when the script never calls
   `tricks()`, `dds()` or `par()`. Asked of the engine off the parsed program,
   not searched for in the text — a comment mentioning `par` is not a call.
 
-### Where the fetching lives, and why
+### A slice at a time (#21)
 
-In the **worker**, with the rest of the engine. A `Library` is a handle into one
-wasm instance's linear memory: the page has its own instance for the editor's
-instant calls, and only the worker's can say which URLs a run wants, since that
-answer comes from `needs()`. Fetching on the main thread would put a round trip
-between every ask and its answer for nothing.
+The engine reads the library the way it reads any stream: it asks for a deal,
+and when the piece in hand is spent it fetches the next one, decodes it, and
+lets the bytes go. So a run that finds its matches in the first piece fetches
+one, and a run that needs the whole library reads all ten million deals while
+holding a piece at a time. It stops when it has produced what was asked for,
+when it reaches `Max generate`, or when it has read the whole library — and the
+report above says which.
 
-Caching is arranged to survive the worker, which Cancel terminates: pieces go
-into the Cache API under `dealer3-library-v1`, and an in-memory map on top of it
-saves the cache read. A piece is immutable — `rpdd-042.zdd` is the same 640 KiB
-for ever — so nothing there expires; the manifest is deliberately not cached.
-After a reload, a repeat run fetches only the manifest.
+That replaced a cap. A run used to ask for at most 65,536 deals up front,
+whatever `Max generate` said, because the fetch had to be sized before the run
+began. It kept a large `Max generate` from pulling megabytes to look at twenty
+deals, and it cut short exactly the runs that needed more: a selective script
+read one piece, found a couple of hundred matches, and stopped with nothing
+said. Pulling instead needs no budget, since a run that has what it wants stops
+asking.
 
-A run asks for at most 65,536 deals (`MAX_LIBRARY_DEALS`), which is about one
-published piece. That is a download budget rather than arithmetic: a `Max
-generate` of a million would otherwise pull sixteen pieces — ten megabytes — to
-look at twenty deals. A filter more selective than that runs out of deals rather
-than out of matches, and the report above says so.
+**The fetch is synchronous.** The engine asks for a piece in the middle of one
+call into the wasm, with nowhere to await, so the worker hands it a function
+that makes a synchronous request — allowed in a worker, and blocking only that
+worker, which is blocked in the run anyway. Cancel still terminates it.
+
+**Nothing is cached by the page.** The pieces are served `immutable` with a
+year's lifetime, so the browser's own HTTP cache answers a repeat — and that
+cache is bounded and evicts what goes unused. Earlier versions also wrote every
+piece into the Cache API under `dealer3-library-v1`, which is the site's own
+storage and is not evicted that way; harmless at one piece a run, and 100 MB for
+good once a run could read the whole library. The worker deletes that store on
+start.
 
 ## Script parameters
 
