@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-14
+
+v1.0.0 was tagged on 2026-02-17 without a section of its own, so the entries
+below cover everything since 0.4.0 — that release and this one.
+
 ### Added
 - **`--stats-json` reports `level_types` for a scenario that levels on them.**
   It carries the same shape as `hand_types` (`name`, `produced`, `share`), and

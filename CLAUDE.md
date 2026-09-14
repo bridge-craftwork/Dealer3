@@ -10,8 +10,8 @@ which is what went with legacy mode in 0.5.0.
 
 ## Current Status
 
-- **Version**: 1.0.0
-- **Last Updated**: 2026-08-29
+- **Version**: 1.1.0
+- **Last Updated**: 2026-09-14
 - **Switches**: see `docs/command_line_comparison.md`, which is generated. This
   line used to carry a count and it was wrong by ten.
 - **Language**: every word the original accepts is implemented, bar `evalcontract`,
