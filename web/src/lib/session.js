@@ -50,6 +50,18 @@ export function loadSession() {
       // closed: the list is how a first visit finds anything to run, and a
       // stored value that is not a boolean says nothing about that.
       pickerOpen: typeof v.pickerOpen === 'boolean' ? v.pickerOpen : true,
+      // Which of the list's tabs was showing. PBS unless it was one of the
+      // others: a session from before the tabs existed was looking at PBS.
+      pickerTab: ['demos', 'history'].includes(v.pickerTab) ? v.pickerTab : 'pbs',
+      // Where the script in the editor came from, for History (#97) to file
+      // the next run under the right script: `pbs:File` or `demo:id`, and the
+      // History entry it was opened from, if any.
+      origin: typeof v.origin === 'string' ? v.origin : undefined,
+      historyId: typeof v.historyId === 'string' ? v.historyId : '',
+      // Whether the script holds work History has not got. Left undefined when
+      // a session does not say, which the page reads as yes: filing a script
+      // twice costs nothing, and losing it does.
+      unrecorded: typeof v.unrecorded === 'boolean' ? v.unrecorded : undefined,
       // Closed unless it was explicitly opened, which is the opposite of the
       // scenario list above: that one shows what to run, this one holds
       // settings someone has already chosen.

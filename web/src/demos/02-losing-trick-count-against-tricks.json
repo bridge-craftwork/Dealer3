@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "script": "title \"Losing Trick Count against spade tricks\"\n# Does the Losing Trick Count predict tricks? North-South with eight or more\n# spades between them: the tricks LTC predicts against the spade tricks they\n# can take, double dummy.\n#\n# LTC predicts 24 minus the partnership's combined losers. The second table\n# shows how far the real number lands from that, and which way.\n\nfit       = spades(north) + spades(south) >= 8\nns_losers = losers(north) + losers(south)\nt_north   = tricks(north, spades)\nt_south   = tricks(south, spades)\nns_tricks = t_north > t_south ? t_north : t_south\npredicted = 24 - ns_losers\n\ncondition fit\n\naction\n  average   \"NS losers\"                  ns_losers,\n  average   \"NS spade tricks\"            ns_tricks,\n  average   \"Tricks beyond LTC\"          ns_tricks - predicted,\n  frequency \"LTC prediction against spade tricks\"\n            (predicted, 4, 13, ns_tricks, 4, 13),\n  frequency \"Tricks beyond LTC\"          (ns_tricks - predicted, -4, 4)\n",
+  "settings": {
+    "produce": 20000,
+    "format": "none",
+    "dealSource": "library",
+    "maxGenerate": 1000000,
+    "autoLevel": false,
+    "roundRobin": false,
+    "params": [],
+    "ddTags": "optimum",
+    "newSeedEachRun": false
+  }
+}
