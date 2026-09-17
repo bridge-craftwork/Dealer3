@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "script": "title \"HCP against notrump tricks\"\n# North-South's combined high-card points against the tricks they can\n# actually take in notrump, double dummy.\n#\n# \"NS ability\" is the better of the two hands as declarer: the same cards\n# make a different number of tricks from North and from South, and what\n# the partnership can do is the larger of them.\n\nnt_north = tricks(north, notrump)\nnt_south = tricks(south, notrump)\nns_nt    = nt_north > nt_south ? nt_north : nt_south\n\ncondition 1\n\naction\n  average   \"NS hcp\"        hcp(north) + hcp(south),\n  average   \"NS NT tricks\"  ns_nt,\n  frequency \"NS hcp against NT tricks\"\n            (hcp(north) + hcp(south), 10, 30, ns_nt, 2, 13)\n",
+  "settings": {
+    "produce": 100000,
+    "format": "none",
+    "dealSource": "library",
+    "maxGenerate": 1000000,
+    "autoLevel": false,
+    "roundRobin": false,
+    "params": [],
+    "ddTags": "optimum",
+    "newSeedEachRun": false
+  }
+}

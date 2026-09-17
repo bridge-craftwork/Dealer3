@@ -27,6 +27,10 @@ const session = {
   pickerOpen: true,
   settingsOpen: false,
   paramValues: { 0: 'west', 1: '15' },
+  pickerTab: 'history',
+  origin: 'pbs:Weak_2_Bids',
+  historyId: 'h3',
+  unrecorded: false,
 }
 
 describe('saveSession / loadSession', () => {
@@ -66,6 +70,20 @@ describe('saveSession / loadSession', () => {
     const { paramValues, ...older } = session
     localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
     expect(loadSession().paramValues).toEqual({})
+  })
+
+  it('reads a session saved before the tabs and History existed', () => {
+    // Looking at PBS, from nowhere History knows, and holding work it has not
+    // got — `unrecorded` undefined is what the page reads as that.
+    const { pickerTab, origin, historyId, unrecorded, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify(older))
+    const s = loadSession()
+    expect(s.pickerTab).toBe('pbs')
+    expect(s.origin).toBeUndefined()
+    expect(s.historyId).toBe('')
+    expect(s.unrecorded).toBeUndefined()
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, pickerTab: 'favorites' }))
+    expect(loadSession().pickerTab).toBe('pbs')
   })
 
   it('returns null when nothing is stored', () => {

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The web page's script list has three tabs: PBS, Demos and History**
+  (#104, #97).
+  - **Demos** are scripts chosen to show analysis rather than filtering: NS
+    high-card points against notrump tricks, and the Losing Trick Count against
+    spade tricks, both on the solved library, plus NT Ladder for levelling. A
+    demo is a document (`{v, script, settings}`) saved as a `.json` file in
+    `web/src/demos/`, titled by its own `title` statement. There is no manifest,
+    so adding one is adding a file. `dealer/tests/web_demos.rs` runs every one.
+  - **History** keeps the scripts you run: 5 versions of each, for the 30 used
+    most recently, in this browser. What counts as the same script is its title
+    or PBS alias, then where it was opened from, then — only for text with
+    neither — how similar it is to the latest entry. Versions of one script never
+    push another script out.
+
 ## [1.1.0] - 2026-09-14
 
 v1.0.0 was tagged on 2026-02-17 without a section of its own, so the entries

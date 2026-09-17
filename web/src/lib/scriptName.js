@@ -1,0 +1,103 @@
+// What a script says about itself: its name, what to call it in a list, and a
+// line describing it.
+//
+// History uses the name to tell one script from another; Demos uses the title
+// and description so that a demo is a document and nothing more, with no
+// manifest beside it saying what it is called.
+//
+// Two sources, in order. The `title "..."` statement is the language's own, and
+// the one a script written here would use. PBS scenarios carry `# key: value`
+// headers instead, and have no title.
+
+import { METADATA_KEYS } from './metadata.js'
+
+const TITLE = /^[ \t]*title[ \t]+"([^"\n]*)"/m
+
+/**
+ * The script with its block comments blanked out, line breaks kept.
+ *
+ * A `title` statement inside a comment is not a title, and blanking rather
+ * than deleting keeps every line where it was.
+ */
+function withoutBlockComments(text) {
+  return text.replace(/\/\*[\s\S]*?(\*\/|$)/g, (block) => block.replace(/[^\n]/g, ' '))
+}
+
+/** The value of a `# key: value` header, or ''. */
+export function metadataValue(text, key) {
+  const escaped = key.replace(/[-]/g, '\\-')
+  const match = new RegExp(`^[ \\t]*#[ \\t]*${escaped}[ \\t]*:[ \\t]*(.*?)[ \\t]*$`, 'im').exec(text)
+  return match ? match[1] : ''
+}
+
+/** The `title "..."` statement's text, or ''. */
+export function scriptTitle(text) {
+  const match = TITLE.exec(withoutBlockComments(text || ''))
+  return match ? match[1].trim() : ''
+}
+
+/**
+ * The name that says which script this is: its title, or a PBS alias.
+ *
+ * The alias rather than `scenario-title` or `button-text`, because those are
+ * display text and PBS changes them; the alias is its identifier.
+ *
+ * @param {string} text the script
+ * @returns {string} '' when the script names itself neither way
+ */
+export function identityName(text) {
+  return scriptTitle(text) || metadataValue(text || '', 'alias')
+}
+
+/**
+ * What to call the script in a list.
+ *
+ * A PBS `scenario-title` is written `--- NT Ladder (Lev)`, the dashes being
+ * PBS's own menu markup, so they come off.
+ *
+ * @param {string} text the script
+ * @returns {string} '' when there is nothing to call it by
+ */
+export function displayName(text) {
+  const source = text || ''
+  return (
+    scriptTitle(source) ||
+    metadataValue(source, 'button-text') ||
+    metadataValue(source, 'scenario-title').replace(/^-+\s*/, '') ||
+    metadataValue(source, 'alias')
+  )
+}
+
+/** A `# key: value` line whose key PBS reads. */
+function isMetadataLine(line) {
+  const match = /^[ \t]*#[ \t]*([a-zA-Z][a-zA-Z0-9-]*)[ \t]*:/.exec(line)
+  return !!match && METADATA_KEYS.includes(match[1].toLowerCase())
+}
+
+/**
+ * The first paragraph of the script's opening comment, as one line.
+ *
+ * Skips what comes before it that is not description — blank lines, PBS
+ * headers and the `title` statement — and stops at the first line that is not
+ * a comment, or at an empty comment line, which is how a paragraph ends inside
+ * a `#` block.
+ *
+ * @param {string} text the script
+ * @returns {string} '' when the script does not open with a comment
+ */
+export function scriptDescription(text) {
+  const words = []
+  for (const line of (text || '').split('\n')) {
+    const trimmed = line.trim()
+    if (!words.length && (!trimmed || isMetadataLine(line) || TITLE.test(line))) continue
+    const comment = /^#+[ \t]?(.*)$/.exec(trimmed)
+    if (!comment) break
+    const body = comment[1].trim()
+    if (!body) {
+      if (words.length) break
+      continue
+    }
+    words.push(body)
+  }
+  return words.join(' ')
+}

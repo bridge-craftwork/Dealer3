@@ -52,9 +52,16 @@
       <aside class="col col-picker" :class="{ 'is-closed': !pickerOpen }">
         <ScenarioPicker
           v-if="pickerOpen"
+          v-model:tab="pickerTab"
           :selected="selectedFile"
           :busy-file="loadingFile"
+          :demos="DEMOS"
+          :selected-demo="selectedDemo"
+          :history="historyItems"
           @select="pickScenario"
+          @select-demo="pickDemo"
+          @open-revision="openRevision"
+          @delete-entry="deleteHistoryEntry"
           @close="pickerOpen = false"
         />
         <!-- What is left when it is closed: a labelled rail, not a bare edge.
@@ -63,12 +70,12 @@
         <button
           v-else
           class="picker-open"
-          title="Show the scenario list"
+          title="Show PBS scenarios, demos and history"
           aria-expanded="false"
           @click="pickerOpen = true"
         >
           <span aria-hidden="true">›</span>
-          <span class="picker-open-label">Scenarios</span>
+          <span class="picker-open-label">Scripts</span>
         </button>
       </aside>
 
@@ -441,6 +448,9 @@ import { downloadText, resultFilename, statisticsText } from '@/lib/download.js'
 import { loadSession, saveSession } from '@/lib/session.js'
 import { randomSeed } from '@/lib/format.js'
 import { makeDocument, paramValuesFrom } from '@/lib/envelope.js'
+import { DEMOS } from '@/lib/demos.js'
+import { loadHistory, recordRevision, removeEntry, saveHistory } from '@/lib/history.js'
+import { displayName } from '@/lib/scriptName.js'
 import {
   fetchShortLink,
   parseFragment,
@@ -665,6 +675,23 @@ const selectedFile = ref(restored?.scenario || '')
 // closed it is editing a script and would have to close it again on every
 // reload otherwise.
 const pickerOpen = ref(restored?.pickerOpen ?? true)
+// Which of its tabs is showing: PBS, Demos or History.
+const pickerTab = ref(restored?.pickerTab || 'pbs')
+
+// --- History (#97) ---------------------------------------------------------
+//
+// lib/history.js decides what counts as one script. What the page supplies is
+// where the script in the editor came from, which settles almost every case
+// exactly: `origin` is the PBS scenario or demo it was loaded from, and
+// `historyId` the history entry being edited, if it was opened from there.
+const history = ref(loadHistory())
+const historyId = ref(restored?.historyId || '')
+const origin = ref(restored?.origin ?? (restored?.scenario ? `pbs:${restored.scenario}` : ''))
+// The script as last recorded or loaded. Anything else in the editor is work
+// that exists nowhere but there, and is kept before it is replaced. A session
+// that does not say is treated as holding such work: recording something twice
+// costs nothing, losing it does.
+const recordedScript = ref(restored?.unrecorded === false ? restored.script : '')
 
 // Closed by default: the panel exists because these were on screen all the
 // time and did not need to be. Remembered, though — someone who opens it is
@@ -877,11 +904,19 @@ watch(
     measureSeconds,
     newSeedEachRun,
     paramValues,
+    pickerTab,
+    historyId,
+    origin,
+    recordedScript,
   ],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       saveSession({
+        pickerTab: pickerTab.value,
+        historyId: historyId.value,
+        origin: origin.value,
+        unrecorded: script.value !== recordedScript.value,
         script: script.value,
         seed: seed.value,
         produce: produce.value,
@@ -924,6 +959,7 @@ async function pickScenario(item) {
   error.value = ''
   try {
     const text = await fetchScenarioScript(item.file)
+    keepUnrecordedWork()
     script.value = text
     // What the list served, kept so Share can tell an untouched scenario from
     // an edited one. An untouched one travels as its name; one changed by a
@@ -931,6 +967,7 @@ async function pickScenario(item) {
     // the right name.
     pristine.value = { file: item.file, text }
     selectedFile.value = item.file
+    loadedFrom(`pbs:${item.file}`, '', text)
     result.value = null
     // Let the editor take the new buffer and re-validate before running.
     await nextTick()
@@ -939,6 +976,97 @@ async function pickScenario(item) {
   } finally {
     loadingFile.value = ''
   }
+}
+
+/// The demo the editor came from, for the Demos tab to highlight.
+const selectedDemo = computed(() => (origin.value.startsWith('demo:') ? origin.value.slice(5) : ''))
+
+/// Open a demo: its script and the settings it needs, which are half of what it
+/// demonstrates — a double-dummy demo on shuffled deals demonstrates slowness.
+function pickDemo(demo) {
+  keepUnrecordedWork()
+  applyDocument(demo.document)
+  pristine.value = { file: '', text: '' }
+  loadedFrom(`demo:${demo.id}`, '', demo.document.script)
+}
+
+/// Open one version of a script from History, settings and all.
+function openRevision({ id, index }) {
+  const entry = history.value.entries.find((e) => e.id === id)
+  const revision = entry?.revisions[index]
+  if (!revision) return
+  keepUnrecordedWork()
+  applyDocument({ script: revision.script, settings: revision.settings })
+  pristine.value = { file: '', text: '' }
+  // The entry's own id, so editing this and running it files the result under
+  // the same script — which is what makes an old version worth reopening.
+  loadedFrom(entry.origin, entry.id, revision.script)
+}
+
+function deleteHistoryEntry(id) {
+  history.value = saveHistory(removeEntry(history.value, id))
+  if (historyId.value === id) historyId.value = ''
+}
+
+/// Where the script now in the editor came from, as History needs to know it.
+function loadedFrom(from, entryId, text) {
+  origin.value = from
+  historyId.value = entryId
+  recordedScript.value = text
+}
+
+/// The editor's script and settings, filed in History.
+function recordHistory() {
+  const { history: next, id } = recordRevision(
+    history.value,
+    {
+      script: script.value,
+      settings: makeDocument(script.value, documentOptions()).settings,
+      origin: origin.value,
+      lineage: historyId.value,
+    },
+    Date.now(),
+  )
+  history.value = saveHistory(next)
+  historyId.value = id
+  recordedScript.value = script.value
+}
+
+/// Before the editor is given something else: file what is in it, if that
+/// exists nowhere else. An untouched scenario or demo is still where it came
+/// from, and the starter script is not anybody's work.
+function keepUnrecordedWork() {
+  const text = script.value
+  if (!text.trim() || text === STARTER || text === recordedScript.value) return
+  recordHistory()
+}
+
+/// History as the list shows it.
+const historyItems = computed(() =>
+  history.value.entries.map((entry) => ({
+    id: entry.id,
+    label: historyLabel(entry),
+    revisions: entry.revisions.map((revision) => revision.at),
+    current: entry.id === historyId.value,
+  })),
+)
+
+/// What to call a script in History: its own name, else where it came from,
+/// else its first line of code.
+function historyLabel(entry) {
+  const text = entry.revisions[0].script
+  const named = displayName(text)
+  if (named) return named
+  if (entry.origin.startsWith('pbs:')) return prettifyLabel(entry.origin.slice(4))
+  if (entry.origin.startsWith('demo:')) {
+    const demo = DEMOS.find((d) => `demo:${d.id}` === entry.origin)
+    if (demo) return demo.title
+  }
+  const code = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line && !line.startsWith('#') && !line.startsWith('/'))
+  return code ? code.slice(0, 60) : 'Untitled script'
 }
 
 // Saving re-runs rather than reformatting what is on screen: the displayed
@@ -1068,6 +1196,9 @@ function currentState() {
     autoLevel: autoLevel.value,
     autoLevelTouched: autoLevelTouched.value,
     pristine: pristine.value,
+    origin: origin.value,
+    historyId: historyId.value,
+    recordedScript: recordedScript.value,
   }
 }
 
@@ -1077,9 +1208,10 @@ function sharedMeasureSeconds() {
   return measureSeconds.value === engineDefault ? undefined : measureSeconds.value
 }
 
-async function onShare() {
-  shareError.value = ''
-  const doc = makeDocument(script.value, {
+/// The run's settings as a document takes them. One place, because a share
+/// link and a History revision must say the same thing about the same run.
+function documentOptions() {
+  return {
     seed: seed.value,
     produce: produce.value,
     maxGenerate: maxGenerate.value,
@@ -1098,7 +1230,12 @@ async function onShare() {
     dealSource: dealSource.value,
     newSeedEachRun: newSeedEachRun.value,
     scenario: selectedFile.value,
-  })
+  }
+}
+
+async function onShare() {
+  shareError.value = ''
+  const doc = makeDocument(script.value, documentOptions())
   let fragment
   try {
     fragment = await shareFragment(doc, {
@@ -1208,12 +1345,37 @@ async function openSharedLink() {
 
 function applySharedDocument({ source, doc, expires }) {
   const s = doc.settings
+  keepUnrecordedWork()
   // Only worth keeping when there is something to lose. This is the only way
   // back to it: the page has not navigated, so the back button would leave the
   // site rather than undo this.
   const before = currentState()
-  displaced.value = before.script.trim() && before.script !== doc.script ? before : null
 
+  applyDocument(doc)
+  displaced.value = before.script.trim() && before.script !== doc.script ? before : null
+  // A shared scenario's script is the list's own, so Share can send it back the
+  // short way.
+  pristine.value = source === 'scenario' ? { file: s.scenario, text: doc.script } : { file: '', text: '' }
+  loadedFrom(source === 'scenario' && s.scenario ? `pbs:${s.scenario}` : '', '', doc.script)
+
+  const named = source === 'scenario' && s.scenario ? ` “${prettifyLabel(s.scenario)}”` : ''
+  // That nothing has run is the part worth saying: it is the difference between
+  // this and every other link, and the reason the page looks idle.
+  sharedNotice.value = `Opened a shared script${named}. Nothing has run yet.`
+  // A short link is the one kind that stops working, and the person holding one
+  // is about to bookmark it. The editor keeps the script whatever happens to
+  // the link; Share makes one that lasts.
+  if (source === 'short') {
+    sharedNotice.value +=
+      ` This short link stops working ${expires ? `on ${formatDay(expires)}` : `${SHORT_LINK_DAYS} days after it was made`}` +
+      ' — to keep a link to it, press Share for one that never expires.'
+  }
+}
+
+/// Put a document's script and settings in the editor: a link's, a demo's, or
+/// a History revision's. Nothing runs.
+function applyDocument(doc) {
+  const s = doc.settings
   script.value = doc.script
   // A link that names no seed is about a script rather than about particular
   // hands, so every visitor gets their own sample.
@@ -1235,27 +1397,15 @@ function applySharedDocument({ source, doc, expires }) {
   // The link had an opinion, so the box must not be re-ticked underneath it by
   // the watcher that ticks it for a script naming hand types.
   autoLevelTouched.value = true
-  // A shared scenario's script is the list's own, so Share can send it back the
-  // short way.
-  pristine.value = source === 'scenario' ? { file: s.scenario, text: doc.script } : { file: '', text: '' }
 
   result.value = null
   leveling.value = null
   error.value = ''
   editorTab.value = 'script'
-
-  const named = source === 'scenario' && s.scenario ? ` \u201c${prettifyLabel(s.scenario)}\u201d` : ''
-  // That nothing has run is the part worth saying: it is the difference between
-  // this and every other link, and the reason the page looks idle.
-  sharedNotice.value = `Opened a shared script${named}. Nothing has run yet.`
-  // A short link is the one kind that stops working, and the person holding one
-  // is about to bookmark it. The editor keeps the script whatever happens to
-  // the link; Share makes one that lasts.
-  if (source === 'short') {
-    sharedNotice.value +=
-      ` This short link stops working ${expires ? `on ${formatDay(expires)}` : `${SHORT_LINK_DAYS} days after it was made`}` +
-      ' \u2014 to keep a link to it, press Share for one that never expires.'
-  }
+  // What a previous link said, and the way back from it, are about a script no
+  // longer in the editor.
+  sharedNotice.value = ''
+  displaced.value = null
 }
 
 /// Put back what the link replaced.
@@ -1287,6 +1437,7 @@ function restorePrevious() {
   autoLevel.value = was.autoLevel ?? false
   autoLevelTouched.value = was.autoLevelTouched
   pristine.value = was.pristine
+  loadedFrom(was.origin ?? '', was.historyId ?? '', was.recordedScript ?? '')
   result.value = null
   leveling.value = null
 }
@@ -1318,6 +1469,10 @@ async function run() {
     result.value = null
     return
   }
+
+  // A run is the checkpoint History keeps: the script as it was run, with the
+  // settings it was run with. Per keystroke would be the editor's undo stack.
+  recordHistory()
 
   running.value = true
   error.value = ''

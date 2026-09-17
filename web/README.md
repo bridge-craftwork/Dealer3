@@ -35,11 +35,18 @@ src/
 │   ├── shortKey.js       what a short link's key looks like, for both ends
 │   ├── shortLinks.js     the short-link service, behind ../functions/
 │   ├── clipboard.js      copying text, with the fallback the platforms need
-│   └── download.js       saving results as PBN or text
+│   ├── download.js       saving results as PBN or text
+│   ├── demos.js          the bundled demos, read from demos/ as documents
+│   ├── history.js        scripts run before: what counts as one, how many kept
+│   ├── scriptName.js     a script's title, name and description, from itself
+│   └── metadata.js       the `# key: value` headers PBS reads
+├── demos/                one document (.json) per demo; the folder is the list
 ├── Reference.vue         the language reference page
 ├── Leveling.vue          the levelling guide, rendered from docs/
 └── components/
-    ├── ScenarioPicker.vue  340+ PBS scenarios, grouped and searchable
+    ├── ScenarioPicker.vue  the PBS, Demos and History tabs; PBS grouped and searchable
+    ├── DemoList.vue        the Demos tab
+    ├── HistoryList.vue     the History tab
     ├── ScriptEditor.vue    CodeMirror 6, diagnostics from the real parser
     ├── DealGrid.vue        deals as bridge hands, with HCP
     ├── RichText.vue        backticked spans in descriptions, as code
@@ -482,11 +489,11 @@ beside them are kept in
 `localStorage`, so a return visit picks up where the last one left off. The
 starter script only appears on a genuinely first visit.
 
-Deliberately **one** session, not a library: a history would need naming,
-listing and deleting — a feature in its own right — and the common case is
-simply coming back to what you had open. Results are not stored: they can run to
-megabytes, they regenerate from the script and seed in milliseconds, and a
-stored result could silently disagree with the script shown beside it.
+This is one session, the script open now. Scripts worked on before it are
+History's, below, which keeps them under a key of its own. Results are stored by
+neither: they can run to megabytes, they regenerate from the script and seed in
+milliseconds, and a stored result could silently disagree with the script shown
+beside it.
 
 Every access is guarded. `localStorage` throws outright in some privacy modes
 rather than returning null, and a corrupt value means "start fresh" rather than
@@ -500,11 +507,80 @@ stored `false` reads back as open, because the list is how a first visit finds
 something to run. Once closed it stays closed — someone who closed it is editing
 a script, and having to close it again on every reload is the whole complaint.
 
-## Hiding the scenario list
+## PBS, Demos and History
 
-The picker finds a starting point and then costs 260px for as long as the script
-is being edited. **‹** beside the search closes it; what is left is a 28px rail
-labelled *Scenarios*, and the whole rail is the way back. A rail rather than
+The panel on the left has three tabs, one for each place a script comes from.
+Favourites and named saves were considered in #97 and dropped: History covers
+coming back to a script, and a Saved tab was the thing Safari's seven-day storage
+eviction would have hurt most.
+
+### Demos (#104)
+
+Scripts chosen to show what the tool can do. PBS already demonstrates filtering
+for a hand type 350 times over, so these lean to **analysis**: averages,
+two-dimensional frequency tables, the solved library.
+
+**A demo is a document and nothing else** — the `{v, script, settings}` that
+`envelope.js` defines, which share links and export already use — saved as a
+`.json` file in `src/demos/`. There is no manifest. The title is the script's
+own `title "..."` statement and the description is the first paragraph of its
+opening comment, so adding a demo is adding a file, and nothing beside it can
+fall out of step. Files list in name order, which is why they are numbered.
+
+The settings are half of what a demo demonstrates. The double-dummy demos name
+the solved library as their deal source; on shuffled deals they would solve
+every deal and demonstrate that the tool is slow.
+
+Bundled rather than fetched, so a demo versions with the page and cannot 404.
+`src/lib/demos.test.js` checks that every one reads as a document with a title
+and a description, and `dealer/tests/web_demos.rs` runs every script through the
+engine, which the page's tests cannot do.
+
+**NT Ladder** is the one exception: the only PBS scenario that levels across
+several hand types, so the one worth showing here. Its script is imported from
+`examples/NT_Ladder.stock.dlr` rather than copied, because that file is already
+in the repository and CI already checks it reproduces `NT_Ladder.leveled.dlr`.
+Its settings are in `demos.js`, since a `.dlr` cannot carry them.
+
+The command line has no demos. Someone trying it has almost always tried the
+page first, and the page is the better place to try one.
+
+### History (#97)
+
+Scripts you have run, kept in this browser. Ten entries that are all one script
+mid-edit would not be a history, so each run is filed under a script, and what
+counts as the same script is decided in this order:
+
+1. **Its name**: the `title` statement, or failing that a PBS `# alias:`. The
+   alias rather than `scenario-title` or `button-text`, which are display text
+   and change.
+2. **Where it came from.** Open a PBS scenario, a demo or a History entry, edit
+   it and run it, and that is a version of *that* script. The page knows this
+   exactly, so no threshold is involved — and it covers nearly every case.
+3. **Similarity**, only for text with no name and no origin, typed or pasted from
+   scratch: if at least half its lines match the most recent entry, it is that
+   script.
+
+One guard spans the last two: text sharing less than a fifth of its lines with
+the entry it came from was replaced rather than edited, and starts a new script.
+
+**Each script keeps its last 5 versions, and History keeps the 30 scripts used
+most recently.** A new version pushes out only that script's own oldest, so an
+afternoon on one script never costs a different script its place.
+
+**A version is recorded on Run**, and when something is loaded over a script with
+edits that were never run. Not per keystroke, which would be the editor's undo
+stack again. Opening a version restores its settings too: each is a document, so
+it opens exactly as a share link would.
+
+Stored as one versioned blob, `dealer3:history:v1`, guarded as the session is.
+When storage is full, the least recently used scripts go first until it fits.
+
+## Hiding the panel
+
+The panel finds a starting point and then costs 260px for as long as the script
+is being edited. **‹** at the end of the tab row closes it; what is left is a
+28px rail labelled *Scripts*, and the whole rail is the way back. A rail rather than
 nothing at all, because closing it is the only thing that hides it and clicking
 somewhere unmarked is not a way back anyone would find. The two `1fr` columns
 take the 232px between them, so the editor and the results both grow rather than
