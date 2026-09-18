@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { fetchScenarioManifest, suitSymbols, prettifyLabel } from './pbsScenarios.js'
+import {
+  fetchScenarioManifest,
+  fetchScenarioScript,
+  forgetScriptPaths,
+  suitSymbols,
+  prettifyLabel,
+} from './pbsScenarios.js'
 
 const manifest = {
   layout: [
@@ -83,5 +89,56 @@ describe('fetchScenarioManifest', () => {
   it('reports a readable error when the manifest is unavailable', async () => {
     stubFetch(null, false, 404)
     await expect(fetchScenarioManifest()).rejects.toThrow(/scenario list.*404/i)
+  })
+})
+
+describe('fetchScenarioScript: the file PBS publishes (#132)', () => {
+  const withPaths = {
+    layout: [{ type: 'section', title: 'S' }, { type: 'row', buttons: [{ name: 'Plain' }, { name: 'Plain_Leveled' }] }],
+    scenarios: {
+      Plain: { buttonText: 'Plain', dlr: 'dlr/Plain.dlr' },
+      Plain_Leveled: { buttonText: '(Lev)', dlr: 'dlr-leveled/Plain_Leveled.dlr' },
+      Sneaky: { buttonText: 'x', dlr: '../../elsewhere/evil.dlr' },
+    },
+  }
+
+  /** Answer the manifest, and any script with its own URL, recording each URL asked for. */
+  function stubRepo(manifestOk = true) {
+    const urls = []
+    vi.stubGlobal('fetch', vi.fn(async (url) => {
+      urls.push(url)
+      if (url.endsWith('.json')) {
+        return { ok: manifestOk, status: manifestOk ? 200 : 503, json: async () => withPaths }
+      }
+      return { ok: true, status: 200, text: async () => `script from ${url}` }
+    }))
+    return urls
+  }
+
+  afterEach(() => forgetScriptPaths())
+
+  it('fetches a leveled scenario from dlr-leveled, as the manifest says', async () => {
+    const urls = stubRepo()
+    await fetchScenarioManifest('release')
+    expect(await fetchScenarioScript('Plain_Leveled')).toMatch(/\/dlr-leveled\/Plain_Leveled\.dlr$/)
+    expect(await fetchScenarioScript('Plain')).toMatch(/\/dlr\/Plain\.dlr$/)
+    // The manifest was read once, by the list, not again for each script.
+    expect(urls.filter((u) => u.endsWith('.json'))).toHaveLength(1)
+  })
+
+  it('reads the manifest itself when a link opens a scenario before the list has loaded', async () => {
+    const urls = stubRepo()
+    expect(await fetchScenarioScript('Plain_Leveled')).toMatch(/\/dlr-leveled\/Plain_Leveled\.dlr$/)
+    expect(urls[0]).toMatch(/manifest-release\.json$/)
+  })
+
+  it('falls back to dlr/ when the manifest cannot be had', async () => {
+    stubRepo(false)
+    expect(await fetchScenarioScript('Plain_Leveled')).toMatch(/\/dlr\/Plain_Leveled\.dlr$/)
+  })
+
+  it('ignores a manifest path that could reach outside the repository', async () => {
+    stubRepo()
+    expect(await fetchScenarioScript('Sneaky')).toMatch(/\/dlr\/Sneaky\.dlr$/)
   })
 })

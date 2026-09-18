@@ -31,6 +31,7 @@ const session = {
   origin: 'pbs:Weak_2_Bids',
   historyId: 'h3',
   unrecorded: false,
+  autoLevelTouched: true,
 }
 
 describe('saveSession / loadSession', () => {
@@ -84,6 +85,19 @@ describe('saveSession / loadSession', () => {
     expect(s.unrecorded).toBeUndefined()
     localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, pickerTab: 'favorites' }))
     expect(loadSession().pickerTab).toBe('pbs')
+  })
+
+  it('does not read a stored auto-level as somebody having chosen it (#132)', () => {
+    // Every session stores `autoLevel`, so a session from before
+    // `autoLevelTouched` holds a value nobody necessarily chose. Reading one as
+    // a choice kept levelling off for every leveled scenario opened afterwards.
+    const { autoLevelTouched, ...older } = session
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...older, autoLevel: false }))
+    const s = loadSession()
+    expect(s.autoLevel).toBe(false)
+    expect(s.autoLevelTouched).toBe(false)
+    localStorage.setItem('dealer3:session:v1', JSON.stringify({ ...session, autoLevelTouched: 'yes' }))
+    expect(loadSession().autoLevelTouched).toBe(false)
   })
 
   it('returns null when nothing is stored', () => {
