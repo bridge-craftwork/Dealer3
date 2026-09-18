@@ -31,11 +31,22 @@ describe('the bundled demos', () => {
     }
   })
 
-  it('puts NT Ladder last, levelling', () => {
-    const last = DEMOS.at(-1)
-    expect(last.id).toBe('90-nt-ladder')
-    expect(last.document.settings.autoLevel).toBe(true)
-    expect(last.document.script).toContain('HandType_')
+  it('ends with the two NT Ladders, levelling, in the order they compare in', () => {
+    const [bands, withinBands] = DEMOS.slice(-2)
+    expect([bands.id, withinBands.id]).toEqual(['90-nt-ladder', '91-nt-ladder-within-band'])
+    for (const demo of [bands, withinBands]) {
+      expect(demo.document.settings.autoLevel).toBe(true)
+      expect(demo.document.script).toContain('HandType_')
+      // Same deal count, or the two histograms are not comparable.
+      expect(demo.document.settings.produce).toBe(20000)
+      // Levelling throws most deals away, so the default million would stop
+      // this short of what it asks for.
+      expect(demo.document.settings.maxGenerate).toBeGreaterThanOrEqual(3000000)
+    }
+    // The pair's whole point: the second levels each HCP, not each band.
+    expect(bands.document.script).not.toContain('LevelType_')
+    expect(withinBands.document.script).toContain('LevelType_12 = hcp(south) == 12')
+    expect(withinBands.document.script).toContain('LevelType_18_Share = 3')
   })
 })
 

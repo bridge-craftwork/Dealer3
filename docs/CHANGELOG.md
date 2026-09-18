@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#104, #97).
   - **Demos** are scripts chosen to show analysis rather than filtering: NS
     high-card points against notrump tricks, and the Losing Trick Count against
-    spade tricks, both on the solved library, plus NT Ladder for levelling. A
+    spade tricks, both on the solved library, plus the two NT Ladders — one
+    levelling the five HCP bands, one levelling each HCP within them, which is
+    what `LevelType_` is for and shows in a single pair of histograms. A
     demo is a document (`{v, script, settings}`) saved as a `.json` file in
     `web/src/demos/`, titled by its own `title` statement. There is no manifest,
     so adding one is adding a file. `dealer/tests/web_demos.rs` runs every one.
