@@ -536,11 +536,24 @@ Bundled rather than fetched, so a demo versions with the page and cannot 404.
 and a description, and `dealer/tests/web_demos.rs` runs every script through the
 engine, which the page's tests cannot do.
 
-**NT Ladder** is the one exception: the only PBS scenario that levels across
-several hand types, so the one worth showing here. Its script is imported from
-`examples/NT_Ladder.stock.dlr` rather than copied, because that file is already
-in the repository and CI already checks it reproduces `NT_Ladder.leveled.dlr`.
-Its settings are in `demos.js`, since a `.dlr` cannot carry them.
+**The two NT Ladders** are a pair, and are there to be compared. The first
+levels the five HCP bands; the second levels each HCP within them, with
+`LevelType_` and its shares. Run both and look at HCP South: levelling the bands
+alone leaves the inside of each as nature dealt it, so a 12 turns up half again
+as often as a 14, while the second comes out flat within each band and keeps the
+bands themselves even. That contrast is what `LevelType_` exists for.
+
+The first is imported from `examples/NT_Ladder.stock.dlr` rather than copied,
+because that file is already in the repository and CI already checks it
+reproduces `NT_Ladder.leveled.dlr`; its settings are in `demos.js`, since a
+`.dlr` cannot carry them. The second is a snapshot of Practice-Bidding-Scenarios'
+own `NT_Ladder.dlr`, in `demos/` with a title and a note added, because a demo
+has to be bundled.
+
+Both produce 20,000 with the generate ceiling raised — levelling discards most
+deals, so at the default million they stop short of what they ask for and say
+so. Levelling thirteen level types costs more measuring than five bands: about
+1.9M deals dealt against 6.3M, so a second or two rather than under one.
 
 The command line has no demos. Someone trying it has almost always tried the
 page first, and the page is the better place to try one.

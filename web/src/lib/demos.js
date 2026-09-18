@@ -14,6 +14,17 @@
 //
 // Bundled rather than fetched, so a demo versions with the page and cannot 404.
 //
+// ## The two NT Ladders
+//
+// A pair, and the reason they are both here: the first levels the five HCP
+// bands, the second levels each HCP within them (`LevelType_`). Run both and
+// compare the HCP South histograms — levelling the bands alone leaves the
+// inside of each as nature dealt it, so a 12 turns up far oftener than a 14.
+// They produce the same number of deals, or the histograms would not compare.
+//
+// The second is a snapshot of Practice-Bidding-Scenarios' own NT_Ladder, in
+// `demos/`, because a demo has to be bundled; the first is imported.
+//
 // ## NT Ladder, the one exception
 //
 // The one PBS scenario worth showing here, because it is the corpus's only
@@ -63,15 +74,22 @@ export function buildDemos(files, extras = []) {
 
 /// NT Ladder's settings: levelling on, so the five bands come out in equal
 /// shares instead of the natural 58/29/8/3/1% — which is the point of it.
+///
+/// Produces 20,000, as the demo beside it does: at twenty deals the bands are
+/// too lumpy to read, and the pair is there to be compared. The generate
+/// ceiling is raised to suit, because levelling throws most deals away — at the
+/// default million this stops short of what it was asked for and says so.
+/// Around 1.9M deals, and only 500 of them come back to the page.
 const NT_LADDER = {
   id: '90-nt-ladder',
   title: 'NT Ladder: levelled hand types',
   description:
     'Five HCP bands for a balanced South, dealt in equal shares rather than ' +
-    'their natural 58/29/8/3/1% — levelling, from a real PBS scenario.',
+    'their natural 58/29/8/3/1% — levelling, from a real PBS scenario. The ' +
+    'bands are levelled; the HCP inside each are not.',
   document: makeDocument(ntLadderScript, {
-    produce: 20,
-    maxGenerate: 1000000,
+    produce: 20000,
+    maxGenerate: 3000000,
     format: 'oneline',
     autoLevel: true,
     roundRobin: false,
