@@ -309,11 +309,16 @@
           <!-- Ticks itself when a script names hand types, since that is the
                only thing levelling needs and the reason to want it. Untouched
                after that: turning it back off is a choice, and re-ticking it on
-               the next edit would take that away. Greyed while the levelled
-               scenario is on screen, because that run has nothing left to
-               decide — see `run`. -->
+               the next edit would take that away. Only a click is a choice —
+               see `autoLevelTouched`. Greyed while the levelled scenario is on
+               screen, because that run has nothing left to decide — see `run`. -->
           <label class="check" :class="{ off: !levelBoxLive }" :title="levelHint">
-            <input v-model="autoLevel" type="checkbox" :disabled="!levelBoxLive" />
+            <input
+              v-model="autoLevel"
+              type="checkbox"
+              :disabled="!levelBoxLive"
+              @change="autoLevelTouched = true"
+            />
             Auto-level
           </label>
 
@@ -450,7 +455,7 @@ import { randomSeed } from '@/lib/format.js'
 import { makeDocument, paramValuesFrom } from '@/lib/envelope.js'
 import { DEMOS } from '@/lib/demos.js'
 import { loadHistory, recordRevision, removeEntry, saveHistory } from '@/lib/history.js'
-import { displayName } from '@/lib/scriptName.js'
+import { displayName, isGeneratedLeveling } from '@/lib/scriptName.js'
 import {
   fetchShortLink,
   parseFragment,
@@ -713,7 +718,15 @@ const newSeedEachRun = ref(restored?.newSeedEachRun ?? false)
 // rather than written down twice, since a field disagreeing with the engine it
 // drives is worse than no field.
 const measureSeconds = ref(restored?.measureSeconds ?? null)
-const autoLevelTouched = ref(restored?.autoLevel != null)
+// Whether someone has said what they want Auto-level to be, for the script in
+// front of them. Set by clicking the box and by opening a document that states
+// it — a demo, a History version, a link — and by nothing the page does on its
+// own. It used to be set by any change to `autoLevel`, which could not tell a
+// click from the page switching levelling off for a script with no hand types:
+// the next leveled scenario then loaded with the box empty and ran unlevelled
+// (#132). Stored as itself, for the same reason — a session always holds
+// `autoLevel`, so inferring an opinion from it meant every return visit had one.
+const autoLevelTouched = ref(restored?.autoLevelTouched === true)
 const editorTab = ref('script')
 
 /// Whether the script declares any `HandType_*` variable.
@@ -724,9 +737,21 @@ const hasHandTypes = computed(() =>
   /^[ \t]*HandType[A-Za-z0-9_]*[ \t]*=/m.test(script.value),
 )
 
+/// Whether the script is one `--write-leveled` generated — a PBS `dlr-leveled/`
+/// scenario, say. It levels itself, so there is nothing for Auto-level to do,
+/// and the engine refuses to measure an already-levelled mix.
+const isGenerated = computed(() => isGeneratedLeveling(script.value))
+
+/// Whether Auto-level has anything to do for this script: it names hand types,
+/// and is the stock scenario rather than one already levelled.
+const levelable = computed(() => hasHandTypes.value && !isGenerated.value)
+
 const levelHint = computed(() => {
   if (editorTab.value === 'leveled') {
     return 'The levelled scenario runs as it stands here — press Run for another sample of the same keeps.'
+  }
+  if (isGenerated.value) {
+    return 'This scenario is already levelled — its keeps are written into it, so it runs as it stands. To level it afresh, start from the stock scenario it was generated from.'
   }
   return hasHandTypes.value
     ? 'Measure how often each hand type comes up, then keep the common ones less often so the mix comes out even, and write the levelled scenario.'
@@ -743,7 +768,7 @@ const leveledScript = computed(() => leveling.value?.script || '')
 ///
 /// On the Leveled tab it does not: that run takes the generated scenario as it
 /// stands.
-const levelBoxLive = computed(() => hasHandTypes.value && editorTab.value !== 'leveled')
+const levelBoxLive = computed(() => levelable.value && editorTab.value !== 'leveled')
 
 // The same conditions, for the same reasons: it needs categories to deal round,
 // and the Leveled tab runs its scenario as it stands.
@@ -840,13 +865,12 @@ const slowRandom = computed(() => slowRandomWarning(scriptUsesDoubleDummy.value,
 
 // Ticked for you the first time a script with hand types appears, and left
 // alone afterwards.
-watch(hasHandTypes, (has) => {
-  if (has && !autoLevelTouched.value) autoLevel.value = true
-  if (!has) autoLevel.value = false
+watch(levelable, (can) => {
+  if (can && !autoLevelTouched.value) autoLevel.value = true
+  if (!can) autoLevel.value = false
 }, { immediate: true })
 
 watch(autoLevel, (on) => {
-  autoLevelTouched.value = true
   if (!on) leveling.value = null
 })
 
@@ -908,11 +932,13 @@ watch(
     historyId,
     origin,
     recordedScript,
+    autoLevelTouched,
   ],
   () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
       saveSession({
+        autoLevelTouched: autoLevelTouched.value,
         pickerTab: pickerTab.value,
         historyId: historyId.value,
         origin: origin.value,
@@ -961,6 +987,13 @@ async function pickScenario(item) {
     const text = await fetchScenarioScript(item.file)
     keepUnrecordedWork()
     script.value = text
+    // A different script, so whatever was chosen for the last one does not
+    // carry over: levelled if it names hand types, which for a PBS `_Leveled`
+    // scenario is the point of it. Set here rather than left to the
+    // hand-types watcher, which does not fire going from one scenario with
+    // hand types to another.
+    autoLevelTouched.value = false
+    autoLevel.value = levelable.value
     // What the list served, kept so Share can tell an untouched scenario from
     // an edited one. An untouched one travels as its name; one changed by a
     // character cannot, or the recipient would open a different script under
@@ -1203,7 +1236,7 @@ function currentState() {
 }
 
 function sharedMeasureSeconds() {
-  if (!autoLevel.value || !hasHandTypes.value || measureSeconds.value == null) return undefined
+  if (!autoLevel.value || !levelable.value || measureSeconds.value == null) return undefined
   const engineDefault = engineReady.value ? defaultMeasureSeconds() : null
   return measureSeconds.value === engineDefault ? undefined : measureSeconds.value
 }
@@ -1216,7 +1249,7 @@ function documentOptions() {
     produce: produce.value,
     maxGenerate: maxGenerate.value,
     format: format.value,
-    autoLevel: autoLevel.value && hasHandTypes.value,
+    autoLevel: autoLevel.value && levelable.value,
     roundRobin: roundRobinAsked.value,
     ddTags: ddTags.value,
     // What the run would send, rather than what has been typed: a value for a
@@ -1496,7 +1529,7 @@ async function run() {
       format: format.value,
       ddTags: ddTags.value,
       params: paramSpecs.value,
-      autoLevel: !onLeveled && autoLevel.value && hasHandTypes.value,
+      autoLevel: !onLeveled && autoLevel.value && levelable.value,
       // Left out while the field is still empty, so the engine's own default
       // applies rather than a zero.
       measureSeconds: measureSeconds.value ?? undefined,

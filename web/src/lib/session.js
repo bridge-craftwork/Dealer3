@@ -70,6 +70,12 @@ export function loadSession() {
       // chosen" from "chosen false" — auto-level ticks itself the first time a
       // script names hand types, and only until someone has had an opinion.
       autoLevel: typeof v.autoLevel === 'boolean' ? v.autoLevel : undefined,
+      // Whether that was somebody's choice rather than the page's default.
+      // Stored as itself: `autoLevel` is always saved, so reading an opinion
+      // off it meant every return visit had one, and a leveled scenario opened
+      // later loaded with levelling off (#132). A session from before this
+      // field reads as no choice made, which is the default reasserting itself.
+      autoLevelTouched: v.autoLevelTouched === true,
       newSeedEachRun:
         typeof v.newSeedEachRun === 'boolean' ? v.newSeedEachRun : undefined,
       // Seconds to spend characterizing. Left undefined rather than defaulted,
