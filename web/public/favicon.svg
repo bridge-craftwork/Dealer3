@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- The spade, drawn as bridge-solver's icon is drawn: the suit glyph as
+       text, so the family of apps reads as one set (dealer3 ♠, solver ♥),
+       centred and sized to fill the square so it holds up at 16px.
+       Near-black on a light tab bar and near-white on a dark one, since a
+       black glyph on a dark tab strip all but disappears. U+FE0E asks for the
+       text form of the glyph rather than an emoji, which would ignore the fill. -->
+  <style>
+    text { fill: #1a1a1a; }
+    @media (prefers-color-scheme: dark) { text { fill: #f5f3ef; } }
+  </style>
+  <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+        font-size="140">&#x2660;&#xFE0E;</text>
+</svg>

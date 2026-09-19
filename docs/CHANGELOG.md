@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default.
 
 ### Added
+- **A favicon for the web page: a spade.** The first of a set across the
+  Bridge Craftwork apps, one suit each; bridge-solver takes the heart. It
+  also ends the `favicon.ico` 404 every page load used to log.
 - **The web page's script list has three tabs: PBS, Demos and History**
   (#104, #97).
   - **Demos** are scripts chosen to show analysis rather than filtering: NS
