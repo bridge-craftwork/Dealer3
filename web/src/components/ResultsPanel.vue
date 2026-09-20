@@ -329,16 +329,11 @@
           {{ result.produced.toLocaleString() }} of them. Choose One line, Print all or PBN, and
           run again, to see the hands.
         </p>
-        <p v-else-if="view === 'grid' && !parsedDeals.length" class="results-muted">
+        <p v-else-if="view === 'grid' && !boards.length" class="results-muted">
           This output format cannot be shown as hands. Switch to Text, or generate with the
           one-line format.
         </p>
-        <DealGrid
-          v-else-if="view === 'grid'"
-          :deals="parsedDeals"
-          :types="result.dealTypes || []"
-          :palette="palette"
-        />
+        <DealGrid v-else-if="view === 'grid'" :boards="boards" :palette="palette" />
         <template v-else>
           <!-- `printes` is the script's own output. It goes above the deals
                because that is what it is usually for: a line summarising each
@@ -371,7 +366,7 @@
 // presentation, not its precision.
 import { ref, computed } from 'vue'
 import DealGrid from '@/components/DealGrid.vue'
-import { parseOnelineDeals } from '@/lib/cardFormatting.js'
+import { parseOnelineDeal } from '@/lib/cardFormatting.js'
 import { formatAverage } from '@/lib/format.js'
 import { labelOf, isIndented } from '@/lib/labels.js'
 import { describeInput } from '@/lib/library.js'
@@ -614,9 +609,25 @@ function pct(share) {
 // Only the one-line format can be laid out as hands: printall is already a
 // visual layout, and PBN is a record format. Returns [] for those, and the
 // template offers Text instead rather than showing an empty grid.
-const parsedDeals = computed(() => {
-  if (!props.result?.deals?.length) return []
-  return parseOnelineDeals(props.result.deals.join('\n'))
+//
+// The hand type and the double-dummy table are paired with their deal here,
+// rather than passed alongside as parallel arrays, because parsing is where
+// they could come apart: a line that is not a deal is dropped, and everything
+// after it would then be labelled with the board before's type and table. One
+// line per deal is what the one-line format means, so this has never
+// misaligned — but it would be silent if it did, and the pairing costs
+// nothing.
+const boards = computed(() => {
+  const lines = props.result?.deals
+  if (!lines?.length) return []
+  const types = props.result.dealTypes || []
+  const tricks = props.result.ddTricks || []
+  const out = []
+  lines.forEach((line, i) => {
+    const deal = parseOnelineDeal(line)
+    if (deal) out.push({ deal, type: types[i] || null, tricks: tricks[i] || null })
+  })
+  return out
 })
 
 /**

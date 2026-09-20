@@ -29,6 +29,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default.
 
 ### Added
+- **The web page's hand records show the double-dummy table, when the deal has
+  one** (#129). A deal that arrived solved — from the pre-solved library, or
+  from a PBN carrying `[OptimumResultTable]` or `[DoubleDummyTricks]` — draws
+  its table under the hands. So does a script using `par` or `trix`, which
+  cannot be answered without all twenty cells and so has already paid for them.
+  - **All twenty cells or no table, and nothing is ever solved to produce one.**
+    A script asking `tricks(north, notrump)` knows one cell and draws nothing:
+    one number beside nineteen blanks reads as broken rather than precise, and
+    filling it would cost nineteen searches a deal — about 91 ms single-threaded
+    — letting the display decide how long a run takes. A PBN export has always
+    refused to solve for a tag on the same grounds.
+  - The columns run `NT ♠ ♥ ♦ ♣`, the standard order and the one PBN's two
+    encodings use, so the table on screen reads the same way as the
+    `[OptimumResultTable]` a PBN export carries. The apps this was vendored
+    from draw `♣ ♦ ♥ ♠ NT`, which came from the BBO helper extension and
+    spread by being copied; that stops here.
+  - A partnership whose rows agree is drawn as one `NS` or `EW` row. That is
+    the usual case and it halves the table's height; when the two hands differ,
+    which is the case worth looking at, all four rows stay.
+  - The engine returns this as `dd_tricks` alongside `deals` — see
+    `docs/WASM.md`. The table itself is vendored from `bridge-solver`, which
+    took it from Bridge-Classroom; `web/src/lib/ddTable.js` says what diverged
+    and why.
 - **A favicon for the web page: a spade.** The first of a set across the
   Bridge Craftwork apps, one suit each; bridge-solver takes the heart. It
   also ends the `favicon.ico` 404 every page load used to log.

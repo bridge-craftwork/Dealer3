@@ -216,3 +216,113 @@ fn a_small_run_does_not_solve_a_whole_batch() {
          than a run's"
     );
 }
+
+/// A partly solved deal offers no cells, and asking costs no searches (#129).
+///
+/// Two claims, and the second is why this is measured rather than inspected.
+///
+/// A script asking one question knows one cell. `dd_cells` could have handed
+/// that over for the page to draw around, and the page would then show a table
+/// with one number and nineteen blanks — which reads as broken. The rule is
+/// all twenty or nothing.
+///
+/// The way that rule goes wrong is by being met: filling the grid in so there
+/// is always something to draw. That costs nineteen searches a deal at roughly
+/// ten milliseconds each, decided by the output format rather than the script,
+/// and the table on screen would look *better* for it. Only the clock would
+/// say. So the witness is `dealer_dds::searches()`.
+#[test]
+fn a_partly_solved_deal_offers_no_cells_and_solves_nothing_to_change_that() {
+    let _alone = alone();
+
+    // One question, in the condition: North in notrump and nothing else.
+    let script = "condition tricks(north, notrump) >= 0\n";
+    let before = dealer_dds::searches();
+    let mut cells = Cells::default();
+    let report = dealer_run::run(script, cell_options(), &mut cells).expect("run");
+    let searched = dealer_dds::searches() - before;
+
+    assert_eq!(report.produced, 4);
+    assert_eq!(cells.0.len(), 4, "every produced deal was asked");
+    assert!(
+        cells.0.iter().all(Option::is_none),
+        "one cell known is not a table, so none of these should be offered"
+    );
+
+    // The searches the condition itself needed, and not one more. Had asking
+    // for the cells filled the grid in, this would be nineteen deals' worth
+    // higher and nothing else in the run would have changed.
+    assert!(
+        searched <= 16,
+        "asking 4 deals for their cells cost {searched} searches, so something \
+         solved to answer it"
+    );
+}
+
+/// The other half of the rule: a script that needs the whole table gets the
+/// cells for nothing, because the run has already paid for them.
+///
+/// `par` cannot be answered without all twenty, so these deals are complete by
+/// the time anyone asks. The same goes for `trix`, and for any deal that
+/// arrived from a solved file. Those are the runs the page draws a table for.
+#[test]
+fn a_deal_solved_all_the_way_offers_every_cell() {
+    let _alone = alone();
+
+    let script = "condition par(north) > -10000\n";
+    let before = dealer_dds::searches();
+    let mut cells = Cells::default();
+    let report = dealer_run::run(script, cell_options(), &mut cells).expect("run");
+    let asked_for_par = dealer_dds::searches() - before;
+
+    assert_eq!(report.produced, 4);
+    for (i, grid) in cells.0.iter().enumerate() {
+        let grid =
+            grid.unwrap_or_else(|| panic!("deal {i} was solved in full and should offer it"));
+        assert!(
+            grid.iter().flatten().all(|&tricks| tricks <= 13),
+            "deal {i} has a cell that is not a trick count: {grid:?}"
+        );
+    }
+
+    // Reading them back adds nothing to what `par` had already spent.
+    let after_reading = dealer_dds::searches();
+    for _ in 0..3 {
+        let _ = cells.0.iter().filter(|g| g.is_some()).count();
+    }
+    assert_eq!(
+        dealer_dds::searches(),
+        after_reading,
+        "holding the cells must not keep solving"
+    );
+    assert!(asked_for_par > 0, "par should have had to solve something");
+}
+
+/// Keeps what every produced deal offered as its table.
+#[derive(Default)]
+struct Cells(Vec<Option<[[u8; 5]; 4]>>);
+impl RunHost for Cells {
+    fn produced(&mut self, produced: &Produced) -> Result<(), String> {
+        self.0.push(produced.dd_cells());
+        Ok(())
+    }
+}
+
+/// Four shuffled deals, one thread — the settings both tests above share.
+fn cell_options() -> RunOptions {
+    RunOptions {
+        vulnerability: dealer_core::Vulnerability::None,
+        seed: 7,
+        produce: 4,
+        max_generate: 1_000_000,
+        deals: Deals::Shuffled {
+            predeal: dealer_core::FastDealConfig::new(),
+            swap: dealer_core::SwapMode::None,
+        },
+        leveling: None,
+        round_robin: false,
+        threads: 1,
+        batch: 0,
+        params: Default::default(),
+    }
+}

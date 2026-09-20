@@ -280,6 +280,19 @@ struct GenerateResult {
     printes: String,
     /// The hand type each returned deal matched, parallel to `deals`.
     deal_types: Vec<Option<String>>,
+    /// Each returned deal's double-dummy table, parallel to `deals`: rows
+    /// `N, E, S, W`, columns `C, D, H, S, NT`.
+    ///
+    /// **All twenty cells or `null`.** Never a partial grid, and never solved
+    /// for — the two halves of one rule. A deal has a table here because it
+    /// arrived with one, or because the script needed the whole of it anyway
+    /// (`par`, `trix`); a script asking `tricks(north, notrump)` knows one cell,
+    /// which is not a table and is not worth nineteen more searches to become
+    /// one.
+    ///
+    /// So `null` is the common answer, and cheap to say: nearly every run
+    /// neither reads solved deals nor solves anything.
+    dd_tricks: Vec<Option<Vec<Vec<u8>>>>,
     /// The script's hand types and their shares of this run. Present whether or
     /// not it was levelled; without levelling `natural` and `delivered` agree.
     hand_types: Vec<HandTypeShare>,
@@ -498,6 +511,23 @@ pub fn supports_threads() -> bool {
     cfg!(feature = "parallel")
 }
 
+/// One produced deal, as the page keeps it until the run is over.
+///
+/// The same twenty results are kept twice, in the two shapes the two consumers
+/// take: `DdTable` for the PBN formatter, a plain grid for the page. Both are
+/// complete or absent on identical terms, and both come from the same
+/// `DealTricks` — so they cannot disagree about whether this deal has a table.
+struct Held {
+    /// Index into the run's hand-type labels, or `None` where the scenario's
+    /// categories do not cover every deal it produces.
+    hand_type: Option<usize>,
+    deal: Deal,
+    /// What the PBN formatter takes.
+    table: Option<bridge_types::DdTable>,
+    /// The same, as a grid: rows `N, E, S, W`, columns `C, D, H, S, NT`.
+    cells: Option<[[u8; 5]; 4]>,
+}
+
 /// A page's side of a run: it holds deals, collects what the script printed,
 /// paints a bar and answers a clock.
 ///
@@ -517,11 +547,11 @@ struct Page<'a> {
     /// does not have to ship every deal to JS. Left empty altogether under
     /// `Format::None`, which is the whole point of that format.
     ///
-    /// The double-dummy table travels with each one. It is twenty bytes and
-    /// `Copy`, and a deal from the pre-solved library always has one — so a
-    /// PBN saved from the page can carry the analysis it was dealt with
+    /// The double-dummy results travel with each one. They are twenty bytes and
+    /// `Copy`, and a deal from the pre-solved library always has all of them —
+    /// so a PBN saved from the page can carry the analysis it was dealt with
     /// instead of quietly dropping it.
-    held: Vec<(Option<usize>, Deal, Option<bridge_types::DdTable>)>,
+    held: Vec<Held>,
     /// Whether the chosen format has any use for a deal. False only under
     /// `Format::None`, and then nothing is cloned, rendered or shipped.
     collects_deals: bool,
@@ -649,8 +679,12 @@ impl RunHost for Page<'_> {
         // The deal itself, which `Format::None` has no use for: no clone here,
         // no render after the run, and nothing to serialise across to the page.
         if self.collects_deals {
-            self.held
-                .push((deal.hand_type, deal.deal.clone(), deal.dd_table()));
+            self.held.push(Held {
+                hand_type: deal.hand_type,
+                deal: deal.deal.clone(),
+                table: deal.dd_table(),
+                cells: deal.dd_cells(),
+            });
         }
         Ok(())
     }
@@ -1141,8 +1175,8 @@ fn run_script(
     let labels: Vec<String> = report.hand_types.iter().map(|(n, _)| n.clone()).collect();
     let order: Vec<usize> = if report.leveling.is_some() && !labels.is_empty() {
         let mut buckets: Vec<(Option<String>, Vec<usize>)> = Vec::new();
-        for (index, (matched, _, _)) in page.held.iter().enumerate() {
-            let label = matched.map(|i| labels[i].clone());
+        for (index, held) in page.held.iter().enumerate() {
+            let label = held.hand_type.map(|i| labels[i].clone());
             match buckets.iter_mut().find(|(name, _)| *name == label) {
                 Some((_, deals)) => deals.push(index),
                 None => buckets.push((label, vec![index])),
@@ -1155,11 +1189,13 @@ fn run_script(
     };
     let mut deals = Vec::with_capacity(order.len());
     let mut deal_types = Vec::with_capacity(order.len());
+    let mut dd_tricks = Vec::with_capacity(order.len());
     for (position, index) in order.into_iter().enumerate() {
-        let (matched, deal, table) = &page.held[index];
-        let label = matched.map(|i| labels[i].as_str());
-        deals.push(format.render(deal, position, &output, label, table.as_ref()));
+        let held = &page.held[index];
+        let label = held.hand_type.map(|i| labels[i].as_str());
+        deals.push(format.render(&held.deal, position, &output, label, held.table.as_ref()));
         deal_types.push(label.map(str::to_string));
+        dd_tricks.push(dd_cells_for_page(&held.cells));
     }
 
     let hand_types: Vec<HandTypeShare> = match &report.leveling {
@@ -1246,6 +1282,7 @@ fn run_script(
         deals,
         renders_deals: format.collects_deals(),
         deal_types,
+        dd_tricks,
         generated: report.generated,
         produced: report.produced,
         hit_limit: report.hit_limit,
@@ -1300,6 +1337,14 @@ fn run_script(
         input,
     };
     serde_json::to_string(&result).map_err(|e| e.to_string())
+}
+
+/// One deal's table in the shape `serde_json` writes as nested arrays.
+///
+/// Whether there is a table at all was decided upstream, by
+/// `Produced::dd_cells`; this only changes the shape.
+fn dd_cells_for_page(cells: &Option<[[u8; 5]; 4]>) -> Option<Vec<Vec<u8>>> {
+    cells.map(|rows| rows.iter().map(|row| row.to_vec()).collect())
 }
 
 /// A hand type's share of a levelled run once the keeps are applied.
@@ -2108,6 +2153,133 @@ mod tests {
         assert_eq!(report["solved"], 0, "this layout carries no tables");
         assert_eq!(report["unsolved"], 2);
         assert_eq!(result["produced"], 2);
+    }
+
+    /// The wire order of `dd_tricks`, which is the engine's own: declarers
+    /// `N, E, S, W` down and denominations `C, D, H, S, NT` across.
+    ///
+    /// Not a display order. The page turns both axes before drawing — rows to
+    /// `N, S, E, W` and columns to `NT, S, H, D, C` — in `ddTable.js`, which is
+    /// where that conversion is tested. What is pinned here is only what
+    /// crosses to JavaScript.
+    ///
+    /// Written out rather than taken from a constant, because what these tests
+    /// are for is exactly the claim that the grid is in this order — a constant
+    /// shared with the code under test would agree with it however it were
+    /// transposed.
+    const GRID_SEATS: [bridge_types::Direction; 4] = [
+        bridge_types::Direction::North,
+        bridge_types::Direction::East,
+        bridge_types::Direction::South,
+        bridge_types::Direction::West,
+    ];
+    const GRID_STRAINS: [bridge_types::Strain; 5] = [
+        bridge_types::Strain::Clubs,
+        bridge_types::Strain::Diamonds,
+        bridge_types::Strain::Hearts,
+        bridge_types::Strain::Spades,
+        bridge_types::Strain::NoTrump,
+    ];
+
+    #[test]
+    fn a_deal_that_arrived_solved_hands_the_page_its_whole_table() {
+        let result = over(LIBRARY, "condition 1\n").expect("a library should run");
+        let grids = result["dd_tricks"]
+            .as_array()
+            .expect("a grid per returned deal");
+        assert_eq!(grids.len(), 10, "one per deal, parallel to `deals`");
+
+        // Ground truth is the fixture's own tables, read the way the run read
+        // them. An axis swapped anywhere between the record and the page shows
+        // up here as a cell that disagrees — and swapping the two axes is the
+        // mistake this family of code has actually made before, which is why
+        // `dealer-dds` converts them in one place.
+        let (deals, _) =
+            dealer_run::deals_from_bytes(LIBRARY, dealer_run::deal_input::Window::all())
+                .expect("read the fixture");
+
+        for (i, (_, known)) in deals.iter().enumerate() {
+            let table = known
+                .table()
+                .expect("every record of this fixture carries all twenty cells");
+            for (row, declarer) in GRID_SEATS.iter().enumerate() {
+                for (column, strain) in GRID_STRAINS.iter().enumerate() {
+                    assert_eq!(
+                        grids[i][row][column].as_u64(),
+                        Some(table.tricks(*declarer, *strain) as u64),
+                        "deal {}, {:?} in {:?}",
+                        i,
+                        declarer,
+                        strain
+                    );
+                }
+            }
+        }
+    }
+
+    /// The common case: a run that solved nothing has no table to hand over.
+    #[test]
+    fn a_deal_nobody_solved_carries_no_grid_at_all() {
+        let result = over(TWO_ONELINE.as_bytes(), "condition 1\n").expect("one-line should run");
+        let grids = result["dd_tricks"].as_array().expect("an entry per deal");
+
+        assert_eq!(grids.len(), 2);
+        assert!(
+            grids.iter().all(serde_json::Value::is_null),
+            "nothing asked a double-dummy question, so there is nothing to show: {:?}",
+            grids
+        );
+    }
+
+    /// A script that solves one cell has no table either — and is not given one.
+    ///
+    /// The cell is genuinely known, so this is a choice rather than a
+    /// limitation: one number and nineteen blanks reads as a broken table, and
+    /// filling it would cost nineteen searches a deal that the script never
+    /// asked for. `dealer-run`'s own test watches the search counter to prove
+    /// nothing solves; this one watches what crosses to the page.
+    #[test]
+    fn a_script_that_solves_one_cell_is_not_a_table() {
+        let result = over(
+            TWO_ONELINE.as_bytes(),
+            "condition tricks(north, notrump) >= 0\n",
+        )
+        .expect("a solving script should run");
+        let grids = result["dd_tricks"].as_array().expect("an entry per deal");
+
+        assert_eq!(grids.len(), 2, "the condition is true of both");
+        assert!(
+            grids.iter().all(serde_json::Value::is_null),
+            "one cell is not a table: {:?}",
+            grids
+        );
+    }
+
+    /// And the case that does get one for nothing: `par` cannot be answered
+    /// without all twenty cells, so the run has already paid for the table by
+    /// the time the page asks for it.
+    #[test]
+    fn a_script_needing_the_whole_table_gets_one() {
+        let result = over(TWO_ONELINE.as_bytes(), "condition par(north) > -10000\n")
+            .expect("a par script should run");
+        let grids = result["dd_tricks"].as_array().expect("an entry per deal");
+
+        assert_eq!(grids.len(), 2);
+        for (i, grid) in grids.iter().enumerate() {
+            let rows = grid
+                .as_array()
+                .unwrap_or_else(|| panic!("deal {} was solved in full: {}", i, grid));
+            assert_eq!(rows.len(), 4, "four declarers");
+            for row in rows {
+                let cells = row.as_array().expect("five denominations");
+                assert_eq!(cells.len(), 5);
+                assert!(
+                    cells.iter().all(|c| c.as_u64().is_some_and(|n| n <= 13)),
+                    "every cell is a trick count: {}",
+                    row
+                );
+            }
+        }
     }
 
     #[test]

@@ -1,30 +1,36 @@
 <template>
   <div class="grid">
-    <article v-for="(deal, i) in deals" :key="i" class="board">
+    <article v-for="(board, i) in boards" :key="i" class="board">
       <header class="board-head">
         <span class="board-no">{{ i + 1 }}</span>
         <!-- The type this board matched, in its own colour. With the deals
              interleaved, reading down the column shows the set walking through
              the types rather than meeting them as they happened to fall. -->
         <span
-          v-if="types[i]"
+          v-if="board.type"
           class="board-type"
-          :style="{ color: palette.get(types[i]).color, background: palette.get(types[i]).tint }"
-        >{{ types[i] }}</span>
+          :style="{ color: palette.get(board.type).color, background: palette.get(board.type).tint }"
+        >{{ board.type }}</span>
         <span class="board-gap"></span>
         <span class="board-hcp">
-          NS {{ deal.north.hcp + deal.south.hcp }} · EW {{ deal.east.hcp + deal.west.hcp }}
+          NS {{ board.deal.north.hcp + board.deal.south.hcp }} · EW {{ board.deal.east.hcp + board.deal.west.hcp }}
         </span>
       </header>
 
       <!-- Compass layout: North on top, East/West flanking, South below —
            the arrangement a bridge player reads without thinking. -->
       <div class="compass">
-        <div class="seat seat-n"><Hand label="N" :hand="deal.north" /></div>
-        <div class="seat seat-w"><Hand label="W" :hand="deal.west" /></div>
-        <div class="seat seat-e"><Hand label="E" :hand="deal.east" /></div>
-        <div class="seat seat-s"><Hand label="S" :hand="deal.south" /></div>
+        <div class="seat seat-n"><Hand label="N" :hand="board.deal.north" /></div>
+        <div class="seat seat-w"><Hand label="W" :hand="board.deal.west" /></div>
+        <div class="seat seat-e"><Hand label="E" :hand="board.deal.east" /></div>
+        <div class="seat seat-s"><Hand label="S" :hand="board.deal.south" /></div>
       </div>
+
+      <!-- Under the hands, and only when the run has something to put there:
+           a deal from the pre-solved library knows all twenty results, a script
+           calling tricks() knows the ones it asked for, and an ordinary run
+           knows none and draws nothing (#129). -->
+      <DoubleDummyTable :tricks="board.tricks" />
     </article>
   </div>
 </template>
@@ -35,13 +41,22 @@
 // Card primitives are vendored from Bridge-Classroom (lib/cardFormatting.js);
 // its HandDisplay.vue was not, being built for an interactive table.
 import { h } from 'vue'
+import DoubleDummyTable from '@/components/DoubleDummyTable.vue'
 import { SUIT_ORDER, SUIT_SYMBOLS, RED_SUITS } from '@/lib/cardFormatting.js'
 
 defineProps({
-  deals: { type: Array, required: true },
-  /// The hand type each board matched, parallel to `deals`. Empty when the
-  /// script names none.
-  types: { type: Array, default: () => [] },
+  /// One entry per board: `{ deal, type, tricks }`.
+  ///
+  /// One array rather than three parallel ones, because they are not all
+  /// indexed the same way at the source: the hands come from parsing the
+  /// engine's text, which drops any line that is not a deal, while the types
+  /// and the tables are indexed by the engine's own deal number. Pairing them
+  /// where they are read is the only place that can be done correctly.
+  ///
+  /// `type` is the `HandType_` the board matched, or null when the script names
+  /// none. `tricks` is what the run worked out double dummy, or null when it
+  /// worked out nothing — which is most runs.
+  boards: { type: Array, required: true },
   /// Shared with the results panel, so a type is the same colour everywhere.
   palette: {
     type: Object,

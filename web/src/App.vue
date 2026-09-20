@@ -832,7 +832,7 @@ const formatHint = computed(() =>
 // now under a second, and implementation detail that no longer explains
 // anything a user notices is just something else to read.
 const libraryHint =
-  'Deals come from Pavlicek\u2019s 10,485,760 solved deals, so tricks(), dds() and par() are ' +
+  'Deals come from Richard Pavlicek\u2019s 10,485,760 solved deals, so tricks(), dds() and par() are ' +
   'lookups rather than searches. The seed picks where in the library to start.'
 
 /// Whether this script asks a double-dummy question at all, as the engine reads

@@ -177,6 +177,43 @@ tens of thousands to build a histogram and a page cannot show them all.
 Statistics still accumulate over every matching deal, so `produced` can exceed
 `deals.length`.
 
+#### `dd_tricks` — the double-dummy table, when the deal has one
+
+Parallel to `deals`, one entry each: `tricks[seat][strain]`, rows `N, E, S, W`
+and columns `C, D, H, S, NT`. **This is the engine's own ordering, and neither
+axis is the one a table is read in** — `web/src/lib/ddTable.js` turns the rows
+into `N, S, E, W`, partners adjacent, and the columns into the standard
+`NT, S, H, D, C`, then merges a partnership whose rows agree. A consumer that
+draws the grid as it arrives gets a table that is wrong in a way that still
+looks plausible, which is why the two display orders are named in one place.
+
+```json
+"dd_tricks": [
+  [[8,7,8,10,9], [5,6,4,3,4], [8,7,8,10,9], [5,6,4,3,4]],
+  null
+]
+```
+
+**All twenty cells, or `null`.** Never a partial grid, and **nothing is ever
+solved to produce one** — the two halves of a single rule, and each is what
+makes the other safe. A deal has a table here when:
+
+- it **arrived** with one — the pre-solved library, or a PBN carrying
+  `[DoubleDummyTricks]` or `[OptimumResultTable]`; or
+- the script needed the whole of it **anyway**. `par` cannot be answered without
+  all twenty cells, and neither can `trix`, so those runs have already paid.
+
+A script asking `tricks(north, notrump)` or `dds(north, notrump)` knows exactly
+one cell, and gets `null`. That cell is genuinely known, so this is a choice:
+one number beside nineteen blanks reads as a broken table rather than as a
+precise statement, and the alternative is nineteen more searches per deal at
+roughly ten milliseconds each — measured at ~91 ms a deal single-threaded, ~58 ms
+on all cores. That would let the **output format** decide how long a run takes,
+which is the same reason a PBN export never solves to fill in a tag.
+
+`null` is therefore the common answer, and it is cheap to say: nearly every run
+neither reads solved deals nor solves anything at all.
+
 ### Running over supplied deals
 
 Pass bytes as the second argument and the engine runs over those instead of

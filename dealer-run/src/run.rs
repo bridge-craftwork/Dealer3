@@ -675,6 +675,35 @@ impl<'a> Produced<'a> {
         self.dd_tricks.table()
     }
 
+    /// The same table as a plain grid, for a caller that has to serialise it.
+    ///
+    /// Rows are the declarers `N, E, S, W` and columns the denominations
+    /// `C, D, H, S, NT` — [`Produced::dd_table`]'s layout, and the solver's.
+    /// `None` on exactly the same terms as `dd_table`: all twenty cells or
+    /// nothing, and **nothing is solved to answer it**.
+    ///
+    /// Half a table is not offered, because there is no honest way to draw one.
+    /// A grid with one cell filled reads as a broken table rather than as a
+    /// precise statement about what the run paid for, and the alternative —
+    /// solving the other nineteen to fill it — would let the output format
+    /// decide how long a run takes. So a script asking `tricks(north, notrump)`
+    /// gets nothing here, while `par` and `trix` need the whole table anyway
+    /// and get it at no extra cost, as does any deal that arrived solved.
+    ///
+    /// This exists beside `dd_table` only so that the two axis orders stay
+    /// named in this crate. A caller building the grid itself from a `DdTable`
+    /// would be the third place in the workspace to write them down, and
+    /// getting either backwards yields a plausible number rather than an error.
+    pub fn dd_cells(&self) -> Option<[[u8; 5]; 4]> {
+        let mut cells = [[0u8; 5]; 4];
+        for (seat, row) in dealer_core::Position::ALL.iter().zip(cells.iter_mut()) {
+            for (denomination, cell) in dealer_dds::Denomination::ALL.iter().zip(row.iter_mut()) {
+                *cell = self.dd_tricks.get(*denomination, *seat)?;
+            }
+        }
+        Some(cells)
+    }
+
     /// A fresh context over this deal, for a caller's own per-deal work.
     ///
     /// Fresh rather than shared for the reason contexts are built where they

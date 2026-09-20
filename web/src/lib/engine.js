@@ -293,6 +293,13 @@ export async function generate(
     printes: raw.printes,
     // The hand type each deal matched, parallel to `deals`.
     dealTypes: raw.deal_types,
+    // What the run worked out double dummy for each deal, parallel to `deals`:
+    // `tricks[seat][strain]` with rows N,E,S,W and columns C,D,H,S,NT, `null`
+    // in a cell nothing asked about and `null` in place of a whole grid when
+    // the deal knows nothing. A deal from the pre-solved library arrives with
+    // all twenty; a script calling `tricks()` knows the ones it asked for.
+    // Nothing is solved to fill this in — it is what the run already paid for.
+    ddTricks: raw.dd_tricks || [],
     // Every `HandType_*` the script declares, with its share of this run. When
     // the run was levelled, `natural` is what the measuring pass saw and
     // `delivered` what the keeps produced; in a round robin, `planned` is the
