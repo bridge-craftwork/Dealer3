@@ -1,6 +1,6 @@
 {
   "built_with": "v0.4.0-196-g529a79a",
-  "source": "/Users/rick/Development/GitHub/Practice-Bidding-Scenarios/dlr",
+  "source": "/Volumes/Express2T/Development/GitHub/Practice-Bidding-Scenarios/dlr",
   "target_seconds": 2.0,
   "verified_against": [
     "dealer3",

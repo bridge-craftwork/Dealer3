@@ -309,7 +309,7 @@ Write the script under the shared GitHub directory first, so the path converts.
 **Notes**:
 - The Windows VM has `dealer` in PATH at `C:\Dealer\dealer.exe`
 - The shared drive maps the Mac's GitHub directory via Parallels, so a file at
-  `$HOME/Development/GitHub/dealer3/foo.dlr` is reachable from Windows
+  `/Volumes/Express2T/Development/GitHub/dealer3/foo.dlr` is reachable from Windows
 - Shell aliases defined in `~/.zshrc`, scripts in `scripts/` directory
 
 ### DealerV2 (Greg Morse's expanded version)
