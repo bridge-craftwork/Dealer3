@@ -38,6 +38,7 @@ src/
 │   ├── download.js       saving results as PBN or text
 │   ├── demos.js          the bundled demos, read from demos/ as documents
 │   ├── history.js        scripts run before: what counts as one, how many kept
+│   ├── scriptFile.js     scripts as files: History's export and import
 │   ├── scriptName.js     a script's title, name and description, from itself
 │   └── metadata.js       the `# key: value` headers PBS reads
 ├── demos/                one document (.json) per demo; the folder is the list
@@ -588,6 +589,20 @@ it opens exactly as a share link would.
 
 Stored as one versioned blob, `dealer3:history:v1`, guarded as the session is.
 When storage is full, the least recently used scripts go first until it fits.
+
+**Export and import (#100).** Browser storage is not permanent (Safari clears it
+after seven days without a visit), so a backup has to be a file. *Export this
+script* downloads the editor's script as a document, the same `{v, script,
+settings}` a share link holds, with `lastRun` beside it: seconds, deals dealt and
+produced, and when. `lastRun` is what the script did on the machine that exported
+it, never a prediction, and it goes only if the script and settings still match
+that run. *Export all* downloads every version of every script.
+
+*Import* takes either kind and refuses the whole file if any of it cannot be read.
+A script joins the entry with its name or one holding any of the same text, and
+otherwise starts a new one. Dates stay as they were in the file, so importing the
+same file twice changes nothing. The limits above still apply, and the note says
+how many scripts did not stay.
 
 ## Hiding the panel
 
