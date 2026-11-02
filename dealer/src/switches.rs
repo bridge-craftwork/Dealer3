@@ -32,8 +32,12 @@
 //! usage line is not a reliable source.
 //!
 //! DealerV2_4's switches come from `docs/dealer_vs_dealer2_switches.md`, which
-//! was compiled from its manual. They have not been re-verified against a V2_4
-//! build, so treat that column as the weaker of the two.
+//! was compiled from its manual, so treat that column as the weaker of the two.
+//!
+//! Whether each program has a switch at all is checked:
+//! `tests::the_reference_programs_have_the_switches_we_say` holds both columns
+//! to the option strings in `dealer/tests/data/reference_option_strings.txt`,
+//! read from their source. What a switch means in those programs is not.
 
 /// Whether one of the other implementations has a switch, and what it means
 /// there.
@@ -877,6 +881,92 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The option string of `program` in the fixture, as the letters it accepts.
+    fn option_letters(program: &str) -> BTreeSet<char> {
+        include_str!("../tests/data/reference_option_strings.txt")
+            .lines()
+            .find_map(|line| line.strip_prefix(program)?.strip_prefix(' '))
+            .unwrap_or_else(|| panic!("no option string for {program} in the fixture"))
+            .chars()
+            .filter(|c| *c != ':')
+            .collect()
+    }
+
+    /// Long-only rows have no letter to look up, so the other program's letter
+    /// for the same idea is recorded here by hand: (long form, program, letter).
+    /// Each is the switch that row's `Origin::Differs` text names.
+    const LETTER_FOR_LONG_ONLY: &[(&str, &str, char)] = &[
+        ("--param", "dealer_v2", '0'),
+        ("--vulnerable", "dealer_v2", 'P'),
+        ("--input-deals", "dealer_exe", 'l'),
+        ("--input-deals", "dealer_v2", 'L'),
+        ("--input-offset", "dealer_v2", 's'),
+    ];
+
+    /// Rows that disagree with the fixture and are waiting on a decision. An
+    /// entry here must really disagree, so the list cannot outlive the problem.
+    ///
+    /// `-u`: DealerV2_4 accepts it (`mainsubs.c:212`, toggling a flag that only a
+    /// debug print reads), while its manual-derived write-up calls it dropped.
+    const KNOWN_DISAGREEMENTS: &[(&str, &str)] = &[("-u", "dealer_v2")];
+
+    /// The check that would have stopped the phantom `-l` in DealerV2_4 on the
+    /// day it was written: a switch we say a program has is in its option
+    /// string, and one we say it lacks is not.
+    #[test]
+    fn the_reference_programs_have_the_switches_we_say() {
+        let mut wrong = Vec::new();
+        for program in ["dealer_exe", "dealer_v2"] {
+            let letters = option_letters(program);
+            for row in SWITCH_ROWS {
+                let origin = match program {
+                    "dealer_exe" => row.dealer_exe,
+                    _ => row.dealer_v2,
+                };
+                let claims_it = origin != Origin::Absent;
+                let by_hand = LETTER_FOR_LONG_ONLY
+                    .iter()
+                    .find(|(long, p, _)| *long == row.long && *p == program)
+                    .map(|(_, _, letter)| *letter);
+                let Some(letter) = by_hand.or_else(|| row.short.chars().nth(1)) else {
+                    // Long-only and absent: there is no letter to be wrong about.
+                    assert!(
+                        !claims_it,
+                        "{} says {program} has it, but has no letter to check: \
+                         add it to LETTER_FOR_LONG_ONLY",
+                        row.long
+                    );
+                    continue;
+                };
+                let disagrees = claims_it != letters.contains(&letter);
+                let known = KNOWN_DISAGREEMENTS.contains(&(row.short, program));
+                if disagrees != known {
+                    wrong.push(format!(
+                        "{} (-{letter}) in {program}: the table says {}, the option string \
+                         says {}{}",
+                        spelling(row),
+                        if claims_it { "present" } else { "absent" },
+                        if letters.contains(&letter) {
+                            "present"
+                        } else {
+                            "absent"
+                        },
+                        if known {
+                            "; drop it from KNOWN_DISAGREEMENTS"
+                        } else {
+                            ""
+                        },
+                    ));
+                }
+            }
+        }
+        assert!(
+            wrong.is_empty(),
+            "switches.rs and the reference programs disagree:\n  {}",
+            wrong.join("\n  ")
+        );
     }
 
     #[test]
