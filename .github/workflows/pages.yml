@@ -203,3 +203,20 @@ jobs:
       - name: Deploy to Cloudflare Pages
         if: env.CLOUDFLARE_API_TOKEN != ''
         run: npx --yes wrangler@4 pages deploy --commit-dirty=true
+
+      # `check:threaded` above reads the binary. This asks the page: a bundle can
+      # be threaded and still run on one thread if the headers go missing or the
+      # pool will not start, and it would deal the right deals either way. The
+      # address is the public one, not the Pages one, because the router that
+      # fronts it has to pass the COOP/COEP along too. Runs after the deploy, so
+      # failing here means what is live is wrong rather than that nothing shipped.
+      #
+      # Playwright is installed here alone, without touching the lockfile: it is
+      # a check on the deploy and not something the site depends on.
+      - name: The deployed page uses the thread pool
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: web
+        run: |
+          npm install --no-save --no-package-lock playwright@1
+          npx playwright install --with-deps chromium
+          node scripts/check-deployed-threads.mjs https://bridge-craftwork.com/dealer3/
