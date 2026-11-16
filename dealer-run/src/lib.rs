@@ -35,6 +35,9 @@
 pub mod dd_demand;
 pub mod deal_input;
 pub mod run;
+pub mod script;
+
+pub use script::{deal_script, ScriptDeals, ScriptOptions};
 
 /// Deals from a file, each with the double-dummy table it arrived with.
 ///
