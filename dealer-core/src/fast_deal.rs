@@ -103,8 +103,7 @@ pub fn generate_deal_from_seed(seed: u64, config: &FastDealConfig) -> Deal {
     // Build the deck: predealt cards first, then shuffled available cards
     let mut available_iter = available.into_iter();
 
-    for pos in 0..4 {
-        let predealt = &config.predeal[pos];
+    for (pos, predealt) in config.predeal.iter().enumerate() {
         let start_slot = pos * 13;
 
         // Place predealt cards first
