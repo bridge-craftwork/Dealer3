@@ -61,7 +61,12 @@
           @select="pickScenario"
           @select-demo="pickDemo"
           @open-revision="openRevision"
+          :can-export-script="!!script.trim()"
+          :history-note="historyNote"
           @delete-entry="deleteHistoryEntry"
+          @export-script="exportScript"
+          @export-all="exportAllScripts"
+          @import="importScripts"
           @close="pickerOpen = false"
         />
         <!-- What is left when it is closed: a labelled rail, not a bare edge.
@@ -454,7 +459,15 @@ import { loadSession, saveSession } from '@/lib/session.js'
 import { randomSeed } from '@/lib/format.js'
 import { makeDocument, paramValuesFrom } from '@/lib/envelope.js'
 import { DEMOS } from '@/lib/demos.js'
-import { loadHistory, recordRevision, removeEntry, saveHistory } from '@/lib/history.js'
+import {
+  loadHistory,
+  mergeScripts,
+  noteLastRun,
+  recordRevision,
+  removeEntry,
+  saveHistory,
+} from '@/lib/history.js'
+import { historyFile, readScriptFile, scriptFile } from '@/lib/scriptFile.js'
 import { displayName, isGeneratedLeveling } from '@/lib/scriptName.js'
 import {
   fetchShortLink,
@@ -1041,6 +1054,54 @@ function deleteHistoryEntry(id) {
   if (historyId.value === id) historyId.value = ''
 }
 
+/// What the last import came to, shown in the History tab.
+const historyNote = ref(null)
+
+/// Far past 30 scripts of 5 versions at the most a script may be: a file this
+/// size is not one of ours, and reading it would only hold the tab up.
+const MAX_IMPORT_BYTES = 64 * 1024 * 1024
+
+function downloadJson(name, value) {
+  downloadText(`${name.replace(/[^\w.-]+/g, '_')}.json`, JSON.stringify(value, null, 2), 'application/json')
+}
+
+function exportScript() {
+  const entry = history.value.entries.find((e) => e.id === historyId.value)
+  downloadJson(
+    displayName(script.value) || 'dealer3-script',
+    scriptFile(makeDocument(script.value, documentOptions()), entry?.revisions[0]),
+  )
+}
+
+function exportAllScripts() {
+  const now = new Date().toISOString()
+  downloadJson(`dealer3-scripts-${now.slice(0, 10)}`, historyFile(history.value, now))
+}
+
+/// All of a file or none of it: `readScriptFile` throws before anything is kept.
+async function importScripts(file) {
+  historyNote.value = null
+  try {
+    if (file.size > MAX_IMPORT_BYTES) {
+      throw new Error('This file is far larger than any dealer3 export.')
+    }
+    const scripts = readScriptFile(await file.text(), Date.now())
+    const { history: merged, dropped } = mergeScripts(history.value, scripts)
+    const kept = saveHistory(merged)
+    const lost = dropped + merged.entries.length - kept.entries.length
+    history.value = kept
+    if (!kept.entries.some((entry) => entry.id === historyId.value)) historyId.value = ''
+    const took = `Imported ${scripts.length} ${scripts.length === 1 ? 'script' : 'scripts'}.`
+    historyNote.value = {
+      text: lost
+        ? `${took} History is full, so the ${lost} least recently used did not stay.`
+        : took,
+    }
+  } catch (e) {
+    historyNote.value = { text: `Nothing was imported. ${e?.message || e}`, bad: true }
+  }
+}
+
 /// Where the script now in the editor came from, as History needs to know it.
 function loadedFrom(from, entryId, text) {
   origin.value = from
@@ -1506,6 +1567,7 @@ async function run() {
   // A run is the checkpoint History keeps: the script as it was run, with the
   // settings it was run with. Per keystroke would be the editor's undo stack.
   recordHistory()
+  const recordedAs = { id: historyId.value, script: script.value }
 
   running.value = true
   error.value = ''
@@ -1545,6 +1607,15 @@ async function run() {
       },
     })
     if (result.value.leveling) leveling.value = result.value.leveling
+    const { seconds, generated, produced } = result.value
+    history.value = saveHistory(
+      noteLastRun(history.value, recordedAs.id, recordedAs.script, {
+        seconds,
+        generated,
+        produced,
+        at: new Date().toISOString(),
+      }),
+    )
   } catch (e) {
     result.value = null
     // Cancelling is a choice, not a fault: say what happened and leave the

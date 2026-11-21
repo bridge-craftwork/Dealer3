@@ -4,6 +4,7 @@ import {
   MAX_SCRIPTS,
   emptyHistory,
   loadHistory,
+  noteLastRun,
   recordRevision,
   removeEntry,
   saveHistory,
@@ -230,5 +231,48 @@ describe('loadHistory / saveHistory', () => {
     const kept = saveHistory(history)
     expect(kept.entries.map((entry) => entry.name)).toEqual(['S3', 'S2'])
     expect(loadHistory().entries).toHaveLength(2)
+  })
+})
+
+describe('noteLastRun', () => {
+  const lastRun = { seconds: 1.5, generated: 10, produced: 2, at: '2026-11-02T00:00:00Z' }
+
+  it('notes the run on the latest revision', () => {
+    const { history, id } = record(emptyHistory(), 'a = 1')
+    const noted = noteLastRun(history, id, 'a = 1', lastRun)
+    expect(noted.entries[0].revisions[0].lastRun).toEqual(lastRun)
+  })
+
+  it('leaves a revision alone that has since been replaced', () => {
+    const { history, id } = record(emptyHistory(), 'a = 1')
+    expect(noteLastRun(history, id, 'something else', lastRun)).toEqual(history)
+  })
+
+  it('does not carry a last run over to the next run, which may have other settings', () => {
+    const { history, id } = record(emptyHistory(), 'a = 1')
+    const noted = noteLastRun(history, id, 'a = 1', lastRun)
+    const again = recordRevision(noted, { script: 'a = 1', settings, lineage: id }, 2000).history
+    expect(again.entries[0].revisions[0]).not.toHaveProperty('lastRun')
+  })
+
+  describe('in storage', () => {
+    const store = new Map()
+    beforeEach(() => {
+      store.clear()
+      vi.stubGlobal('localStorage', {
+        getItem: (key) => store.get(key) ?? null,
+        setItem: (key, value) => store.set(key, value),
+      })
+    })
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('survives a reload, and a damaged one is left out', () => {
+      const { history, id } = record(emptyHistory(), 'a = 1')
+      saveHistory(noteLastRun(history, id, 'a = 1', lastRun))
+      expect(loadHistory().entries[0].revisions[0].lastRun).toEqual(lastRun)
+
+      saveHistory(noteLastRun(history, id, 'a = 1', { seconds: 'fast' }))
+      expect(loadHistory().entries[0].revisions[0]).not.toHaveProperty('lastRun')
+    })
   })
 })

@@ -33,7 +33,12 @@
       v-else-if="tab === 'history'"
       :entries="history"
       @open="$emit('open-revision', $event)"
+      :can-export-script="canExportScript"
+      :note="historyNote"
       @delete="$emit('delete-entry', $event)"
+      @export-script="$emit('export-script')"
+      @export-all="$emit('export-all')"
+      @import="$emit('import', $event)"
     />
 
     <template v-else>
@@ -125,8 +130,10 @@ const props = defineProps({
   selectedDemo: { type: String, default: '' },
   // History entries, as HistoryList takes them.
   history: { type: Array, default: () => [] },
+  canExportScript: { type: Boolean, default: false },
+  historyNote: { type: Object, default: null },
 })
-defineEmits(['select', 'select-demo', 'open-revision', 'delete-entry', 'update:tab', 'close'])
+defineEmits(['select', 'select-demo', 'open-revision', 'delete-entry', 'export-script', 'export-all', 'import', 'update:tab', 'close'])
 
 const sections = ref([])
 const loading = ref(false)

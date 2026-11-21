@@ -1,5 +1,13 @@
 <template>
   <div class="history">
+    <div class="history-actions">
+      <button :disabled="!canExportScript" title="Download the script in the editor, with its settings and last runtime" @click="$emit('export-script')">Export this script</button>
+      <button :disabled="!entries.length" title="Download every version of every script here, as a backup or to move them to another browser" @click="$emit('export-all')">Export all</button>
+      <button title="Add the scripts from an exported file to History" @click="picker.click()">Import…</button>
+      <input ref="picker" type="file" accept=".json,application/json" hidden @change="onPicked" />
+    </div>
+    <p v-if="note" class="history-note" :class="{ bad: note.bad }" role="status">{{ note.text }}</p>
+
     <p v-if="!entries.length" class="history-empty">
       Nothing here yet. Each script you run is kept — its last {{ revisionsKept }} versions,
       for the {{ scriptsKept }} scripts you used most recently — in this browser only.
@@ -48,8 +56,20 @@ import { MAX_REVISIONS, MAX_SCRIPTS } from '@/lib/history.js'
 defineProps({
   // `{ id, label, revisions: [at, ...], current }`, most recently used first.
   entries: { type: Array, required: true },
+  // Whether the editor holds anything to export.
+  canExportScript: { type: Boolean, default: false },
+  // What the last import came to: `{ text, bad }`, or null.
+  note: { type: Object, default: null },
 })
-const emit = defineEmits(['open', 'delete'])
+const emit = defineEmits(['open', 'delete', 'export-script', 'export-all', 'import'])
+
+const picker = ref(null)
+function onPicked(event) {
+  const [file] = event.target.files
+  // Cleared so picking the same file again is still a change.
+  event.target.value = ''
+  if (file) emit('import', file)
+}
 
 const revisionsKept = MAX_REVISIONS
 const scriptsKept = MAX_SCRIPTS
@@ -80,6 +100,15 @@ function ago(at) {
 
 <style scoped>
 .history { overflow-y: auto; flex: 1; min-height: 0; padding: 4px 0; }
+.history-actions { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 6px 6px; }
+.history-actions button {
+  padding: 2px 6px; border: 1px solid var(--line); border-radius: 3px;
+  background: none; cursor: pointer; font: inherit; font-size: 12px; color: var(--fg);
+}
+.history-actions button:hover:not(:disabled) { background: var(--bg-subtle); }
+.history-actions button:disabled { cursor: default; color: var(--fg-muted); }
+.history-note { margin: 0; padding: 2px 8px 6px; font-size: 12px; line-height: 1.4; color: var(--fg-muted); }
+.history-note.bad { color: var(--danger); }
 .history-empty { padding: 12px; margin: 0; color: var(--fg-muted); font-size: 13px; line-height: 1.5; }
 .entry.is-current { background: var(--accent-subtle); }
 .entry-row { display: flex; align-items: stretch; }

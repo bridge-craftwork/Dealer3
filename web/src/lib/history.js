@@ -158,6 +158,85 @@ export function recordRevision(history, { script, settings, origin = '', lineage
 }
 
 /**
+ * Note how a run of a script's latest revision went, for its file (#100).
+ *
+ * Pure: the caller saves. Does nothing if that revision has since been replaced.
+ *
+ * @param {object} history
+ * @param {string} id the entry the run was filed under
+ * @param {string} script the text that was run
+ * @param {{seconds: number, generated: number, produced: number, at: string}} lastRun
+ * @returns {object} the history with the run noted
+ */
+export function noteLastRun(history, id, script, lastRun) {
+  return {
+    ...history,
+    entries: history.entries.map((entry) => {
+      const [latest, ...rest] = entry.revisions
+      return entry.id === id && latest.script === script
+        ? { ...entry, revisions: [{ ...latest, lastRun }, ...rest] }
+        : entry
+    }),
+  }
+}
+
+/**
+ * Take scripts from a file into History (`readScriptFile` has checked them).
+ *
+ * A script joins the entry with its name, or one holding any of the same text;
+ * otherwise it is a new entry. Not `recordRevision`, whose similarity rule is
+ * for someone editing: it could fold two unrelated scripts in a backup together.
+ * And not the moment of import for the dates: a backup restored is as old as it
+ * was, so importing the same file twice changes nothing.
+ *
+ * Pure: the caller saves. The same limits apply as for a script run here, with
+ * the least recently used going first.
+ *
+ * @param {object} history
+ * @param {Array<{name: string, origin: string, revisions: object[]}>} scripts
+ * @returns {{ history: object, dropped: number }} and how many scripts did not fit
+ */
+export function mergeScripts(history, scripts) {
+  const entries = history.entries.slice()
+  let next = history.next
+
+  for (const script of scripts) {
+    const texts = new Set(script.revisions.map((revision) => revision.script))
+    const index = entries.findIndex(
+      (entry) =>
+        sameName(entry.name, script.name) ||
+        entry.revisions.some((revision) => texts.has(revision.script)),
+    )
+    const owner = entries[index]
+    const newestByText = new Map()
+    for (const revision of [...(owner?.revisions ?? []), ...script.revisions]) {
+      const held = newestByText.get(revision.script)
+      if (!held || revision.at > held.at) newestByText.set(revision.script, revision)
+    }
+    const revisions = [...newestByText.values()]
+      .sort((a, b) => b.at - a.at)
+      .slice(0, MAX_REVISIONS)
+    if (owner) {
+      entries[index] = {
+        ...owner,
+        name: owner.name || script.name,
+        origin: owner.origin || script.origin,
+        revisions,
+      }
+    } else {
+      entries.push({ id: `h${next}`, name: script.name, origin: script.origin, revisions })
+      next += 1
+    }
+  }
+
+  entries.sort((a, b) => b.revisions[0].at - a.revisions[0].at)
+  return {
+    history: { v: VERSION, next, entries: entries.slice(0, MAX_SCRIPTS) },
+    dropped: Math.max(0, entries.length - MAX_SCRIPTS),
+  }
+}
+
+/**
  * Forget one script, every revision of it.
  *
  * @param {object} history
@@ -168,6 +247,15 @@ export function removeEntry(history, id) {
   return { ...history, entries: history.entries.filter((entry) => entry.id !== id) }
 }
 
+/** A last run, checked, or null. It is only ever carried, so bad means left out. */
+export function readLastRun(value) {
+  if (!value || typeof value !== 'object') return null
+  const { seconds, generated, produced, at } = value
+  if (![seconds, generated, produced].every((n) => Number.isFinite(n) && n >= 0)) return null
+  if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return null
+  return { seconds, generated, produced, at }
+}
+
 /** A stored revision, checked, or null. */
 function readRevision(value) {
   if (!value || typeof value !== 'object') return null
@@ -175,7 +263,9 @@ function readRevision(value) {
   if (typeof value.script !== 'string' || value.script.length > MAX_SCRIPT_CHARS) return null
   try {
     const doc = readDocument({ v: 1, script: value.script, settings: value.settings })
-    return { script: doc.script, settings: doc.settings, at: value.at }
+    const revision = { script: doc.script, settings: doc.settings, at: value.at }
+    const lastRun = readLastRun(value.lastRun)
+    return lastRun ? { ...revision, lastRun } : revision
   } catch {
     return null
   }
