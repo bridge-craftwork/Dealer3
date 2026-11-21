@@ -1,0 +1,14 @@
+# The option strings of the two reference programs, as read from their source.
+# `switches.rs` claims which switches they have, and its tests hold those claims
+# to these strings, so CI needs neither binary. Existence only: what a switch
+# means in those programs is still unchecked.
+#
+# To refresh when either program changes, re-read the lines below, and update the
+# string, the line and the revision together.
+#
+#   dealer_exe  bridge-craftwork/Dealer-cleanup, dealer.c:1566, last changed in
+#               5f312a1: getopt (argc, argv, "...")
+#   dealer_v2   dealerv2/Dealer-Version-2-, src/mainsubs.c:17, last changed in
+#               2608dcc: #define OPTSTR "..."
+dealer_exe 023ehuvmqXp:g:s:l:V
+dealer_v2 hmquvVg:p:s:x:C:D:L:M:O:P:R:T:N:E:S:W:X:U:0:1:2:3:4:5:6:7:8:9:

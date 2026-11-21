@@ -133,8 +133,10 @@ getopt (argc, argv, "023ehuvmqXp:g:s:l:V")
 line is not a reliable source for what it accepts.
 
 DealerV2_4's column comes from `dealer_vs_dealer2_switches.md`, compiled from
-its manual, and has not been re-verified against a V2_4 build. Treat it as the
-weaker of the two columns.
+its manual. Treat it as the weaker of the two columns. Both are now tested for
+whether a switch exists at all, against option strings read from each program's
+source (`dealer/tests/data/reference_option_strings.txt`), but not for what it
+means there.
 
 ## The `-v` breaking change
 
